@@ -1,0 +1,47 @@
+[project]
+name = "mls"
+version = "0.1.0"
+description = "MLS (\"More LS\"): a specification language and verified compiler for PostgreSQL access-control and data-integrity rules."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "z3-solver>=4.13",
+    "psycopg[binary]>=3.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8",
+    "hypothesis>=6.100",
+    "testcontainers[postgres]>=4.8",
+    "cvc5>=1.2",
+]
+
+[project.scripts]
+mls = "mls.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/mls"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "pg: needs a PostgreSQL server (Docker)",
+    "slow: large-scale checks (EXPLAIN at 1M rows)",
+    "cvc5: needs the cvc5 solver",
+]
+addopts = "-ra"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8",
+    "hypothesis>=6.100",
+    "testcontainers[postgres]>=4.8",
+    "cvc5>=1.2",
+]

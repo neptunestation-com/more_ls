@@ -1,0 +1,19 @@
+{
+  "id": "nonmono_opaque",
+  "requirements": "Users belong to tenants (memberships). A user may read a document of a tenant they belong to if the document's level is at most their clearance; tenant admins may read every document of their tenants. Members may create and update documents in their tenants within their clearance. Archived documents are hidden from everyone. Levels are 0..3. A document's owner, if set, must be a member of the document's tenant; admins must be members. A document never changes tenant. Additionally, outsiders may read level-0 public documents.",
+  "expected_properties": [
+    "A user only sees, creates or updates documents of tenants they belong to.",
+    "A document's tenant never changes.",
+    "Removing a membership never grants anyone access.",
+    "Levels stay in range; owners and admins stay members of their tenants.",
+    "Whatever a user writes, they can read back.",
+    "The application role has no privilege beyond select/insert/update on docs and reading memberships."
+  ],
+  "reference_spec": "specs/nonmono_opaque.mls.json",
+  "expected_verdicts": {
+    "P1": "REFUTED",
+    "P3": "REFUTED",
+    "P2": "PROVED",
+    "P4": "PROVED"
+  }
+}

@@ -48,6 +48,16 @@ Read before writing code, in this order:
 - Package name `mls`; CLI `mls` with subcommands (`check`, `prove`, `compile`, `test`, `diff`,
   `migrate`, `preflight`, `drift`).
 
+## Running things
+
+- `uv sync --all-extras`; `uv run mls <check|prove|compile|test|lint|schema|eval> ...`.
+- `uv run pytest -m "not pg"` is fast and needs no Docker. `uv run pytest -m pg` starts
+  `postgres:15..18` containers (set `MLS_PG_VERSIONS=16` for one, `MLS_PG_DSN=...` for an existing
+  server). `-m slow` runs the EXPLAIN checks at 1M rows.
+- Every compiler template has a `Mutation` (compile/mutations.py); `tests/templates` proves each
+  mutation is caught by the differential test. Add a mutation when you add a template.
+- Implementation defaults decided during M1 are D21–D27 in `docs/DECISIONS.md`.
+
 ## Suggested layout
 
 ```

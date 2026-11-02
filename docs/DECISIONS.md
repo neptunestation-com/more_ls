@@ -89,3 +89,53 @@ human as scenarios.
 his employment agreement before publishing.)
 **D18. Python.** **D19. Z3 primary behind a solver-agnostic layer, cvc5 cross-check in CI.**
 **D20. Milestone 1 = core loop without the LLM.** See ROADMAP.
+
+## Implementation defaults recorded during Milestone 1 (2026-11-02)
+
+Each may be revised with a written rationale here.
+
+**D21. Membership subqueries read the relation table through an implicit policy.** RLS is forced on
+every MLS table, and a policy's `array(select value from rel where key = k)` runs as the app role.
+So for every relation a role's policies use with key `k`, the compiler emits a permissive SELECT
+policy on the relation's table for that role: `key = k` (named `mls_rel_<relation>_<role>_<n>`),
+plus `GRANT SELECT (key, value)`. This is the least grant under which the atom means
+"(k, col) ∈ relation". Restrictive policies the spec puts on the relation table still apply; the
+compiler proves (relation-visibility obligation) that they keep every row with `key = k` visible,
+and refuses otherwise with the JSON path of the policy and a fix.
+Rejected: a SECURITY DEFINER helper returning the array (slower per FINDINGS, and another trusted
+object); disabling RLS on relation tables (exposes every membership row).
+
+**D22. Inclusion FKs are `ON UPDATE RESTRICT ON DELETE RESTRICT`.** Changing a referenced pair is
+modeled as delete+insert, so the update case needs the same guard as the delete case.
+
+**D23. Spec JSON shape (ROADMAP open detail).** Single-key objects for terms and predicates
+(`{"col"}`, `{"ctx"}`, `{"const"}`, `{"old"}`, `{"new"}`; `{"cmp"}`, `{"member"}`, `{"now_between"}`,
+`{"is_null"}`, `{"opaque"}`, `{"and"}`, `{"or"}`, `{"not"}`, `{"lit"}`), rules discriminated by
+`kind`, properties by `template`. `mode` and `command` are mandatory on policies. The only default is
+Postgres's own: an UPDATE/ALL policy without `check` uses `using` for WITH CHECK, and the compiler
+always emits the WITH CHECK clause explicitly so the DDL is self-describing. Context values are
+declared with a `source` (`auth.uid`, `jwt.claims.<name>`, `current_user`) and a `type`; `now` is
+built in. Opaque SQL references context values as `{ctx:name}` and declares the `relations` it
+reads (they become state arguments of the uninterpreted predicate, so a monotonicity proof cannot
+be satisfied vacuously). A top-level `$comment` is allowed.
+
+**D24. Column rules are column privileges, derived together with grants.** Per (role, table), each
+permissive policy grants its command; a `read` column rule restricts SELECT to a column list, a
+`write` rule restricts INSERT and UPDATE; DELETE is table-level; TRUNCATE is never granted. The
+`least_privilege` property compares the derived grants (including D21's) with a declared allowance.
+Security-invoker views for row-filtered column masking remain a v2 question.
+
+**D25. Proof assumptions.** Stored rows satisfy every CHECK and FK (constraints are created
+validated). Enforced inclusions between relation tables become EPR axioms (`admin_of ⊆ member_of`).
+Invariant preservation assumes no policy (trusted roles bypass them) and uses only CHECKs, FKs
+(including RESTRICT guards) and transition triggers as guards. `write_subset_read` is the strong
+form: the policies alone guarantee that an insertable or updatable new image is visible, without
+relying on the statement reading columns.
+
+**D26. The differential oracle models** policy combination (§5 incl. SELECT policies on UPDATE/DELETE
+when the WHERE reads columns), CHECK normalization, MATCH SIMPLE FKs with RESTRICT on both delete and
+update, transition triggers, PK/UNIQUE, NOT NULL, and table/column privileges. Expected error
+classes are SQLSTATE 23xxx, 22xxx and 42501; anything else is a harness bug.
+
+**D27. Supabase on plain Postgres.** The test harness installs Supabase's own `auth.uid()` and
+`auth.jwt()` definitions (reading `request.jwt.claims`) so the compiled DDL is tested unchanged.
