@@ -40,7 +40,9 @@ def rel_fun(name: str, tag: str | None = None) -> FunDecl:
 class Encoder:
     spec: Spec
     rel_tags: dict[str, str] = field(default_factory=dict)  # relation -> tag (state copy)
+    opaque_tags: dict[str, str] = field(default_factory=dict)  # opaque -> tag (a different definition)
     consts: dict[str, int] = field(default_factory=dict)    # interned text/uuid constants
+    const_types: dict[str, set[str]] = field(default_factory=dict)  # constant -> column types it met
     side_conditions: list[Term] = field(default_factory=list)
     opaque_deps: set[str] = field(default_factory=set)
 
@@ -72,6 +74,25 @@ class Encoder:
             return IntVal(self.const_id(v)), FALSE
         raise TypeError(t)
 
+    def _type_of(self, t, table: str) -> str | None:
+        cols = self.spec.tables[table].columns
+        if isinstance(t, ColRef):
+            return cols[t.col].type
+        if isinstance(t, OldRef):
+            return cols[t.old].type
+        if isinstance(t, NewRef):
+            return cols[t.new].type
+        if isinstance(t, CtxRef):
+            return self.spec.context_type(t.ctx)
+        return None
+
+    def _note_const_types(self, l, r, table: str) -> None:
+        for a, b in ((l, r), (r, l)):
+            if isinstance(a, Const) and isinstance(a.const, str):
+                ty = self._type_of(b, table)
+                if ty:
+                    self.const_types.setdefault(a.const, set()).add(ty)
+
     def _col(self, row: str, table: str, col: str) -> tuple[Term, Term]:
         nullable = self.spec.tables[table].columns[col].nullable
         return col_value_var(row, col), (col_null_var(row, col) if nullable else FALSE)
@@ -94,6 +115,7 @@ class Encoder:
             return n, not_(n)
         if isinstance(p, Cmp):
             l, op, r = p.cmp
+            self._note_const_types(l, r, table)
             (lv, ln), (rv, rn) = self.term(l, row, table), self.term(r, row, table)
             core = {"=": eq(lv, rv), "<>": not_(eq(lv, rv)), "<": lt(lv, rv), "<=": le(lv, rv),
                     ">": lt(rv, lv), ">=": le(rv, lv)}[op]
@@ -101,6 +123,11 @@ class Encoder:
             return and_(ok, core), and_(ok, not_(core))
         if isinstance(p, Member):
             m = p.member
+            rel = self.spec.relations[m.relation]
+            rt = self.spec.tables[rel.table].columns
+            for t_, col in ((m.key, rel.key), (m.value, rel.value)):
+                if isinstance(t_, Const) and isinstance(t_.const, str):
+                    self.const_types.setdefault(t_.const, set()).add(rt[col].type)
             kv, kn = self.term(m.key, row, table)
             vv, vn = self.term(m.value, row, table)
             ok = not_(or_(kn, vn))
@@ -139,8 +166,9 @@ class Encoder:
         for r in o.relations:  # the block reads this relation: its value depends on the state copy
             args.append(int_var(f"state.{r}" + (f"@{self.rel_tags[r]}" if r in self.rel_tags else "")))
             sorts.append(Sort.INT)
-        tf = fun(f"opaque.{name}.T", *sorts)
-        ff = fun(f"opaque.{name}.F", *sorts)
+        sym = name + (f"@{self.opaque_tags[name]}" if name in self.opaque_tags else "")
+        tf = fun(f"opaque.{sym}.T", *sorts)
+        ff = fun(f"opaque.{sym}.F", *sorts)
         t, f = tf(*args), ff(*args)
         self.side_conditions.append(not_(and_(t, f)))
         return t, f

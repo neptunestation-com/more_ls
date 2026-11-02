@@ -20,15 +20,22 @@ Read `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.md`, `docs/ROADMAP.m
     uv run mls test    examples/tenant_docs.mls.json        # differential test on Postgres 15–18 (Docker)
     uv run mls test    examples/tenant_docs.mls.json --versions 16 --explain   # + EXPLAIN checks at 1M rows
     uv run mls lint    examples/tenant_docs.mls.json        # leakproof lint
+    uv run mls explain examples/tenant_docs.mls.json        # the rules and properties in plain English
+    uv run mls diff    examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json     # access diff with scenarios
+    uv run mls migrate examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json     # phased DDL with lock levels
+    uv run mls preflight examples/tenant_docs_v2.mls.json --old examples/tenant_docs.mls.json --dsn $DSN
+    uv run mls drift   examples/tenant_docs_v2.mls.json --dsn $DSN   # live catalog vs. a shadow deploy
     uv run mls schema                                       # JSON Schema of the spec language
     uv run mls eval    evals/cases                          # expected verdicts of the eval corpus
 
-Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 on mismatches.
+Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 on mismatches,
+`diff` 2 if anything changed, `preflight` and `drift` 1 when they find something.
+`docs/MIGRATION.md` describes the migration phases and the observed lock levels.
 
 ## Test
 
     uv run pytest -m "not pg"                 # unit: spec, logic, proofs, CLI (seconds)
-    uv run pytest -m "pg and not slow"        # differential + mutation tests, Postgres 15–18 in Docker
+    uv run pytest -m "pg and not slow"        # differential, mutation, migration, lock, pre-flight, drift tests (Docker)
     uv run pytest -m slow                     # EXPLAIN checks at 1M rows
     MLS_PG_VERSIONS=16 uv run pytest -m pg    # one version
     MLS_PG_DSN=postgresql://postgres:pw@host:port/postgres uv run pytest -m pg   # an existing superuser server
@@ -37,16 +44,18 @@ Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 
 
     src/mls/spec      pydantic models, JSON Schema, typechecker + fragment checker
     src/mls/logic     term AST, 3VL encoding, Z3 backend, SMT-LIB2 printer, cvc5 cross-check
-    src/mls/props     policy combination, property templates as obligations, scenarios, reports
-    src/mls/compile   one module per template + indexes, grants, hardening, plan
+    src/mls/props     policy combination, property templates as obligations, scenarios, reports, access diff
+    src/mls/compile   one module per template + indexes, grants, hardening, plan, objects, migrate
     src/mls/identity  supabase, pg_roles adapters
-    src/mls/pg        concrete oracle, differential harness, EXPLAIN checks, leakproof lint
+    src/mls/pg        concrete oracle, differential harness, EXPLAIN checks, leakproof lint,
+                      pre-flight, catalog snapshots, drift, lock observation
+    src/mls/english.py  plain-English rendering of rules, properties, scenarios (the approval artifact)
     tests/            spec, logic, props, cli (no Postgres); templates (Postgres 15–18, Docker)
     evals/cases       eval case format and the first cases (the prototype's three corpora)
-    examples/         tenant_docs (supabase), pg_roles_docs (pg_roles)
+    examples/         tenant_docs (supabase), tenant_docs_v2 (its next version), pg_roles_docs (pg_roles)
     prototype/        the throwaway Python + Z3 prototype this grew from
 
 ## Status
 
-Milestone 1 (core loop, no LLM) is implemented. Milestones 2–4 (`diff | migrate | preflight |
-drift`, hierarchies and cardinality, the LLM loop) are in `docs/ROADMAP.md`.
+Milestones 1 (core loop, no LLM) and 2 (`diff | migrate | preflight | drift`, English rendering)
+are implemented. Milestones 3–4 (hierarchies and cardinality, the LLM loop) are in `docs/ROADMAP.md`.

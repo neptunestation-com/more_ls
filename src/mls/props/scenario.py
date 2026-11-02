@@ -57,10 +57,14 @@ def render_scenario(spec: Spec, ob: Obligation, model: Model) -> Scenario:
             consts[i] = repr(s)
     sc = Scenario()
     universe: dict[str, set[int]] = {}  # type -> integers that appear with that type
+    const_types: dict[str, set[str]] = {}  # encoders may share the interning table
     for e in ob.encoders:
-        for i in e.consts.values():
-            universe.setdefault("text", set()).add(i)
-            universe.setdefault("uuid", set()).add(i)
+        for value, tys in e.const_types.items():
+            const_types.setdefault(value, set()).update(tys)
+    for e in ob.encoders:
+        for value, i in e.consts.items():
+            for ty in const_types.get(value, {"text", "uuid"}):
+                universe.setdefault(ty, set()).add(i)
     now = model.var(f"ctx.{CONTEXT_NOW}", Sort.INT)
     for name in [*spec.identity.context, CONTEXT_NOW]:
         v = model.var(f"ctx.{name}", Sort.INT)

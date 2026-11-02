@@ -98,3 +98,47 @@ def pg_roles_spec() -> Spec:
             if k in r:
                 r[k] = strip(r[k])
     return make(d)
+
+
+# ----------------------------------------------------------------------------- versions (M2)
+V2 = EXAMPLE.parent / "tenant_docs_v2.mls.json"
+
+
+def v_a() -> Spec:
+    """The example without the transition rule (no trigger)."""
+    d = base()
+    d["rules"] = [r for r in d["rules"] if r["id"] != "R9"]
+    d["properties"] = [p for p in d["properties"] if p["id"] != "P2"]
+    return make(d)
+
+
+def v_b() -> Spec:
+    return make(base())
+
+
+def v_c() -> Spec:
+    return make(json.loads(V2.read_text()))
+
+
+def v_d() -> Spec:
+    """v2 plus: archived becomes NOT NULL, level becomes nullable, a unique (tenant_id, id), an FK."""
+    d = json.loads(V2.read_text())
+    d["tables"]["docs"]["columns"]["archived"]["nullable"] = False
+    d["tables"]["docs"]["columns"]["level"]["nullable"] = True
+    d["tables"]["docs"]["unique"] = [["tenant_id", "id"]]
+    d["rules"].append({"id": "R15", "kind": "inclusion", "name": "owner_is_admin", "table": "docs",
+                       "columns": ["owner_id", "tenant_id"], "relation": "admin_of", "on_delete": "restrict"})
+    return make(d)
+
+
+def v_tight() -> Spec:
+    """The example with a stricter level range and a NULL-sensitive check on archived."""
+    d = base()
+    for r in d["rules"]:
+        if r["id"] == "R6":
+            r["predicate"] = {"and": [{"cmp": [{"col": "level"}, ">=", {"const": 0}]},
+                                      {"cmp": [{"col": "level"}, "<=", {"const": 2}]}]}
+    d["rules"].append({"id": "R14", "kind": "check", "name": "archived_bit", "table": "docs",
+                       "predicate": {"or": [{"cmp": [{"col": "archived"}, "=", {"const": 0}]},
+                                            {"cmp": [{"col": "archived"}, "=", {"const": 1}]}]}})
+    return make(d)

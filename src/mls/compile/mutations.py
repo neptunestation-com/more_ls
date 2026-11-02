@@ -16,3 +16,4 @@ class Mutation(str, Enum):
     INDEX_NONE = "index_none"                        # emit no indexes
     HARDENING_NO_FORCE = "hardening_no_force"        # skip FORCE ROW LEVEL SECURITY
     OPAQUE_INVERT = "opaque_invert"                  # negate opaque SQL
+    MIGRATE_SKIP_VALIDATE = "migrate_skip_validate"  # leave migrated constraints NOT VALID

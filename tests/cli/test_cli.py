@@ -39,3 +39,18 @@ def test_eval_cases(capsys):
     assert main(["eval", str(ROOT / "evals" / "cases")]) == 0
     out = capsys.readouterr().out
     assert "FAIL" not in out and out.count("ok:") >= 3
+
+
+def test_explain_diff_migrate(tmp_path, capsys):
+    from tests.templates.specs import V2
+
+    assert main(["explain", str(EXAMPLE)]) == 0
+    assert "# What the rules say" in capsys.readouterr().out
+    assert main(["diff", str(EXAMPLE), str(EXAMPLE)]) == 0
+    assert main(["diff", str(EXAMPLE), str(V2), "--format", "json", "--out", str(tmp_path / "d.json")]) == 2
+    assert json.loads((tmp_path / "d.json").read_text())["summary"]["access_changes"] == 2
+    assert main(["migrate", str(EXAMPLE), str(V2)]) == 0
+    out = capsys.readouterr().out
+    assert "phase 4: validate" in out and 'create index concurrently "mls_ix_docs_owner_id"' in out
+    assert main(["migrate", str(V2), str(EXAMPLE), "--format", "json"]) == 0
+    assert "destructive statements omitted" in json.loads(capsys.readouterr().out)["notes"][0]

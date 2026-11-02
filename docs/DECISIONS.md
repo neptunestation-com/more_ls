@@ -139,3 +139,59 @@ classes are SQLSTATE 23xxx, 22xxx and 42501; anything else is a harness bug.
 
 **D27. Supabase on plain Postgres.** The test harness installs Supabase's own `auth.uid()` and
 `auth.jwt()` definitions (reading `request.jwt.claims`) so the compiled DDL is tested unchanged.
+
+## Implementation defaults recorded during Milestone 2 (2026-11-02)
+
+**D28. Migrations are seven ordered phases; enforcement is never weaker than v1 nor stricter than
+v2 in between.** (1) additive schema in one transaction; (2) new and changed CHECKs/FKs as
+`NOT VALID` plus new triggers, one transaction; (3) `CREATE INDEX CONCURRENTLY`, autocommit;
+(4) `VALIDATE CONSTRAINT`, one statement per transaction; (5) the swap, one transaction: policies
+dropped and created, grants and revokes, changed constraints renamed into place, removed
+constraints and triggers dropped; (6) `DROP INDEX CONCURRENTLY`; (7) destructive drops, only
+with `--allow-destructive`.  Validation precedes the policy swap because the proofs assume stored
+rows satisfy the constraints.  A changed CHECK/FK keeps its name through `<name>_mls_new` →
+validate → drop old → rename.  Column type changes, primary-key changes and identity-adapter
+changes are refused with a JSON path and a fix (the data migration is not MLS's to generate).
+New NOT NULL columns get no default; pre-flight reports the row count that would make
+`ADD COLUMN` fail.  Rejected: a single-transaction migration (holds ACCESS EXCLUSIVE across the
+validation scans); `CREATE INDEX` without CONCURRENTLY (SHARE lock blocks writes for the build).
+
+**D29. Lock levels are observed, not assumed.** `compile/migrate.py` documents the lock mode each
+statement kind holds on its table until the end of the transaction, and
+`tests/templates/test_locks.py` reads them from `pg_locks` on Postgres 15–18 for every kind
+(CONCURRENTLY statements are observed as waiting requests behind a SHARE lock held by another
+session).  Finding: GRANT/REVOKE hold no relation lock past the statement; CREATE/DROP POLICY,
+ADD CONSTRAINT (CHECK), DROP/RENAME CONSTRAINT, ADD/DROP COLUMN, SET/DROP NOT NULL, ADD UNIQUE,
+DROP TRIGGER and RLS changes hold ACCESS EXCLUSIVE; ADD FOREIGN KEY NOT VALID and CREATE TRIGGER
+hold SHARE ROW EXCLUSIVE; VALIDATE CONSTRAINT and the CONCURRENTLY index statements hold
+SHARE UPDATE EXCLUSIVE.  See `docs/MIGRATION.md`.
+
+**D30. Drift compares catalog output of a shadow deploy on the same server.** `mls drift` creates
+a throwaway schema inside one transaction, runs the compiled script into it (roles excepted:
+they are global and their attributes are compared directly), snapshots both schemas with
+`pg_get_expr`, `pg_get_constraintdef`, `pg_get_triggerdef`, `pg_get_indexdef`, `prosrc` and
+`aclexplode`, then rolls back; the server is left untouched.  Reported: missing, differing and
+foreign objects on MLS tables (D8), un-validated constraints, privileges, and the D13 hardening
+(RLS enabled and forced, owner not an app role, no BYPASSRLS/superuser, no SET on
+session_replication_role).  Tables the spec does not mention are notes, not drift.  Rejected:
+comparing generated strings with the catalog (deparsing differs across versions and settings).
+
+**D31. Pre-flight evaluates the compiled `IS TRUE` predicates, negated, in a READ ONLY
+transaction.** Columns the new spec adds are substituted by NULL (what every row holds after
+`ADD COLUMN`), relation tables that do not exist yet count as empty, and NOT NULL / UNIQUE
+additions are checked too.  Only constraints that are new or changed relative to the deployed
+spec (`--old`) are evaluated.  Samples are capped (`--samples`).
+
+**D32. Access diff semantics.** Symbols shared between versions: columns by name, context values
+by name, relations with an identical definition, opaque blocks with identical SQL; a relation or
+opaque block whose definition changed is a different symbol in v2.  Rows are assumed to satisfy
+the stored-row constraints of *both* versions, so a constraint change is reported once, by the
+integrity diff, and not again as an access change.  Each (table, role, command, side) yields two
+obligations (granted: `v2 ∧ ¬v1`; denied: `v1 ∧ ¬v2`); a model is rendered as a scenario in
+English.  Every obligation that depends on an opaque block is flagged (D3).  A table absent from
+one version has no access in that version.
+
+**D33. English rendering is a fixed function of the spec (D10, D15).** `mls explain` and the diff
+and proof reports use `mls/english.py`; the same construct always reads the same way, so a
+reviewer can compare the rendering with the requirement text, and the Milestone 4 loop can check
+an LLM's property statements against it.

@@ -280,6 +280,11 @@ class Harness:
                 if s.section not in ("preamble", "roles"):
                     cur.execute(s.sql)
 
+    def attach(self) -> None:
+        """Connect to an already deployed database (e.g. after a migration) without redeploying."""
+        self.conn = psycopg.connect(psycopg.conninfo.make_conninfo(self.dsn, dbname=self.dbname),
+                                    autocommit=True)
+
     def close(self, drop: bool = True) -> None:
         if self.conn is not None:
             self.conn.close()

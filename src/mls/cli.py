@@ -1,4 +1,4 @@
-"""mls: check | prove | compile | test | lint | schema | eval"""
+"""mls: check | prove | compile | test | diff | migrate | preflight | drift | explain | lint | schema | eval"""
 from __future__ import annotations
 
 import argparse
@@ -169,6 +169,111 @@ def _explain(spec, script, dsn: str, label: str, scale: int) -> bool:
     return ok
 
 
+def cmd_explain(a) -> int:
+    from mls.english import spec_summary
+
+    try:
+        spec = _load(a.spec)
+    except SpecError as e:
+        _print_errors(e, False)
+        return 1
+    print(spec_summary(spec), end="")
+    return 0
+
+
+def cmd_diff(a) -> int:
+    from mls.props.diff import diff, to_json, to_markdown
+
+    try:
+        old, new = _load(a.old), _load(a.new)
+    except SpecError as e:
+        _print_errors(e, a.format == "json")
+        return 1
+    d = diff(old, new, timeout_ms=a.timeout * 1000)
+    out = json.dumps(to_json(old, new, d), indent=2, default=str) if a.format == "json" else to_markdown(old, new, d)
+    if a.out:
+        Path(a.out).write_text(out)
+    else:
+        print(out, end="")
+    return 2 if d.any_change else 0
+
+
+def cmd_migrate(a) -> int:
+    from mls.compile.migrate import migrate
+    from mls.compile.plan import soundness_errors
+
+    try:
+        old, new = _load(a.old), _load(a.new)
+        errs = soundness_errors(new)
+        if errs:
+            raise CompileError(errs)
+        m = migrate(old, new, allow_destructive=a.allow_destructive)
+    except (SpecError, CompileError) as e:
+        _print_errors(e, a.format == "json")
+        return 1
+    out = json.dumps(m.to_dict(), indent=2) if a.format == "json" else m.sql()
+    if a.out:
+        Path(a.out).write_text(out)
+    else:
+        print(out, end="")
+    return 0
+
+
+def cmd_preflight(a) -> int:
+    import psycopg
+
+    from mls.pg.preflight import preflight
+
+    try:
+        new = _load(a.new)
+        old = _load(a.old) if a.old else None
+    except SpecError as e:
+        _print_errors(e, a.json)
+        return 1
+    with psycopg.connect(a.dsn) as conn:
+        res = preflight(conn, new, old, schema=a.schema, samples=a.samples)
+    if a.json:
+        print(json.dumps({"ok": res.ok, "notes": res.notes,
+                          "violations": [{"rule": v.rule_id, "table": v.table, "what": v.what, "count": v.count,
+                                          "samples": v.samples, "sql": v.sql} for v in res.violations]},
+                         indent=2, default=str))
+    else:
+        for n in res.notes:
+            print(f"note: {n}")
+        for v in res.violations:
+            print(str(v))
+        print("pre-flight: " + ("OK, no existing row violates the new constraints" if res.ok
+                                else f"{len(res.violations)} violation group(s)"))
+    return 0 if res.ok else 1
+
+
+def cmd_drift(a) -> int:
+    import psycopg
+
+    from mls.compile import compile_spec
+    from mls.pg.drift import drift
+
+    try:
+        spec = _load(a.spec)
+        script = compile_spec(spec)
+    except (SpecError, CompileError) as e:
+        _print_errors(e, a.json)
+        return 1
+    with psycopg.connect(a.dsn) as conn:
+        res = drift(conn, spec, script, schema=a.schema)
+    if a.json:
+        print(json.dumps({"ok": res.ok, "notes": res.notes,
+                          "drift": [{"kind": i.kind, "object": i.object, "expected": i.expected, "actual": i.actual}
+                                    for i in res.items]}, indent=2, default=str))
+    else:
+        for n in res.notes:
+            print(f"note: {n}")
+        for i in res.items:
+            print(str(i))
+        print("drift: " + ("none, the live schema matches the spec" if res.ok else f"{len(res.items)} item(s)"))
+    return 0 if res.ok else 1
+
+
 def cmd_eval(a) -> int:
     from mls.evals import run_cases
 
@@ -222,6 +327,42 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--explain", action="store_true", help="also run EXPLAIN checks at --scale rows")
     p.add_argument("--scale", type=int, default=1_000_000)
     p.set_defaults(fn=cmd_test)
+
+    p = sub.add_parser("explain", help="render the rules and properties in plain English")
+    p.add_argument("spec")
+    p.set_defaults(fn=cmd_explain)
+
+    p = sub.add_parser("diff", help="access diff between two spec versions, with scenarios")
+    p.add_argument("old")
+    p.add_argument("new")
+    p.add_argument("--format", choices=["md", "json"], default="md")
+    p.add_argument("--out")
+    p.add_argument("--timeout", type=int, default=20, help="seconds per obligation")
+    p.set_defaults(fn=cmd_diff)
+
+    p = sub.add_parser("migrate", help="DDL that takes a database from the old spec to the new one")
+    p.add_argument("old")
+    p.add_argument("new")
+    p.add_argument("--format", choices=["sql", "json"], default="sql")
+    p.add_argument("--out")
+    p.add_argument("--allow-destructive", action="store_true", help="include DROP COLUMN / DROP TABLE")
+    p.set_defaults(fn=cmd_migrate)
+
+    p = sub.add_parser("preflight", help="count existing rows the new spec's constraints would reject")
+    p.add_argument("new")
+    p.add_argument("--old", help="the deployed spec (only new or changed constraints are checked)")
+    p.add_argument("--dsn", required=True)
+    p.add_argument("--schema", default="public")
+    p.add_argument("--samples", type=int, default=5)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_preflight)
+
+    p = sub.add_parser("drift", help="compare the live catalog with a shadow deploy of the spec")
+    p.add_argument("spec")
+    p.add_argument("--dsn", required=True)
+    p.add_argument("--schema", default="public")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_drift)
 
     p = sub.add_parser("eval", help="run eval cases (expected verdicts of reference specs)")
     p.add_argument("cases", nargs="+")

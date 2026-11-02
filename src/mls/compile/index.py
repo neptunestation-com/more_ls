@@ -57,7 +57,8 @@ def _member_cols(p: Pred, out: set[str]) -> set[str]:
     return out
 
 
-def index_ddl(spec: Spec) -> list[str]:
+def index_specs(spec: Spec) -> list[tuple[str, str, tuple[str, ...]]]:
+    """(name, table, columns) of every generated index."""
     wanted: dict[str, list[tuple[str, ...]]] = {}
 
     def want(table: str, cols: list[str]) -> None:
@@ -91,6 +92,14 @@ def index_ddl(spec: Spec) -> list[str]:
                 continue
             if any(tuple(u)[:len(cols)] == cols for u in t.unique):
                 continue
-            name = f"mls_ix_{table}_{'_'.join(cols)}"
-            out.append(f"create index {q(name)} on {q(table)} ({', '.join(q(c) for c in cols)})")
+            out.append((f"mls_ix_{table}_{'_'.join(cols)}", table, cols))
     return out
+
+
+def index_sql(name: str, table: str, cols: tuple[str, ...], concurrently: bool = False) -> str:
+    conc = " concurrently" if concurrently else ""
+    return f"create index{conc} {q(name)} on {q(table)} ({', '.join(q(c) for c in cols)})"
+
+
+def index_ddl(spec: Spec) -> list[str]:
+    return [index_sql(n, t, c) for n, t, c in index_specs(spec)]

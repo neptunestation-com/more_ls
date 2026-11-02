@@ -183,8 +183,9 @@ def monotone_in(spec: Spec, p: MonotoneIn) -> list[Obligation]:
                 pred = effective(spec, table, role, cmd, which)
                 if isinstance(pred, Lit) or p.relation not in _rels_in(pred):
                     continue
-                e_big = Encoder(spec, {p.relation: "big"})
-                e_small = Encoder(spec, {p.relation: "small"})
+                consts: dict[str, int] = {}  # one interning for both state copies
+                e_big = Encoder(spec, {p.relation: "big"}, consts=consts)
+                e_small = Encoder(spec, {p.relation: "small"}, consts=consts)
                 row = _image(cmd, "old" if which == "using" else "new")
                 goal = implies(_T(e_small, pred, row, table), _T(e_big, pred, row, table))
                 out.append(Obligation(
