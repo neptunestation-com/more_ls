@@ -10,6 +10,7 @@ Scopes (SEMANTICS §2-3):
   transition  BEFORE UPDATE trigger: old/new refs and const only.
   invariant   property goals / invariants: cols, const, member (key may be a column), is_null.
   goal        custom property goals: like policy plus member with a column key.
+  in_group follows the rules of member everywhere (key is context, value a NOT NULL column).
 """
 from __future__ import annotations
 
@@ -21,10 +22,10 @@ from pydantic import ValidationError
 
 from mls.errors import ErrorSink, MlsError, SpecError
 from mls.spec.model import (
-    CONTEXT_NOW, And, CheckRule, ColRef, ColType, ColumnRule, Cmp, Const, CtxRef, Custom,
-    InclusionRule, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, NewRef, Not, NowBetween,
-    OldRef, OpaqueRef, Or, PolicyRule, Spec, TenantIsolation, ColumnImmutable, WriteSubsetRead,
-    LeastPrivilege, TransitionRule,
+    CONTEXT_NOW, And, CardinalityRule, CheckRule, ColRef, ColType, ColumnRule, Cmp, Const, CtxRef,
+    Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, NewRef, Not,
+    NowBetween, OldRef, OpaqueRef, Or, PolicyRule, Spec, TenantIsolation, ColumnImmutable,
+    WriteSubsetRead, LeastPrivilege, TransitionRule,
 )
 
 IDENT = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
@@ -267,6 +268,43 @@ class Checker:
                 self.err(f"{path}.member.value", f"value type {vt} does not match relation value "
                                                  f"{rel.table}.{rel.value}: {rvt}")
             return
+        if isinstance(p, InGroup):
+            if not scope.member:
+                self.err(path, f"in_group is not allowed in a {scope.name} predicate", "")
+                return
+            g = p.in_group
+            h = self.spec.hierarchies.get(g.hierarchy)
+            if h is None:
+                self.err(f"{path}.in_group.hierarchy", f"unknown hierarchy '{g.hierarchy}'",
+                         f"one of: {', '.join(self.spec.hierarchies) or 'none'}")
+                return
+            if negated and scope.reject_negated_member:
+                self.err(path, "negated in_group in a policy is an anti-join and cannot be "
+                               "index-driven", "restate positively, or wrap it in an opaque block")
+            kt = self.term_type(g.key, scope, f"{path}.in_group.key")
+            vt = self.term_type(g.value, scope, f"{path}.in_group.value")
+            if isinstance(g.key, ColRef) and not scope.member_col_key:
+                self.err(f"{path}.in_group.key", "the in_group key must be a context value or "
+                                                 "constant", "use {\"ctx\": name}")
+            if not isinstance(g.value, (ColRef, OldRef, NewRef)):
+                self.err(f"{path}.in_group.value", "the in_group value must be a column", "use {\"col\": name}")
+            elif isinstance(g.value, ColRef) and self.col_type(scope.table, g.value.col) is not None \
+                    and self.col_nullable(scope.table, g.value.col) and scope.is_policy:
+                self.err(f"{path}.in_group.value", f"in_group value column '{g.value.col}' must be "
+                                                   f"NOT NULL in a policy (NULL makes the atom UNKNOWN "
+                                                   f"and the row invisible)",
+                         "declare the column NOT NULL, or guard with {\"is_null\": ...} in an or")
+            rel = self.spec.relations.get(h.members)
+            if rel is not None and rel.table in self.spec.tables:
+                rkt = self.col_type(rel.table, rel.key)
+                if kt is not None and rkt is not None and kt != rkt:
+                    self.err(f"{path}.in_group.key", f"key type {kt} does not match the members "
+                                                     f"relation key {rel.table}.{rel.key}: {rkt}")
+            it = self.col_type(h.table, h.id)
+            if vt is not None and it is not None and vt != it:
+                self.err(f"{path}.in_group.value", f"value type {vt} does not match the hierarchy id "
+                                                   f"{h.table}.{h.id}: {it}")
+            return
         if isinstance(p, NowBetween):
             if not scope.now_between:
                 self.err(path, f"now_between is not allowed in a {scope.name} predicate "
@@ -314,6 +352,7 @@ class Checker:
             self.err("$.roles", "duplicate role names")
         self.check_tables()
         self.check_relations()
+        self.check_hierarchies()
         self.check_opaques()
         self.check_rules()
         self.check_properties()
@@ -403,6 +442,46 @@ class Checker:
                                f"inclusion rules compile to foreign keys that reference it)",
                          f"add [\"{rel.key}\", \"{rel.value}\"] to tables.{rel.table}.unique")
 
+    def check_hierarchies(self) -> None:
+        for hname, h in self.spec.hierarchies.items():
+            path = f"$.hierarchies.{hname}"
+            if not IDENT.match(hname):
+                self.err(path, f"'{hname}' is not a valid identifier")
+            t = self.spec.tables.get(h.table)
+            if t is None:
+                self.err(path + ".table", f"unknown table '{h.table}'", f"one of: {', '.join(self.spec.tables)}")
+                continue
+            ok = True
+            for fld in ("id", "parent", "depth"):
+                if getattr(h, fld) not in t.columns:
+                    self.err(f"{path}.{fld}", f"unknown column '{getattr(h, fld)}' of table '{h.table}'")
+                    ok = False
+            if not ok:
+                continue
+            if len({h.id, h.parent, h.depth}) != 3:
+                self.err(path, "id, parent and depth must be three different columns")
+            if t.primary_key != [h.id]:
+                self.err(f"{path}.id", f"'{h.id}' must be the single-column primary key of '{h.table}' "
+                                       f"(parents reference it)", f"set tables.{h.table}.primary_key to [\"{h.id}\"]")
+            if not t.columns[h.parent].nullable:
+                self.err(f"{path}.parent", f"'{h.parent}' must be nullable (roots have no parent)",
+                         "set nullable to true")
+            if t.columns[h.parent].type != t.columns[h.id].type:
+                self.err(f"{path}.parent", f"'{h.parent}' ({t.columns[h.parent].type}) must have the "
+                                           f"type of '{h.id}' ({t.columns[h.id].type})")
+            if t.columns[h.depth].type != "int" or t.columns[h.depth].nullable:
+                self.err(f"{path}.depth", f"'{h.depth}' must be an int NOT NULL column (the compiler "
+                                          f"maintains it)", "declare {\"type\": \"int\", \"nullable\": false}")
+            rel = self.spec.relations.get(h.members)
+            if rel is None:
+                self.err(f"{path}.members", f"unknown relation '{h.members}'",
+                         f"one of: {', '.join(self.spec.relations) or 'none'}")
+            elif rel.table in self.spec.tables and self.col_type(rel.table, rel.value) is not None \
+                    and self.col_type(rel.table, rel.value) != t.columns[h.id].type:
+                self.err(f"{path}.members", f"the value of relation '{h.members}' ({rel.table}.{rel.value}: "
+                                            f"{self.col_type(rel.table, rel.value)}) must have the type of "
+                                            f"'{h.id}' ({t.columns[h.id].type})")
+
     def check_opaques(self) -> None:
         for oname, o in self.spec.opaques.items():
             path = f"$.opaques.{oname}"
@@ -450,6 +529,8 @@ class Checker:
                 self.check_inclusion(r, path)
             elif isinstance(r, TransitionRule):
                 self.pred(r.predicate, transition_scope(r.table), path + ".predicate")
+            elif isinstance(r, CardinalityRule):
+                self.check_cardinality(r, path)
             elif isinstance(r, ColumnRule):
                 if r.role not in self.spec.roles:
                     self.err(path + ".role", f"unknown role '{r.role}'", f"one of: {', '.join(self.spec.roles)}")
@@ -485,6 +566,28 @@ class Checker:
             self.pred(r.using, scope, path + ".using")
         if r.check is not None:
             self.pred(r.check, scope, path + ".check")
+
+    def check_cardinality(self, r: CardinalityRule, path: str) -> None:
+        t = self.spec.tables[r.table]
+        if r.group not in t.columns:
+            self.err(path + ".group", f"unknown column '{r.group}' of table '{r.table}'")
+            return
+        parent = self.spec.tables.get(r.parent)
+        if parent is None:
+            self.err(path + ".parent", f"unknown table '{r.parent}'",
+                     "the parent table whose row is locked while counting (D4)")
+            return
+        if r.parent == r.table:
+            self.err(path + ".parent", "the parent table must be a different table")
+            return
+        if not parent.primary_key or len(parent.primary_key) != 1:
+            self.err(path + ".parent", f"'{r.parent}' needs a single-column primary key that '{r.group}' "
+                                       f"references")
+            return
+        pk = parent.primary_key[0]
+        if parent.columns[pk].type != t.columns[r.group].type:
+            self.err(path + ".group", f"type of {r.table}.{r.group} ({t.columns[r.group].type}) does not "
+                                      f"match {r.parent}.{pk} ({parent.columns[pk].type})")
 
     def check_inclusion(self, r: InclusionRule, path: str) -> None:
         rel = self.spec.relations.get(r.relation)
@@ -549,9 +652,9 @@ class Checker:
                         except KeyError:
                             self.err(ipath + ".rule", f"unknown rule '{inv.rule}'")
                             continue
-                        if not isinstance(rule, (CheckRule, InclusionRule)):
+                        if not isinstance(rule, (CheckRule, InclusionRule, CardinalityRule)):
                             self.err(ipath + ".rule", f"rule '{inv.rule}' is a {rule.kind}; only "
-                                                      f"check and inclusion rules are invariants")
+                                                      f"check, inclusion and cardinality rules are invariants")
                     else:
                         if inv.table not in self.spec.tables:
                             self.err(ipath + ".table", f"unknown table '{inv.table}'")

@@ -7,12 +7,14 @@ JSON shape (D-open-detail "exact JSON shape": explicit, no silent defaults):
    "roles": ["authenticated"],
    "tables": {name: {"columns": {col: {"type": T, "nullable": bool}}, "primary_key": [..], "unique": [[..]]}},
    "relations": {name: {"table": t, "key": col, "value": col}},
+   "hierarchies": {name: {"table": t, "id": col, "parent": col, "depth": col, "max_depth": d, "members": rel}},
    "opaques": {name: {"table": t, "columns": [..], "context": [..], "sql": "..."}},
    "rules": [ {"id", "kind", "name", "table", ...} ],
    "properties": [ {"id", "template", ...} ]}
 
 Predicates are single-key objects:  {"and": [...]}, {"or": [...]}, {"not": p}, {"lit": true},
   {"cmp": [term, op, term]}, {"member": {"relation", "key": term, "value": term}},
+  {"in_group": {"hierarchy", "key": term, "value": term}},
   {"now_between": {"from": term|null, "until": term|null}}, {"is_null": term}, {"opaque": name}.
 Terms are single-key objects: {"col": c}, {"ctx": name}, {"const": v}, {"old": c}, {"new": c}.
 """
@@ -61,7 +63,7 @@ def _single_key(v: Any) -> str:
         if len(v) != 1:
             return "?"
         return next(iter(v))
-    for tag in ("col", "ctx", "const", "old", "new", "cmp", "member", "now_between",
+    for tag in ("col", "ctx", "const", "old", "new", "cmp", "member", "in_group", "now_between",
                 "is_null", "opaque", "and", "or", "not", "lit"):
         if hasattr(v, tag) or hasattr(v, tag + "_"):
             return tag
@@ -105,6 +107,18 @@ class NowBetween(Strict):
     now_between: NowBetweenBody
 
 
+class InGroupBody(Strict):
+    hierarchy: str
+    key: Term
+    value: Term
+
+
+class InGroup(Strict):
+    """`value` is a group of hierarchy `hierarchy` that `key` is a member of, or lies below one
+    (within the hierarchy's max_depth levels)."""
+    in_group: InGroupBody
+
+
 class IsNull(Strict):
     is_null: Term
 
@@ -133,6 +147,7 @@ Pred = Annotated[
     Union[
         Annotated[Cmp, Tag("cmp")],
         Annotated[Member, Tag("member")],
+        Annotated[InGroup, Tag("in_group")],
         Annotated[NowBetween, Tag("now_between")],
         Annotated[IsNull, Tag("is_null")],
         Annotated[OpaqueRef, Tag("opaque")],
@@ -142,8 +157,8 @@ Pred = Annotated[
         Annotated[Lit, Tag("lit")],
     ],
     Discriminator(_single_key, custom_error_type="invalid_predicate",
-                  custom_error_message="a predicate is one of {cmp}, {member}, {now_between}, "
-                                       "{is_null}, {opaque}, {and}, {or}, {not}, {lit}"),
+                  custom_error_message="a predicate is one of {cmp}, {member}, {in_group}, "
+                                       "{now_between}, {is_null}, {opaque}, {and}, {or}, {not}, {lit}"),
 ]
 
 And.model_rebuild()
@@ -168,6 +183,22 @@ class Relation(Strict):
     table: str
     key: str
     value: str
+
+
+MAX_HIERARCHY_DEPTH = 16  # the solver unrolls reachability this many times at most
+
+
+class Hierarchy(Strict):
+    """A tree over `table` (D5): `id` is the primary key, `parent` a nullable column of the same
+    type referencing `id`, `depth` an int NOT NULL column the compiler maintains (root 0, child =
+    parent + 1) and bounds by `max_depth`; `parent` is immutable.  `members` is the relation
+    (user -> id) that places a user in a group."""
+    table: str
+    id: str
+    parent: str
+    depth: str
+    max_depth: int = Field(ge=1, le=MAX_HIERARCHY_DEPTH)
+    members: str
 
 
 class ContextVar(Strict):
@@ -226,6 +257,16 @@ class TransitionRule(RuleBase):
     predicate: Pred
 
 
+class CardinalityRule(RuleBase):
+    """At most `max` rows of `table` share one value of `group` (D4).  `parent` is the table whose
+    primary key `group` references; the compiled trigger locks that parent row before counting,
+    which makes the bound hold under READ COMMITTED.  NULL groups are not counted."""
+    kind: Literal["cardinality"]
+    group: str
+    parent: str
+    max: int = Field(ge=1)
+
+
 class ColumnRule(RuleBase):
     kind: Literal["column_rule"]
     name: str | None = None
@@ -235,7 +276,7 @@ class ColumnRule(RuleBase):
 
 
 Rule = Annotated[
-    Union[PolicyRule, CheckRule, InclusionRule, TransitionRule, ColumnRule],
+    Union[PolicyRule, CheckRule, InclusionRule, TransitionRule, CardinalityRule, ColumnRule],
     Field(discriminator="kind"),
 ]
 
@@ -328,6 +369,7 @@ class Spec(Strict):
     roles: list[str] = Field(min_length=1)
     tables: dict[str, Table]
     relations: dict[str, Relation] = Field(default_factory=dict)
+    hierarchies: dict[str, Hierarchy] = Field(default_factory=dict)
     opaques: dict[str, Opaque] = Field(default_factory=dict)
     rules: list[Rule] = Field(default_factory=list)
     properties: list[Property] = Field(default_factory=list)
@@ -350,6 +392,9 @@ class Spec(Strict):
 
     def transitions(self) -> list[TransitionRule]:
         return [r for r in self.rules if isinstance(r, TransitionRule)]
+
+    def cardinalities(self) -> list[CardinalityRule]:
+        return [r for r in self.rules if isinstance(r, CardinalityRule)]
 
     def column_rules(self) -> list[ColumnRule]:
         return [r for r in self.rules if isinstance(r, ColumnRule)]

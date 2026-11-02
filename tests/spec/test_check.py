@@ -153,3 +153,68 @@ def test_column_rule_validation():
     d["rules"].append({"id": "C1", "kind": "column_rule", "role": "authenticated", "table": "docs",
                        "columns": ["id", "nope"], "access": "read"})
     assert has(errors(d), "$.rules[9].columns[1]", "unknown column 'nope'")
+
+
+# ---------------------------------------------------------------- Milestone 3: hierarchies, cardinality
+
+def org() -> dict:
+    from tests.templates.specs import org_base
+    return org_base()
+
+
+def test_org_example_is_clean():
+    assert errors(org()) == []
+
+
+def test_hierarchy_shape_errors():
+    d = org()
+    d["tables"]["groups"]["primary_key"] = ["id", "tenant_id"]
+    d["tables"]["groups"]["columns"]["parent_id"]["nullable"] = False
+    d["tables"]["groups"]["columns"]["depth"] = {"type": "text", "nullable": False}
+    errs = errors(d)
+    assert has(errs, "$.hierarchies.org.id", "single-column primary key")
+    assert has(errs, "$.hierarchies.org.parent", "must be nullable")
+    assert has(errs, "$.hierarchies.org.depth", "int NOT NULL")
+    assert all(e.fix for e in errs if e.path.startswith("$.hierarchies"))
+
+
+def test_hierarchy_member_type_and_depth_bound():
+    d = org()
+    d["tables"]["group_members"]["columns"]["group_id"]["type"] = "uuid"
+    assert has(errors(d), "$.hierarchies.org.members", "must have the type of 'id'")
+    d = org()
+    d["hierarchies"]["org"]["max_depth"] = 17
+    with pytest.raises(Exception):  # the declared bound (invariant 6) is capped by the schema
+        Spec.model_validate(d)
+
+
+def test_in_group_fragment_rules():
+    d = org()
+    d["rules"][0]["using"] = {"not": d["rules"][0]["using"]}
+    errs = errors(d)
+    assert has(errs, "$.rules[0].using.not", "negated in_group")
+    d = org()
+    d["rules"][0]["using"]["in_group"]["hierarchy"] = "nope"
+    assert has(errors(d), "$.rules[0].using.in_group.hierarchy", "unknown hierarchy 'nope'")
+    d = org()
+    d["rules"].append({"id": "X", "kind": "check", "name": "x", "table": "files",
+                       "predicate": {"in_group": {"hierarchy": "org", "key": {"col": "id"}, "value": {"col": "group_id"}}}})
+    assert has(errors(d), "$.rules[6].predicate", "in_group is not allowed in a check predicate")
+    d = org()
+    d["tables"]["files"]["columns"]["group_id"]["type"] = "text"
+    assert has(errors(d), "$.rules[0].using.in_group.value", "does not match the hierarchy id")
+
+
+def test_cardinality_shape_errors():
+    d = org()
+    r = next(x for x in d["rules"] if x["kind"] == "cardinality")
+    r["parent"] = "files"
+    assert has(errors(d), "$.rules[4].parent", "different table")
+    r["parent"] = "group_members"
+    assert has(errors(d), "$.rules[4].parent", "single-column primary key")
+    r["parent"] = "tenants"
+    r["group"] = "nope"
+    assert has(errors(d), "$.rules[4].group", "unknown column 'nope'")
+    d = org()
+    d["properties"][2]["invariants"] = [{"rule": "R1"}]
+    assert any("invariants" in e.message or "cardinality" in e.message for e in errors(d))

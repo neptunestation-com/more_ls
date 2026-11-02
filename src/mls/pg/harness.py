@@ -19,7 +19,7 @@ from mls.compile.column import privileges
 from mls.compile.plan import Script
 from mls.identity import Adapter, get_adapter
 from mls.pg.model import Database, Oracle, Row, holds
-from mls.props.effective import row_constraints
+from mls.props.effective import simple_fks
 from mls.spec.model import CONTEXT_NOW, Spec
 
 Outcome = str  # "filtered" | "ok" | "error"
@@ -36,7 +36,7 @@ class Dataset:
         rels = {}
         for name, rel in spec.relations.items():
             rels[name] = {(r[rel.key], r[rel.value]) for r in self.tables.get(rel.table, [])}
-        return Database(rels, {t: list(rows) for t, rows in self.tables.items()})
+        return Database(rels, {t: list(rows) for t, rows in self.tables.items()}, spec=spec)
 
 
 @dataclass
@@ -88,10 +88,12 @@ class ValueGen:
         self.rnd = rnd
         self.users = adapter.harness_user_values(n_users)
         self.ints = list(range(-1, n_ints))
+        self.ids = list(range(0, 40))  # single-column int primary keys (trees and parents need many rows)
         self.texts = ["a", "b", "c"]
         self.now = now or dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
         self.null_p = null_p
         self.facts: dict[str, list[tuple[Any, Any]]] = {}  # relation -> known pairs (FK-aware rows)
+        self.rows: dict[str, list[Row]] = {}                  # table -> rows generated so far
         self.user_cols = user_columns(spec, adapter)
 
     def value(self, type_: str, nullable: bool, null_p: float | None = None) -> Any:
@@ -113,12 +115,26 @@ class ValueGen:
         t = self.spec.tables[table]
         r = {c: (self.value("uuid", col.nullable) if (table, c) in self.user_cols
                  else self.value(col.type, col.nullable)) for c, col in t.columns.items()}
+        if t.primary_key and len(t.primary_key) == 1 and t.columns[t.primary_key[0]].type == "int":
+            r[t.primary_key[0]] = self.rnd.choice(self.ids)
         # most rows reference an existing relation pair, so FK-constrained tables fill up
         for inc in self.spec.inclusions():
             pairs = self.facts.get(inc.relation)
             if inc.table == table and pairs and self.rnd.random() < 0.7:
                 k, v = self.rnd.choice(pairs)
                 r[inc.columns[0]], r[inc.columns[1]] = k, v
+        crowded = {c.group for c in self.spec.cardinalities() if c.table == table}
+        for fk in simple_fks(self.spec):  # ... and an existing parent row (or NULL / none when allowed)
+            if fk.table != table:
+                continue
+            parents = self.rows.get(fk.parent, [])
+            if parents and self.rnd.random() < 0.85:
+                # counted groups crowd into a few parents so cardinality limits are actually reached
+                pool = parents[:2] if fk.column in crowded and self.rnd.random() < 0.6 else parents
+                r[fk.column] = self.rnd.choice(pool)[fk.parent_column]
+        for h in self.spec.hierarchies.values():  # roots are rarer than children: deeper trees
+            if h.table == table and r[h.parent] is not None and self.rnd.random() < 0.15:
+                r[h.parent] = None
         return r
 
     def context(self, role: str) -> dict[str, Any]:
@@ -155,11 +171,16 @@ def user_columns(spec: Spec, adapter: Adapter) -> set[tuple[str, str]]:
             cmps(p.not_, acc)
         return acc
 
+    from mls.props.effective import in_groups_in
+
     for pol in spec.policies():
         for e in (pol.using, pol.check):
             for m in members_in(e, []):
                 if isinstance(m.key, CtxRef) and m.key.ctx == user_ctx:
                     rel_keys.add(m.relation)
+            for g in in_groups_in(e, []):
+                if isinstance(g.key, CtxRef) and g.key.ctx == user_ctx:
+                    rel_keys.add(spec.hierarchies[g.hierarchy].members)
             for c in cmps(e, []):
                 l, _, r = c.cmp
                 if isinstance(r, CtxRef) and r.ctx == user_ctx and isinstance(l, ColRef):
@@ -180,6 +201,9 @@ def table_order(spec: Spec) -> list[str]:
         target = spec.relations[inc.relation].table
         if target != inc.table:
             deps[inc.table].add(target)
+    for fk in simple_fks(spec):
+        if fk.parent != fk.table:
+            deps[fk.table].add(fk.parent)
     order: list[str] = []
     while len(order) < len(spec.tables):
         progress = False
@@ -194,35 +218,24 @@ def table_order(spec: Spec) -> list[str]:
     return order
 
 
-def _key_sets(spec: Spec, table: str) -> list[list[str]]:
-    t = spec.tables[table]
-    return ([t.primary_key] if t.primary_key else []) + list(t.unique)
-
-
 def generate_dataset(spec: Spec, adapter: Adapter, rnd: Chooser, rows_per_table: int = 25,
                      gen: ValueGen | None = None) -> Dataset:
     """Rows that satisfy PKs, uniques, CHECKs and FKs (so the owner can load them)."""
     gen = gen or ValueGen(spec, adapter, rnd)
+    oracle = Oracle(spec)
     tables: dict[str, list[Row]] = {}
     ds = Dataset(tables, gen.users, gen.now)
     for table in table_order(spec):
         rows: list[Row] = []
-        seen = {tuple(ks): set() for ks in _key_sets(spec, table)}
-        db = ds.database(spec)
-        constraint = row_constraints(spec, table)
+        tables[table] = rows          # self-referencing tables see the rows generated so far
+        gen.rows[table] = rows
         for _ in range(rows_per_table * 6):
             if len(rows) >= rows_per_table:
                 break
-            r = gen.row(table)
-            keys = {tuple(ks): tuple(r[c] for c in ks) for ks in _key_sets(spec, table)}
-            if any(k in seen[ks] for ks, k in keys.items()):
+            r = oracle.stored_ok(table, gen.row(table), ds.database(spec))
+            if r is None:
                 continue
-            if not holds(constraint, r, {CONTEXT_NOW: gen.now}, db):
-                continue
-            for ks, k in keys.items():
-                seen[ks].add(k)
             rows.append(r)
-        tables[table] = rows
         for rname, rel in spec.relations.items():
             if rel.table == table:
                 gen.facts[rname] = [(r[rel.key], r[rel.value]) for r in rows]

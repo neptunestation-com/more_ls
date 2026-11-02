@@ -12,17 +12,18 @@ from dataclasses import dataclass, field
 
 from mls.compile.column import privileges
 from mls.logic.term import (
-    FALSE, TRUE, Term, Var, and_, eq, forall, iff, implies, int_var, not_, or_,
+    FALSE, TRUE, Sort, Term, Var, and_, eq, forall, fun, iff, implies, int_var, le, not_, or_,
 )
 from mls.logic.tvl import Encoder, col_null_var, col_value_var, ctx_var, rel_fun
 from mls.props.effective import (
-    effective, inclusion_pred, members_in, row_constraints, transition_constraints,
+    effective, inclusion_pred, members_in, relations_of, row_constraints, transition_constraints,
 )
 from mls.spec.model import (
-    And, CheckRule, ColRef, ColumnImmutable, Custom, InclusionRule, InvariantPreserved,
-    LeastPrivilege, Lit, Member, MemberBody, MonotoneIn, Not, Or, Pred, Property, Spec,
-    TenantIsolation, WriteSubsetRead,
+    And, CardinalityRule, CheckRule, ColRef, ColumnImmutable, Custom, InclusionRule,
+    InvariantPreserved, LeastPrivilege, Lit, Member, MemberBody, MonotoneIn, Not, Or, Pred, Property,
+    Spec, TenantIsolation, WriteSubsetRead,
 )
+from mls.logic.term import IntVal, add
 
 
 @dataclass
@@ -56,8 +57,8 @@ class Obligation:
         return self
 
 
-def _rels_in(p: Pred | None) -> set[str]:
-    return {m.relation for m in members_in(p, [])}
+def _rels_in(spec: Spec, p: Pred | None) -> set[str]:
+    return relations_of(spec, p)
 
 
 def _T(enc: Encoder, p: Pred, row: str, table: str) -> Term:
@@ -117,7 +118,7 @@ def _image(cmd: str, which: str = "new") -> str:
 def _relations_of(spec: Spec, *preds: Pred | None, tag: str | None = None) -> list[tuple[str, str | None]]:
     rels: set[str] = set()
     for p in preds:
-        rels |= _rels_in(p)
+        rels |= _rels_in(spec, p)
     return [(r, tag) for r in sorted(rels)]
 
 
@@ -181,7 +182,7 @@ def monotone_in(spec: Spec, p: MonotoneIn) -> list[Obligation]:
             for cmd, which in (("select", "using"), ("insert", "check"), ("update", "using"),
                                ("update", "check"), ("delete", "using")):
                 pred = effective(spec, table, role, cmd, which)
-                if isinstance(pred, Lit) or p.relation not in _rels_in(pred):
+                if isinstance(pred, Lit) or p.relation not in _rels_in(spec, pred):
                     continue
                 consts: dict[str, int] = {}  # one interning for both state copies
                 e_big = Encoder(spec, {p.relation: "big"}, consts=consts)
@@ -271,14 +272,58 @@ def _invariants(spec: Spec, p: InvariantPreserved) -> list[Invariant]:
     return out
 
 
+def cardinality_obligations(spec: Spec, p: InvariantPreserved, r: CardinalityRule) -> list[Obligation]:
+    """cnt: group -> int.  Invariant ∀g. cnt(g) ≤ N.  Transitions on the table change one or two
+    counts; the compiled trigger guards inserts and group moves with cnt(g) + 1 ≤ N (D4)."""
+    N = IntVal(r.max)
+    cnt, cnt2 = fun(f"cnt.{r.id}@before", Sort.INT, ret=Sort.INT), fun(f"cnt.{r.id}@after", Sort.INT, ret=Sort.INT)
+    x = int_var("card.g")
+    inv_before = forall([x], le(cnt(x), N))
+    inv_after = forall([x], le(cnt2(x), N))
+    nullable = spec.tables[r.table].columns[r.group].nullable
+    out = []
+    for cmd in ("insert", "update", "delete"):
+        enc = Encoder(spec)
+        rows = _rows_for(cmd, r.table)
+        axioms: list[Term] = [inv_before]
+        ng, og = col_value_var("new", r.group), col_value_var("old", r.group)
+        nn = col_null_var("new", r.group) if nullable else FALSE
+        on = col_null_var("old", r.group) if nullable else FALSE
+        if cmd == "insert":
+            # counted iff the group is not NULL; the trigger requires cnt(g) + 1 ≤ N
+            axioms.append(implies(not_(nn), le(add(cnt(ng), IntVal(1)), N)))
+            axioms.append(forall([x], iff(eq(cnt2(x), add(cnt(x), IntVal(1))), and_(not_(nn), eq(x, ng)))))
+            axioms.append(forall([x], implies(not_(and_(not_(nn), eq(x, ng))), eq(cnt2(x), cnt(x)))))
+        elif cmd == "delete":
+            axioms.append(forall([x], implies(and_(not_(on), eq(x, og)), eq(cnt2(x), add(cnt(x), IntVal(-1))))))
+            axioms.append(forall([x], implies(not_(and_(not_(on), eq(x, og))), eq(cnt2(x), cnt(x)))))
+        else:
+            moved = or_(and_(not_(on), nn), and_(on, not_(nn)), and_(not_(on), not_(nn), not_(eq(og, ng))))
+            axioms.append(implies(and_(moved, not_(nn)), le(add(cnt(ng), IntVal(1)), N)))
+            leaves = and_(moved, not_(on))   # old group loses one
+            joins = and_(moved, not_(nn))    # new group gains one
+            axioms.append(forall([x], implies(and_(leaves, eq(x, og)), eq(cnt2(x), add(cnt(x), IntVal(-1))))))
+            axioms.append(forall([x], implies(and_(joins, eq(x, ng)), eq(cnt2(x), add(cnt(x), IntVal(1))))))
+            axioms.append(forall([x], implies(not_(or_(and_(leaves, eq(x, og)), and_(joins, eq(x, ng)))),
+                                              eq(cnt2(x), cnt(x)))))
+        out.append(Obligation(p.id, f"{cmd} on {r.table} preserves {r.id} ({r.name}): at most {r.max} "
+                                    f"rows per {r.group}", axioms, inv_after, rows, [], [enc]).finish())
+    return out
+
+
 def invariant_preserved(spec: Spec, p: InvariantPreserved) -> list[Obligation]:
+    out = []
+    for inv in p.invariants:
+        if inv.rule is not None and isinstance(spec.rule(inv.rule), CardinalityRule):
+            out.extend(cardinality_obligations(spec, p, spec.rule(inv.rule)))
     invs = _invariants(spec, p)
+    if not invs:
+        return out
     tables: set[str] = {i.table for i in invs}
     for i in invs:
-        for r in _rels_in(i.pred):
+        for r in _rels_in(spec, i.pred):
             tables.add(spec.relations[r].table)
     # transitions: INSERT / UPDATE / DELETE on every table the invariants mention
-    out = []
     for t in sorted(tables):
         backed = {name for name, rel in spec.relations.items() if rel.table == t}
         for cmd in ("insert", "update", "delete"):
@@ -344,8 +389,8 @@ def _induction_step(spec: Spec, p: InvariantPreserved, invs: list[Invariant], ta
     mod_rows = _rows_for(cmd, table)
     all_rels = [(r, "before") for r in sorted(backed)] + [(r, "after") for r in sorted(backed)]
     for inv in invs:
-        touches = bool(_rels_in(inv.pred) & backed)
-        rel_list = all_rels + [(r, None) for r in sorted(_rels_in(inv.pred) - backed)]
+        touches = bool(_rels_in(spec, inv.pred) & backed)
+        rel_list = all_rels + [(r, None) for r in sorted(_rels_in(spec, inv.pred) - backed)]
         # 1. the modified row itself (insert / update on the invariant's own table)
         if inv.table == table and cmd in ("insert", "update"):
             assumptions = list(change)

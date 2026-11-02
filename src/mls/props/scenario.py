@@ -6,7 +6,7 @@ from typing import Any
 
 from mls.logic.solve import Model
 from mls.logic.term import Sort
-from mls.logic.tvl import rel_fun
+from mls.logic.tvl import has_parent_fun, parent_fun, rel_fun
 from mls.props.obligations import Obligation
 from mls.spec.model import CONTEXT_NOW, Spec
 
@@ -16,6 +16,7 @@ class Scenario:
     context: dict[str, Any] = field(default_factory=dict)
     rows: dict[str, dict[str, Any]] = field(default_factory=dict)     # row name -> {table, values}
     relations: dict[str, list[list[Any]]] = field(default_factory=dict)  # "rel[@tag]" -> pairs
+    hierarchies: dict[str, list[list[Any]]] = field(default_factory=dict)  # name -> (child, parent)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -30,6 +31,9 @@ class Scenario:
         for name, pairs in self.relations.items():
             shown = ", ".join(f"({a}, {b})" for a, b in pairs) if pairs else "∅"
             lines.append(f"- {name} = {{{shown}}}")
+        for name, pairs in self.hierarchies.items():
+            shown = ", ".join(f"{a} → {b}" for a, b in pairs) if pairs else "no parent links"
+            lines.append(f"- hierarchy {name}: {shown}")
         return "\n".join(lines)
 
 
@@ -93,4 +97,26 @@ def render_scenario(spec: Spec, ob: Obligation, model: Model) -> Scenario:
                  for a in sorted(universe.get(kt, ())) for b in sorted(universe.get(vt, ()))
                  if model.app(f, a, b)]
         sc.relations[rname + (f"@{tag}" if tag else "")] = pairs
+    used = sorted({(h, e.hier_tags.get(h)) for e in ob.encoders for h in e.hierarchies_used},
+                  key=lambda x: (x[0], x[1] or ""))
+    for hname, tag in used:
+        h = spec.hierarchies[hname]
+        it = spec.tables[h.table].columns[h.id].type
+        par, has = parent_fun(hname, tag), has_parent_fun(hname, tag)
+        nodes = set(universe.get(it, ()))
+        links = []
+        frontier = list(nodes)
+        for _ in range(h.max_depth):  # follow parents so the chain the solver used is shown
+            nxt = []
+            for a in frontier:
+                if model.app(has, a):
+                    b = model.app(par, a)
+                    if (a, b) not in links:
+                        links.append((a, b))
+                        if b not in nodes:
+                            nodes.add(b)
+                            nxt.append(b)
+            frontier = nxt
+        sc.hierarchies[hname + (f"@{tag}" if tag else "")] = [
+            [_render(spec, it, a, consts, now), _render(spec, it, b, consts, now)] for a, b in sorted(links)]
     return sc

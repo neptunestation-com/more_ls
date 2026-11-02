@@ -8,7 +8,7 @@ from mls.spec.model import Spec
 
 
 def preamble_ddl(spec: Spec) -> list[str]:
-    roles = ", ".join(f"'{r}'" for r in spec.roles)
+    roles = ", ".join(f"'{r}'" for r in [*spec.roles, "mls_internal"])
     return [
         f"do $mls$ begin\n"
         f"  if current_user = any (array[{roles}]) then\n"

@@ -191,6 +191,37 @@ obligations (granted: `v2 ∧ ¬v1`; denied: `v1 ∧ ¬v2`); a model is rendered
 English.  Every obligation that depends on an opaque block is flagged (D3).  A table absent from
 one version has no access in that version.
 
+**D34. Helpers run as an internal role, not as the owner (M3).** Hierarchy reachability, the
+depth trigger and the counting trigger must read rows the calling role's policies would hide.
+Rather than `SECURITY DEFINER` as the schema owner (D21 forces RLS on the owner, and the owner
+may be a superuser in development), the compiler creates `mls_internal` (NOLOGIN, NOBYPASSRLS,
+NOINHERIT, no app role a member), transfers ownership of every generated helper to it, and gives it
+explicit `USING (true)` policies on exactly the tables the helpers read (`FOR ALL` on cardinality
+parents it locks).  Its privileges are visible in the catalog and drift checks them (login,
+membership, helper bodies, owners and EXECUTE grants).  `grant mls_internal to current_user` is
+emitted so the deploying role may transfer ownership; it is harmless for the owner (NOINHERIT).
+
+**D35. Hierarchy template (M3, refines D5).** The spec declares the depth column and the bound;
+the compiler maintains the depth (BEFORE INSERT OR UPDATE trigger, SECURITY DEFINER), bounds it
+(`CHECK ((0 <= depth and depth <= d) IS TRUE)`), fixes the parent (implicit NULL-aware transition
+rule `mls_h_<h>_parent_immutable`) and adds the two FKs (parent → id, members value → id).
+`in_group` compiles to `col = any ((select mls_reach_<h>(key))::type[])` — the cast is required,
+`any ((select f()))` parses as a subquery-ANY — where `mls_reach_<h>` is a STABLE SQL function
+with a recursive CTE descending from the user's groups, bounded by the level counter (mutation
+HIERARCHY_SHALLOW stops one level short; HIERARCHY_NO_DEPTH_CHECK drops the CHECK).  The proof
+unrolls exactly `max_depth` parents.  Reparenting stays v2.  The EXPLAIN loader builds the tree
+level by level (node i has parent i / 10), because BEFORE triggers cannot see rows of the same
+statement.
+
+**D36. Cardinality template (M3, refines D4).** NULL groups are not counted; an UPDATE that keeps
+the group skips the check; the trigger locks the parent row `FOR UPDATE`, then counts; proofs and
+reports assume READ COMMITTED (under REPEATABLE READ the count after the lock reads a stale
+snapshot).  Mutations: CARDINALITY_OFF_BY_ONE (`count > max`) is caught by the differential test;
+CARDINALITY_NO_LOCK is caught only by the parallel-writer test (`tests/templates/test_cardinality.py`:
+8 writers × 6 attempts against max 5 end with exactly 5 rows with the lock and more without it).
+Pre-flight counts the rows of over-full groups; the differential oracle (`pg/model.py`) implements
+the same rules.
+
 **D33. English rendering is a fixed function of the spec (D10, D15).** `mls explain` and the diff
 and proof reports use `mls/english.py`; the same construct always reads the same way, so a
 reviewer can compare the rendering with the requirement text, and the Milestone 4 loop can check

@@ -94,3 +94,32 @@ def test_opaque_change_is_flagged(example_spec):
     res2 = diff(with_gate, make(d2))
     assert any("different SQL" in n for n in res2.notes)
     assert {a.direction for a in res2.access_changes if a.command == "select"} == {"granted", "denied"}
+
+
+def test_hierarchy_diff():
+    """Replacing direct membership by in_group grants access (and denies nothing); lowering the
+    depth bound denies access to the deepest groups and the diff names the changed hierarchy."""
+    from tests.templates import specs
+
+    flat, org = specs.org_flat_spec(), specs.org_base_spec()
+    res = diff(flat, org)
+    assert ("files", "authenticated", "select", "using", "granted") in changes(res)
+    assert ("files", "authenticated", "select", "using", "denied") not in changes(res)
+    a = next(a for a in res.access_changes if a.table == "files" and a.command == "select")
+    assert a.scenario.hierarchies
+    d = specs.org_base()
+    d["hierarchies"]["org"]["max_depth"] = 2
+    shallow = specs.make(d)
+    res = diff(org, shallow)
+    assert ("files", "authenticated", "select", "using", "denied") in changes(res)
+    assert ("files", "authenticated", "select", "using", "granted") not in changes(res)
+    assert any("depth bound changed from 3 to 2" in n for n in res.notes)
+    assert not diff(org, org).any_change
+    # a different members relation is a different tree: both directions change
+    d = specs.org_base()
+    d["relations"]["other"] = {"table": "group_members", "key": "user_id", "value": "group_id"}
+    d["hierarchies"]["org"]["members"] = "other"
+    d["properties"] = [p for p in d["properties"] if p["id"] != "P2"]
+    res = diff(org, specs.make(d))
+    assert any("defined differently" in n for n in res.notes)
+    assert ("files", "authenticated", "select", "using", "denied") in changes(res)

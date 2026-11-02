@@ -16,6 +16,7 @@ from dataclasses import dataclass
 import psycopg
 from psycopg import sql as psql
 
+from mls.compile.internal import INTERNAL_ROLE, needs_internal_role
 from mls.compile.plan import Script
 from mls.pg.catalog import Snapshot, snapshot
 from mls.spec.model import Spec
@@ -55,7 +56,11 @@ def shadow_snapshot(conn: psycopg.Connection, spec: Spec, script: Script) -> Sna
             if st.section == "roles":
                 continue  # roles are global; their attributes are compared directly
             cur.execute(st.sql)
-    return snapshot(conn, shadow, list(spec.tables), list(spec.roles))
+    return snapshot(conn, shadow, list(spec.tables), _roles(spec))
+
+
+def _roles(spec: Spec) -> list[str]:
+    return list(spec.roles) + ([INTERNAL_ROLE] if needs_internal_role(spec) else [])
 
 
 def compare(spec: Spec, expected: Snapshot, actual: Snapshot) -> list[DriftItem]:
@@ -98,7 +103,13 @@ def compare(spec: Spec, expected: Snapshot, actual: Snapshot) -> list[DriftItem]
             items.append(DriftItem("hardening", f"table {t}: row level security is not forced"))
         if act["owner"] in spec.roles:
             items.append(DriftItem("hardening", f"table {t}: owned by app role {act['owner']}"))
-    for r in spec.roles:
+    for name, e in expected["functions"].items():
+        a = actual["functions"].get(name)
+        if a is None:
+            items.append(DriftItem("missing", f"function {name}"))
+        elif a != e:
+            items.append(DriftItem("differs", f"function {name}", str(e), str(a)))
+    for r in _roles(spec):
         a = actual["roles"].get(r)
         if a is None:
             items.append(DriftItem("missing", f"role {r}"))
@@ -109,13 +120,19 @@ def compare(spec: Spec, expected: Snapshot, actual: Snapshot) -> list[DriftItem]
             items.append(DriftItem("hardening", f"role {r} is a superuser"))
         if a["can_set_replication_role"]:
             items.append(DriftItem("hardening", f"role {r} may SET session_replication_role"))
+        if r == INTERNAL_ROLE:
+            if a["login"]:
+                items.append(DriftItem("hardening", f"role {r} can log in"))
+            for mbr in a["members"]:
+                if mbr in spec.roles:
+                    items.append(DriftItem("hardening", f"app role {mbr} is a member of {r}"))
     return items
 
 
 def drift(conn: psycopg.Connection, spec: Spec, script: Script, schema: str = "public") -> DriftResult:
     with conn.transaction(force_rollback=True):  # nests as a savepoint inside a caller's transaction
         expected = shadow_snapshot(conn, spec, script)
-        actual = snapshot(conn, schema, list(spec.tables), list(spec.roles))
+        actual = snapshot(conn, schema, list(spec.tables), _roles(spec))
     items = compare(spec, expected, actual)
     notes = [f"table '{t}' in schema '{schema}' is not in the spec" for t in actual["other_tables"]]
     return DriftResult(items, notes)

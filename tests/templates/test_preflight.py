@@ -42,6 +42,43 @@ def test_preflight_counts_match_model(pg_dsn):
         h.close()
 
 
+def test_preflight_hierarchy_and_cardinality(pg_dsn):
+    """Adding a hierarchy and a cardinality limit counts the rows the template constraints reject
+    (members of missing groups, files of missing tenants, files in over-full tenants) exactly as the
+    concrete model does."""
+    old, new = specs.org_flat_spec(), specs.org_base_spec()
+    h = Harness(old, compile_spec(old), pg_dsn, "mls_preflight3")
+    h.deploy()
+    try:
+        rnd = random.Random(11)
+        gen = ValueGen(old, h.adapter, rnd, null_p=0.3)
+        ds = generate_dataset(old, h.adapter, rnd, 150, gen)
+        h.load(ds)
+        res = preflight(h.conn, new, old)
+        by_what = {(v.table, v.what): v.count for v in res.violations}
+        group_ids = {r["id"] for r in ds.tables["groups"]}
+        tenant_ids = {r["id"] for r in ds.tables["tenants"]}
+        files = ds.tables["files"]
+        exp_members = sum(1 for r in ds.tables["group_members"] if r["group_id"] not in group_ids)
+        exp_tenants = sum(1 for r in files if r["tenant_id"] is not None and r["tenant_id"] not in tenant_ids)
+        per_tenant: dict = {}
+        for r in files:
+            if r["tenant_id"] is not None:
+                per_tenant[r["tenant_id"]] = per_tenant.get(r["tenant_id"], 0) + 1
+        exp_full = sum(n for n in per_tenant.values() if n > 5)
+        assert exp_full > 0 and exp_members > 0 and exp_tenants > 0, (exp_full, exp_members, exp_tenants)
+        assert by_what[("group_members", "reference a missing groups row via group_id")] == exp_members
+        assert by_what[("files", "reference a missing tenants row via tenant_id")] == exp_tenants
+        assert by_what[("files", "share a tenant_id with more than 5 rows")] == exp_full
+        assert ("groups", "have a depth beyond 3") not in by_what          # every group is a root
+        assert ("groups", "reference a missing groups row via parent_id") not in by_what
+        for v in res.violations:
+            assert v.cond, str(v)
+        assert preflight(h.conn, new, new).ok
+    finally:
+        h.close()
+
+
 def test_preflight_new_columns_and_fks(pg_dsn):
     """A check on a column that does not exist yet sees NULL; an FK to a new relation table
     counts every non-null pair; a new NOT NULL column counts every row."""

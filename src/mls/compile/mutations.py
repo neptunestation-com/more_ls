@@ -17,3 +17,7 @@ class Mutation(str, Enum):
     HARDENING_NO_FORCE = "hardening_no_force"        # skip FORCE ROW LEVEL SECURITY
     OPAQUE_INVERT = "opaque_invert"                  # negate opaque SQL
     MIGRATE_SKIP_VALIDATE = "migrate_skip_validate"  # leave migrated constraints NOT VALID
+    HIERARCHY_SHALLOW = "hierarchy_shallow"          # reach one level less than max_depth
+    HIERARCHY_NO_DEPTH_CHECK = "hierarchy_no_depth_check"  # omit CHECK (depth <= max_depth)
+    CARDINALITY_OFF_BY_ONE = "cardinality_off_by_one"  # n > max instead of n + 1 > max
+    CARDINALITY_NO_LOCK = "cardinality_no_lock"      # skip the parent-row lock (concurrency)

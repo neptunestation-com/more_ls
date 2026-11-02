@@ -6,8 +6,8 @@ from mls.compile.opaque import opaque_sql
 from mls.compile.time import now_between_sql
 from mls.identity.base import SQL_TYPE, Adapter
 from mls.spec.model import (
-    And, ColRef, ColType, Const, CtxRef, Cmp, IsNull, Lit, Member, NewRef, Not, NowBetween, OldRef,
-    OpaqueRef, Or, Pred, Spec,
+    And, ColRef, ColType, Const, CtxRef, Cmp, InGroup, IsNull, Lit, Member, NewRef, Not, NowBetween,
+    OldRef, OpaqueRef, Or, Pred, Spec,
 )
 
 
@@ -78,6 +78,18 @@ class SqlCompiler:
             kt = self.spec.tables[rel.table].columns[rel.key].type
             return (f"({self.term(m.value, table)} = any (array(select {q(rel.value)} from {q(rel.table)} "
                     f"where {q(rel.key)} = {self.term(m.key, table, kt)})))")
+        if isinstance(p, InGroup):
+            from mls.compile.hierarchy import reach_fn_name
+
+            g = p.in_group
+            h = self.spec.hierarchies[g.hierarchy]
+            rel = self.spec.relations[h.members]
+            kt = self.spec.tables[rel.table].columns[rel.key].type
+            it = SQL_TYPE[self.spec.tables[h.table].columns[h.id].type]
+            # the cast makes the scalar subquery an array expression (ANY (subquery) would compare
+            # the value with the whole array row); it stays an uncorrelated InitPlan
+            return (f"({self.term(g.value, table)} = any ((select {q(reach_fn_name(g.hierarchy))}"
+                    f"({self.term(g.key, table, kt)}))::{it}[]))")
         if isinstance(p, NowBetween):
             nb = p.now_between
             return now_between_sql(

@@ -28,10 +28,17 @@ def deploy_with_data(spec, dsn, dbname, seed=0, rows=30):
     return h
 
 
-@pytest.mark.parametrize("pair", [("a", "b"), ("b", "c"), ("c", "d"), ("d", "a")])
+PAIRS = [("v_a", "v_b"), ("v_b", "v_c"), ("v_c", "v_d"), ("v_d", "v_a"),
+         # Milestone 3: adding a hierarchy and a cardinality limit (internal role, SECURITY DEFINER
+         # helpers, triggers, template FKs), then changing policies around them and the limit itself
+         ("org_flat_spec", "org_base_spec"), ("org_base_spec", "hierarchy_spec"),
+         ("hierarchy_spec", "cardinality_spec"), ("cardinality_spec", "org_base_spec")]
+
+
+@pytest.mark.parametrize("pair", PAIRS, ids=["->".join(p) for p in PAIRS])
 def test_migration_reaches_the_new_spec(pg_dsn, pair):
-    old = getattr(specs, f"v_{pair[0]}")()
-    new = getattr(specs, f"v_{pair[1]}")()
+    old = getattr(specs, pair[0])()
+    new = getattr(specs, pair[1])()
     h = deploy_with_data(old, pg_dsn, "mls_migrate")
     try:
         assert drift(h.conn, old, compile_spec(old)).ok
@@ -64,6 +71,27 @@ def test_migration_reaches_the_new_spec(pg_dsn, pair):
             h2.close(drop=False)
         assert res.ok, res.summary() + "\n" + "\n".join(str(x) for x in res.mismatches[:10])
         assert res.visible_rows > 0
+    finally:
+        h.close()
+
+
+def test_dropping_a_hierarchy(pg_dsn):
+    """Removing the hierarchy and the limit drops the helpers, triggers, template constraints and
+    the internal policies; the database then matches a fresh deploy of the flat spec."""
+    old, new = specs.org_base_spec(), specs.org_flat_spec()
+    h = deploy_with_data(old, pg_dsn, "mls_migrate_flat")
+    try:
+        with h.conn.cursor() as cur:  # the flat spec allows only root groups (restrict FKs: members first)
+            cur.execute('delete from "files"; delete from "group_members"; delete from "groups" where "parent_id" is not null')
+        assert preflight(h.conn, new, old).ok
+        apply_migration(h.conn, migrate(old, new, allow_destructive=True))
+        d = drift(h.conn, new, compile_spec(new))
+        assert d.ok, "\n".join(str(i) for i in d.items)
+        with h.conn.cursor() as cur:
+            cur.execute("select proname from pg_proc where proname like 'mls_reach_%' or proname like 'mls_card_%'")
+            assert cur.fetchall() == []
+            cur.execute("select polname from pg_policy where polname like 'mls_internal_%'")
+            assert cur.fetchall() == []
     finally:
         h.close()
 

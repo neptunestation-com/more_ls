@@ -20,14 +20,17 @@ differential tests, and every compiler template must agree with it.
 | `cmp(col, op, ctx|const)` | ordinary comparison | `col` indexed |
 | `member(rel, key=ctx, val=col)` | `(ctx, col) ∈ rel` | compiles to `col = any(array(select ...))` |
 | `now_between(from_col, until_col)` | `from <= now < until`, NULL bound = open | indexed bounds or small row set |
-| `in_group(col, hierarchy)` | `col` ∈ groups reachable from the user within depth d | array InitPlan from recursive CTE |
+| `in_group(hierarchy, key=ctx, value=col)` | `∃ g: (ctx, g) ∈ members ∧ g = col ∨ g = parent(col) ∨ … ∨ g = parentᵈ(col)` (the row's group is one of the user's groups or lies below one, within depth d) | array InitPlan from a recursive CTE descending from the user's groups |
 | `is_null(col)` | two-valued | — |
 | `opaque(name)` | uninterpreted predicate over declared inputs | never (excluded from perf guarantees) |
 
 Restrictions checked by the fragment checker: right-hand sides of comparisons are context or
 constants; membership keys are context, not columns (no per-row correlated subqueries in policies);
 negated membership is rejected in policies (anti-join) unless inside an `opaque` block; membership
-value columns are NOT NULL.
+value columns are NOT NULL.  `in_group` follows the membership rules (key is context, value is a
+column of the hierarchy's id type, no negation in policies) and is not allowed in checks and
+transitions (it reads other tables).  NULL key or value makes it UNKNOWN; the walk-up stops at a
+missing parent row (the FK makes that impossible for stored data) or at a root.
 
 `now()` is the transaction start time and is modeled as a context value `ctx.now`.
 Compiled as `(select now())`.
@@ -46,6 +49,43 @@ Compiled as `(select now())`.
 | `opaque` (name, inputs, sql) | uninterpreted predicate | raw SQL, wrapped and named |
 
 Column rules in v1 are per Postgres role, not per row. Row-dependent column masking is v2.
+
+### 3.1 Hierarchies (D5, D35)
+
+A hierarchy names a table, its single-column primary key `id`, a nullable `parent` column of the
+same type, an int NOT NULL `depth` column, a bound `max_depth` (1–16) and a `members` relation
+whose value has the id's type.  Meaning of the stored data: `parent` is NULL for roots and a stored
+id otherwise (FK); `depth` is 0 for roots and the parent's depth + 1 otherwise (a BEFORE INSERT OR
+UPDATE trigger sets it; the app never writes it); `0 ≤ depth ≤ max_depth` (CHECK); `parent` never
+changes (implicit transition rule `mls_h_<name>_parent_immutable`, NULL-aware: a NULL parent stays
+NULL).  Because the parent is immutable and every stored row's parent existed before it, the
+stored rows form a forest of depth ≤ max_depth and a chain of parents from any row reaches a root in
+≤ max_depth steps.  The members relation value column gets an FK to the id.  The proof side
+unrolls `parent` exactly max_depth times (the `has_parent`/`parent` functions are uninterpreted;
+the depth bound is what makes the unrolling exact).
+
+### 3.2 Cardinality limits (D4, D36)
+
+`cardinality(table, group, parent, max)` means: for every stored value `g` of `group`, at most
+`max` rows of `table` have `group = g`.  Rows with `group` NULL are not counted.  `group` gets an
+FK to the parent table's single-column primary key.  Enforcement is a BEFORE INSERT OR UPDATE OF
+`group` row trigger: a NULL new group returns; an UPDATE that keeps the group returns (no change
+of the count); otherwise it locks the parent row `FOR UPDATE`, counts the rows of the new group
+and raises `check_violation` if `count + 1 > max`.  Correct under READ COMMITTED (the count after
+the lock sees committed rows of the writers that held the lock before); not under REPEATABLE READ,
+where the count uses the transaction's snapshot (stated as an assumption in every report).  The
+proof side uses integer functions `cnt@before`, `cnt@after` (SEMANTICS §7).
+
+### 3.3 The internal role (D34)
+
+Both templates need to read tables as a role the app policies do not filter: the reachability
+function must see every group (a user's policy on `groups` would hide the ancestors they are not a
+member of), the depth trigger must read the parent row, the counting trigger must see every row of
+the group.  The compiler creates one NOLOGIN, NOBYPASSRLS, NOINHERIT role `mls_internal` that owns
+the generated helpers (`SECURITY DEFINER`, `SET search_path FROM CURRENT`); for every table a helper
+reads it gets a permissive `SELECT ... USING (true)` policy `mls_internal_<table>` (and `FOR ALL`
+on cardinality parents, which it locks), plus the matching grants.  Nobody can log in as it, no app
+role is a member of it (drift reports both), and the helpers are the only code it runs.
 
 ## 4. NULL normalization (verified on PG 16)
 
@@ -92,12 +132,18 @@ All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered 
   and `v1 ∧ ¬v2` (new denials) over shared relation symbols; each model is a scenario.
 - **Cardinality:** counts are integer functions `cnt(g)`; insert into g: `cnt'(g) = cnt(g)+1`, guarded
   by `cnt(g)+1 <= N`; prove `cnt(g) <= N` is preserved.
-- **Hierarchy:** reachability unrolled to depth d with the depth CHECK as an axiom.
+- **Hierarchy:** `in_group(h, k, v)` is encoded as `∨_{i=0..d} chain_i(v) ∧ member(members, k, parentⁱ(v))`
+  with `chain_i(v)` = the first i ancestors exist (`has_parent`), over uninterpreted `parent` /
+  `has_parent` functions; the depth bound d is the declared `max_depth`.  Two versions of a spec
+  share these functions when the tree (table, columns, members relation) is the same, so a
+  changed `max_depth` diffs exactly; a changed tree is a different function (tagged `@new`).
 - **Opaque blocks:** uninterpreted predicates; any proof whose UNSAT core includes one is reported as
   conditional on it. A property that holds only by constraining an opaque block is REFUTED.
 
 ## 8. Explicit assumptions in every proof report
 
-Identity adapter assumption; trusted roles (owner, superuser) after hardening; isolation level for
-non-engine-enforced constructs (cardinality relies on the parent-row lock); opaque blocks used;
-Postgres version range validated by the differential tests.
+Identity adapter assumption; trusted roles (owner, superuser, and the internal role `mls_internal`
+that owns the SECURITY DEFINER helpers) after hardening; isolation level for non-engine-enforced
+constructs (cardinality relies on the parent-row lock under READ COMMITTED); opaque blocks used,
+each with its declared signature and SQL, and the number of proofs conditional on them; Postgres
+version range validated by the differential tests.

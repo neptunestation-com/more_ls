@@ -154,6 +154,15 @@ def test_monotonicity_refuted_by_opaque_reading_relation():
     r = run_property(spec, next(p for p in spec.properties if p.id == "P3"))
     assert r.verdict == "REFUTED"
     assert r.conditional_on == ["outsider"]
+    # full opaque reporting: the summary counts conditional proofs and the assumptions quote the SQL
+    from mls.props.report import to_json, to_markdown
+    results = run_all(spec)
+    n_cond = sum(1 for x in results if x.verdict == "PROVED" and x.conditional_on)
+    assert n_cond > 0
+    md = to_markdown(spec, results)
+    assert f"({n_cond} conditional on opaque blocks)" in md
+    assert "opaque block 'outsider' on docs (columns tenant_id; context uid; relations member_of) is unverified SQL: `not exists" in md
+    assert to_json(spec, results)["summary"]["CONDITIONAL"] == n_cond
     # and isolation is now conditional on the block: the block could admit any row
     p1 = run_property(spec, spec.properties[0])
     assert p1.verdict == "REFUTED" and p1.conditional_on == ["outsider"]

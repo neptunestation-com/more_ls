@@ -12,6 +12,7 @@ from mls.pg.server import PG_VERSIONS
 
 ROOT = Path(__file__).resolve().parent.parent
 EXAMPLE = ROOT / "examples" / "tenant_docs.mls.json"
+ORG_TREE = ROOT / "examples" / "org_tree.mls.json"
 
 _versions = os.environ.get("MLS_PG_VERSIONS", ",".join(PG_VERSIONS)).split(",")
 _dsn = os.environ.get("MLS_PG_DSN")
@@ -42,5 +43,14 @@ def example_spec():
     from mls.spec import check_spec, load_spec
 
     spec = load_spec(EXAMPLE)
+    check_spec(spec)
+    return spec
+
+
+@pytest.fixture(scope="session")
+def org_spec():
+    from mls.spec import check_spec, load_spec
+
+    spec = load_spec(ORG_TREE)
     check_spec(spec)
     return spec

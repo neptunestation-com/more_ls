@@ -24,6 +24,9 @@ CASES = {
     "time": (specs.time_spec, Mutation.TIME_NULL_CLOSED, None),
     "opaque": (specs.opaque_spec, Mutation.OPAQUE_INVERT, specs.opaque_impl),
     "pg_roles": (specs.pg_roles_spec, Mutation.POLICY_ALL_RESTRICTIVE, None),
+    "hierarchy": (specs.hierarchy_spec, Mutation.HIERARCHY_SHALLOW, None),
+    "hierarchy_depth": (specs.hierarchy_spec, Mutation.HIERARCHY_NO_DEPTH_CHECK, None),
+    "cardinality": (specs.cardinality_spec, Mutation.CARDINALITY_OFF_BY_ONE, None),
 }
 
 

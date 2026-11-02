@@ -56,7 +56,12 @@ Read before writing code, in this order:
   server). `-m slow` runs the EXPLAIN checks at 1M rows.
 - Every compiler template has a `Mutation` (compile/mutations.py); `tests/templates` proves each
   mutation is caught by the differential test. Add a mutation when you add a template.
-- Implementation defaults decided during M1 are D21–D27, during M2 D28–D33, in `docs/DECISIONS.md`.
+- Implementation defaults decided during M1 are D21–D27, during M2 D28–D33, during M3 D34–D36, in
+  `docs/DECISIONS.md`.
+- M3: hierarchies and cardinality limits compile to SECURITY DEFINER helpers owned by `mls_internal`
+  (compile/internal.py, hierarchy.py, cardinality.py). The parent-row lock is only testable with
+  parallel writers (`tests/templates/test_cardinality.py`); `-m cvc5` cross-checks the org_tree
+  example too (integer-quantified obligations need cvc5 without finite-model-find).
 - `uv run mls explain|diff|migrate|preflight|drift ...` (M2). Migrations are phased; every statement
   kind has a lock mode in `compile/migrate.py:LOCKS` that `tests/templates/test_locks.py` observes
   on every PG version — add the kind and its mode when you add a migration statement.

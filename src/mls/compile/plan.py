@@ -1,7 +1,7 @@
 """Compile a checked spec into an ordered DDL script of fixed templates.
 
-Sections, in order: preamble, roles, tables, checks, fks, transitions, rls, policies, indexes,
-grants.  Before emitting, the compiler proves the soundness obligations that the targets need
+Sections, in order: preamble, roles, tables, checks, fks, transitions, hierarchies, cardinalities,
+rls, policies, indexes, grants.  Before emitting, the compiler proves the soundness obligations that the targets need
 (relation visibility: a membership subquery in a policy must not be filtered by RLS on the
 relation's table) and refuses with an actionable error if any fails (invariant 4).
 """
@@ -9,8 +9,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from mls.compile.cardinality import cardinality_ddl
 from mls.compile.check import check_ddl
 from mls.compile.column import grant_ddl, privileges, relations_in
+from mls.compile.hierarchy import hierarchy_ddl
+from mls.compile.internal import internal_policies, internal_role_ddl
 from mls.compile.fk import fk_ddl
 from mls.compile.hardening import preamble_ddl, role_ddl, table_hardening_ddl
 from mls.compile.index import index_ddl
@@ -21,7 +24,7 @@ from mls.compile.table import table_ddl
 from mls.compile.transition import transition_ddl
 from mls.errors import CompileError, MlsError
 from mls.identity import get_adapter
-from mls.props.effective import all_policies
+from mls.props.effective import all_policies, all_transitions
 from mls.spec.model import Spec
 
 
@@ -100,16 +103,21 @@ def compile_spec(spec: Spec, mutations: frozenset[Mutation] | set[Mutation] = fr
                             "trusted roles: the owner of the MLS schema and superusers"])
     s.add("preamble", preamble_ddl(spec))
     s.add("roles", role_ddl(spec))
+    s.add("roles", internal_role_ddl(spec))
     for name, t in spec.tables.items():
         s.add("tables", table_ddl(name, t))
     for r in spec.checks():
         s.add("checks", check_ddl(r, sc), r.id)
     for r in spec.inclusions():
         s.add("fks", fk_ddl(r, sc), r.id)
-    for r in spec.transitions():
+    for r in all_transitions(spec):
         s.add("transitions", transition_ddl(r, sc), r.id)
+    for name in spec.hierarchies:
+        s.add("hierarchies", hierarchy_ddl(spec, name, sc), f"hierarchy:{name}")
+    for r in spec.cardinalities():
+        s.add("cardinalities", cardinality_ddl(spec, r, sc), r.id)
     s.add("rls", table_hardening_ddl(spec, mutations))
-    for p in all_policies(spec):
+    for p in all_policies(spec) + internal_policies(spec):
         s.add("policies", policy_ddl(p, sc), p.id)
     if Mutation.INDEX_NONE not in mutations:
         s.add("indexes", index_ddl(spec))

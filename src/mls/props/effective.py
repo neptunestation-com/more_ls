@@ -5,9 +5,11 @@ WITH CHECK defaults to USING for ALL and UPDATE policies.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from mls.spec.model import (
-    And, CheckRule, Cmp, InclusionRule, IsNull, Lit, Member, MemberBody, Not, Or, PolicyRule, Pred,
-    Spec, ColRef, TransitionRule,
+    And, CheckRule, Cmp, InclusionRule, InGroup, IsNull, Lit, Member, MemberBody, NewRef, Not, OldRef,
+    Or, PolicyRule, Pred, Spec, ColRef, TransitionRule,
 )
 
 Which = str  # "using" | "check"
@@ -92,8 +94,51 @@ def members_in(p: Pred | None, out: list[MemberBody]) -> list[MemberBody]:
     return out
 
 
+def in_groups_in(p: Pred | None, out: list) -> list:
+    if p is None:
+        return out
+    if isinstance(p, InGroup):
+        out.append(p.in_group)
+    elif isinstance(p, And):
+        for a in p.and_:
+            in_groups_in(a, out)
+    elif isinstance(p, Or):
+        for a in p.or_:
+            in_groups_in(a, out)
+    elif isinstance(p, Not):
+        in_groups_in(p.not_, out)
+    return out
+
+
+def relations_of(spec: Spec, p: Pred | None) -> set[str]:
+    """Relations a predicate depends on: membership atoms and the members relation of every
+    hierarchy it uses."""
+    out = {m.relation for m in members_in(p, [])}
+    # (a hierarchy of the other version in an access diff is simply absent here)
+    out |= {spec.hierarchies[g.hierarchy].members for g in in_groups_in(p, []) if g.hierarchy in spec.hierarchies}
+    return out
+
+
 def all_policies(spec: Spec) -> list[PolicyRule]:
     return spec.policies() + implicit_policies(spec)
+
+
+def implicit_transitions(spec: Spec) -> list[TransitionRule]:
+    """D5: a hierarchy's parent column is immutable (NULL-aware), so depth never changes after
+    insert and the tree cannot acquire cycles."""
+    out = []
+    for name, h in spec.hierarchies.items():
+        out.append(TransitionRule(
+            id=f"implicit:hierarchy:{name}", kind="transition", name=f"mls_h_{name}_parent_immutable",
+            table=h.table,
+            predicate=Or.model_construct(or_=[
+                And.model_construct(and_=[IsNull(is_null=OldRef(old=h.parent)), IsNull(is_null=NewRef(new=h.parent))]),
+                Cmp(cmp=(NewRef(new=h.parent), "=", OldRef(old=h.parent)))])))
+    return out
+
+
+def all_transitions(spec: Spec) -> list[TransitionRule]:
+    return spec.transitions() + implicit_transitions(spec)
 
 
 def policies_for(spec: Spec, table: str, role: str, cmd: str, skip: tuple[str, ...] = ()) -> list[PolicyRule]:
@@ -125,13 +170,50 @@ def inclusion_pred(spec: Spec, r: InclusionRule) -> Pred:
     return _or(*parts)
 
 
+def hierarchy_checks(spec: Spec, table: str) -> list[Pred]:
+    """The compiler's depth bound on a hierarchy table (D5): 0 <= depth <= max_depth."""
+    from mls.spec.model import Const
+
+    out: list[Pred] = []
+    for h in spec.hierarchies.values():
+        if h.table == table:
+            out.append(And.model_construct(and_=[
+                Cmp(cmp=(ColRef(col=h.depth), ">=", Const(const=0))),
+                Cmp(cmp=(ColRef(col=h.depth), "<=", Const(const=h.max_depth)))]))
+    return out
+
+
 def row_constraints(spec: Spec, table: str) -> Pred:
-    """Engine-enforced single-row constraints on every stored row of `table`: CHECKs and FKs."""
+    """Engine-enforced single-row constraints on every stored row of `table`: CHECKs, FKs and
+    the hierarchy depth bound."""
     parts: list[Pred] = [c.predicate for c in spec.checks() if c.table == table]
     parts += [inclusion_pred(spec, i) for i in spec.inclusions() if i.table == table]
+    parts += hierarchy_checks(spec, table)
     return _and(*parts)
 
 
+@dataclass(frozen=True)
+class SimpleFk:
+    """A single-column foreign key the hierarchy and cardinality templates emit (RESTRICT both ways)."""
+    table: str
+    column: str
+    parent: str
+    parent_column: str
+    name: str
+
+
+def simple_fks(spec: Spec) -> list[SimpleFk]:
+    out = []
+    for name, h in spec.hierarchies.items():
+        rel = spec.relations[h.members]
+        out.append(SimpleFk(h.table, h.parent, h.table, h.id, f"mls_h_{name}_parent"))
+        out.append(SimpleFk(rel.table, rel.value, h.table, h.id, f"mls_h_{name}_member"))
+    for c in spec.cardinalities():
+        out.append(SimpleFk(c.table, c.group, c.parent, spec.tables[c.parent].primary_key[0],
+                            f"mls_card_{c.name}_parent"))
+    return out
+
+
 def transition_constraints(spec: Spec, table: str) -> Pred:
-    """Every transition rule on `table` (old/new predicates)."""
-    return _and(*[t.predicate for t in spec.transitions() if t.table == table])
+    """Every transition rule on `table` (old/new predicates), including the implicit ones."""
+    return _and(*[t.predicate for t in all_transitions(spec) if t.table == table])

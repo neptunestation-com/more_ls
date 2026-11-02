@@ -29,7 +29,7 @@ from mls.props.effective import effective, row_constraints, transition_constrain
 from mls.props.obligations import Obligation, _relations_of, _rows_for, relation_axioms
 from mls.props.runner import ObligationResult, run_obligation
 from mls.props.scenario import Scenario
-from mls.spec.model import And, Lit, Member, Not, OpaqueRef, Or, Pred, Spec, Table
+from mls.spec.model import And, InGroup, Lit, Member, Not, OpaqueRef, Or, Pred, Spec, Table
 
 ACCESS_CASES = (("select", "using"), ("insert", "check"), ("update", "using"), ("update", "check"),
                 ("delete", "using"))
@@ -115,8 +115,8 @@ def merged_spec(old: Spec, new: Spec) -> Spec:
     identity = new.identity.model_copy(update={"context": context})
     return Spec.model_construct(mls_version=new.mls_version, identity=identity,
                                 roles=sorted({*old.roles, *new.roles}), tables=tables,
-                                relations=relations, opaques={**old.opaques, **new.opaques},
-                                rules=[], properties=[])
+                                relations=relations, hierarchies={**old.hierarchies, **new.hierarchies},
+                                opaques={**old.opaques, **new.opaques}, rules=[], properties=[])
 
 
 def changed_relations(old: Spec, new: Spec) -> set[str]:
@@ -131,23 +131,28 @@ def encoders(old: Spec, new: Spec) -> tuple[Encoder, Encoder]:
     consts: dict[str, int] = {}
     e_old = Encoder(old, consts=consts)
     e_new = Encoder(new, {r: "new" for r in changed_relations(old, new)},
-                    opaque_tags={o: "new" for o in changed_opaques(old, new)}, consts=consts)
+                    opaque_tags={o: "new" for o in changed_opaques(old, new)},
+                    hier_tags={h: "new" for h in changed_hierarchies(old, new)}, consts=consts)
     return e_old, e_new
 
 
-def _symbols(p: Pred | None, rels: set[str], opaques: set[str]) -> None:
+def _symbols(p: Pred | None, rels: set[str], opaques: set[str], spec: Spec | None = None) -> None:
     if isinstance(p, Member):
         rels.add(p.member.relation)
+    elif isinstance(p, InGroup):
+        if spec is not None:
+            rels.add(spec.hierarchies[p.in_group.hierarchy].members)
+        opaques.add(f"hierarchy:{p.in_group.hierarchy}")
     elif isinstance(p, OpaqueRef):
         opaques.add(p.opaque)
     elif isinstance(p, And):
         for a in p.and_:
-            _symbols(a, rels, opaques)
+            _symbols(a, rels, opaques, spec)
     elif isinstance(p, Or):
         for a in p.or_:
-            _symbols(a, rels, opaques)
+            _symbols(a, rels, opaques, spec)
     elif isinstance(p, Not):
-        _symbols(p.not_, rels, opaques)
+        _symbols(p.not_, rels, opaques, spec)
 
 
 def _same(old: Spec, new: Spec, p_old: Pred, p_new: Pred) -> bool:
@@ -157,8 +162,26 @@ def _same(old: Spec, new: Spec, p_old: Pred, p_new: Pred) -> bool:
         return False
     rels: set[str] = set()
     opaques: set[str] = set()
-    _symbols(p_new, rels, opaques)
-    return not (rels & changed_relations(old, new)) and not (opaques & changed_opaques(old, new))
+    _symbols(p_new, rels, opaques, new)
+    hiers = {o[len("hierarchy:"):] for o in opaques if o.startswith("hierarchy:")}
+    return (not (rels & changed_relations(old, new)) and not (opaques & changed_opaques(old, new))
+            and not (hiers & (changed_hierarchies(old, new) | rebounded_hierarchies(old, new))))
+
+
+def _shape(h):
+    return (h.table, h.id, h.parent, h.depth, h.members)
+
+
+def changed_hierarchies(old: Spec, new: Spec) -> set[str]:
+    """Hierarchies whose tree (table, columns, members relation) differs: their parent links are
+    different functions.  A change of the depth bound alone keeps the tree (see rebounded_hierarchies)."""
+    return {n for n, h in new.hierarchies.items() if n in old.hierarchies and _shape(old.hierarchies[n]) != _shape(h)}
+
+
+def rebounded_hierarchies(old: Spec, new: Spec) -> set[str]:
+    return {n for n, h in new.hierarchies.items()
+            if n in old.hierarchies and _shape(old.hierarchies[n]) == _shape(h)
+            and old.hierarchies[n].max_depth != h.max_depth}
 
 
 def _rels(old: Spec, new: Spec, *preds: Pred | None) -> list[tuple[str, str | None]]:
@@ -278,6 +301,12 @@ def diff(old: Spec, new: Spec, timeout_ms: int = 20000) -> DiffResult:
         if o is not None and o != cv:
             notes.append(f"context value '{n}' changed ({o.source}:{o.type} → {cv.source}:{cv.type}); "
                          f"treated as the same value")
+    for h in sorted(rebounded_hierarchies(old, new)):
+        notes.append(f"hierarchy '{h}': the depth bound changed from {old.hierarchies[h].max_depth} to "
+                     f"{new.hierarchies[h].max_depth} (same tree, unrolled to the new bound)")
+    for h in sorted(changed_hierarchies(old, new)):
+        notes.append(f"hierarchy '{h}' is defined differently in the two versions (its parent links "
+                     f"are treated as a different tree)")
     for r in sorted(changed_relations(old, new)):
         notes.append(f"relation '{r}' is defined differently in the two versions and is treated as "
                      f"a different relation")

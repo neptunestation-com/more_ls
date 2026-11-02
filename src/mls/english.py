@@ -9,8 +9,8 @@ from __future__ import annotations
 from typing import Any
 
 from mls.spec.model import (
-    CONTEXT_NOW, And, CheckRule, ColRef, ColumnImmutable, ColumnRule, Cmp, Const, CtxRef, Custom,
-    InclusionRule, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MonotoneIn, NewRef, Not,
+    CONTEXT_NOW, And, CardinalityRule, CheckRule, ColRef, ColumnImmutable, ColumnRule, Cmp, Const, CtxRef, Custom,
+    InclusionRule, InGroup, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MonotoneIn, NewRef, Not,
     NowBetween, OldRef, OpaqueRef, Or, PolicyRule, Pred, Property, Rule, Spec, TenantIsolation,
     TransitionRule, WriteSubsetRead,
 )
@@ -67,6 +67,10 @@ def pred(spec: Spec, p: Pred, row: str = "the row", top: bool = True) -> str:
     if isinstance(p, Member):
         m = p.member
         return f"{term(spec, m.value, row)} is among {term(spec, m.key, row)}'s {m.relation}"
+    if isinstance(p, InGroup):
+        g = p.in_group
+        return (f"{term(spec, g.value, row)} is one of {term(spec, g.key, row)}'s {g.hierarchy} "
+                f"groups or lies below one")
     if isinstance(p, NowBetween):
         nb = p.now_between
         parts = []
@@ -93,6 +97,9 @@ def rule(spec: Spec, r: Rule) -> str:
                 f"changed while a row of {r.table} refers to it.")
     if isinstance(r, TransitionRule):
         return f"A change to a row of {r.table} is allowed only if {pred(spec, r.predicate)}."
+    if isinstance(r, CardinalityRule):
+        return (f"A {r.parent} row has at most {r.max} rows of {r.table} (counted by {r.group}); "
+                f"rows with no {r.group} are not counted.")
     if isinstance(r, ColumnRule):
         what = "read" if r.access == "read" else "write"
         return f"{r.role} may {what} only the columns {', '.join(r.columns)} of {r.table}."
@@ -181,6 +188,12 @@ def spec_summary(spec: Spec) -> str:
     lines += ["", "# What is guaranteed (properties)", ""]
     for p in spec.properties:
         lines.append(f"- **{p.id}**: {prop(spec, p)}")
+    if spec.hierarchies:
+        lines += ["", "# Group hierarchies", ""]
+        for name, h in spec.hierarchies.items():
+            lines.append(f"- **{name}**: rows of {h.table} form a tree ({h.parent} points to the parent "
+                         f"{h.id}) at most {h.max_depth} levels deep; a parent never changes; a user "
+                         f"belongs to the groups listed in {h.members} and to everything below them.")
     if spec.opaques:
         lines += ["", "# Unverified SQL blocks", ""]
         for name, o in spec.opaques.items():

@@ -10,11 +10,11 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from mls.props.effective import (
-    effective, inclusion_pred, row_constraints, transition_constraints,
+    effective, inclusion_pred, row_constraints, simple_fks, transition_constraints,
 )
 from mls.spec.model import (
-    CONTEXT_NOW, And, ColRef, ColumnRule, Const, CtxRef, Cmp, InclusionRule, IsNull, Lit, Member,
-    NewRef, Not, NowBetween, OldRef, OpaqueRef, Or, Pred, Spec,
+    CONTEXT_NOW, And, ColRef, ColumnRule, Const, CtxRef, Cmp, InclusionRule, InGroup, IsNull, Lit,
+    Member, NewRef, Not, NowBetween, OldRef, OpaqueRef, Or, Pred, Spec,
 )
 
 Row = dict[str, Any]
@@ -27,6 +27,7 @@ class Database:
     relations: dict[str, set[tuple[Any, Any]]]
     tables: dict[str, list[Row]] = field(default_factory=dict)
     opaque_eval: dict[str, Any] = field(default_factory=dict)  # name -> callable(row, ctx) -> TV
+    spec: Spec | None = None  # needed by in_group (hierarchy structure)
 
 
 def eval_term(t, row: Row, ctx: dict[str, Any], old: Row | None = None, new: Row | None = None):
@@ -76,6 +77,11 @@ def eval_pred(p: Pred, row: Row, ctx: dict[str, Any], db: Database,
         if k is None or v is None:
             return None
         return (k, v) in db.relations[p.member.relation]
+    if isinstance(p, InGroup):
+        k, v = term(p.in_group.key), term(p.in_group.value)
+        if k is None or v is None:
+            return None
+        return in_group(db, p.in_group.hierarchy, k, v)
     if isinstance(p, NowBetween):
         now = ctx[CONTEXT_NOW]
         ok = True
@@ -89,6 +95,25 @@ def eval_pred(p: Pred, row: Row, ctx: dict[str, Any], db: Database,
     if isinstance(p, OpaqueRef):
         return db.opaque_eval[p.opaque](row, ctx)
     raise TypeError(p)
+
+
+def in_group(db: Database, hierarchy: str, key: Any, value: Any) -> bool:
+    """Walk up from `value` through existing nodes, at most max_depth steps: the compiled
+    recursive CTE starts at the user's groups and descends, which reaches `value` iff one of its
+    ancestors-or-self (all existing rows) is a group of the user."""
+    h = db.spec.hierarchies[hierarchy]
+    parent = {r[h.id]: r[h.parent] for r in db.tables.get(h.table, [])}
+    rel = db.relations[h.members]
+    node = value
+    for _ in range(h.max_depth + 1):
+        if node not in parent:
+            return False
+        if (key, node) in rel:
+            return True
+        node = parent[node]
+        if node is None:
+            return False
+    return False
 
 
 def holds(p: Pred, row: Row, ctx: dict[str, Any], db: Database, old: Row | None = None,
@@ -114,6 +139,53 @@ class Oracle:
         if allowed == "*":
             return True
         return all(c in allowed for c in (cols or []))
+
+    # --- the templates' own guards (hierarchy depth trigger, FKs, cardinality trigger)
+    def normalize(self, table: str, row: Row, db: Database) -> Row | None:
+        """What the BEFORE triggers make of a new row: the hierarchy depth is recomputed from the
+        parent (None if the parent does not exist: the trigger raises)."""
+        row = dict(row)
+        for h in self.spec.hierarchies.values():
+            if h.table != table:
+                continue
+            if row[h.parent] is None:
+                row[h.depth] = 0
+            else:
+                parent = next((r for r in db.tables.get(h.table, []) if r[h.id] == row[h.parent]), None)
+                if parent is None:
+                    return None
+                row[h.depth] = parent[h.depth] + 1
+        return row
+
+    def fk_exists(self, table: str, row: Row, db: Database) -> bool:
+        for fk in simple_fks(self.spec):
+            if fk.table != table or row[fk.column] is None:
+                continue
+            if not any(r[fk.parent_column] == row[fk.column] for r in db.tables.get(fk.parent, [])):
+                return False
+        return True
+
+    def cardinality_ok(self, table: str, new: Row, db: Database, old: Row | None = None) -> bool:
+        for c in self.spec.cardinalities():
+            if c.table != table or new[c.group] is None:
+                continue
+            if old is not None and old[c.group] == new[c.group]:
+                continue
+            n = sum(1 for r in db.tables.get(table, []) if r is not old and r[c.group] == new[c.group])
+            if n + 1 > c.max:
+                return False
+        return True
+
+    def stored_ok(self, table: str, row: Row, db: Database) -> Row | None:
+        """The row as stored if the owner inserted it (constraints and template guards), else None."""
+        row = self.normalize(table, row, db)
+        if row is None or not self.fk_exists(table, row, db):
+            return None
+        if not holds(row_constraints(self.spec, table), row, {CONTEXT_NOW: None}, db):
+            return None
+        if not self.cardinality_ok(table, row, db) or self._unique_violation(table, row, db):
+            return None
+        return row
 
     def visible(self, role: str, row: Row, ctx: dict, db: Database, table: str) -> bool:
         """SELECT: the row is visible iff SELECT-USING is TRUE (privileges are checked per
@@ -144,9 +216,14 @@ class Oracle:
             return "error"
         if any(new[c] is None and not col.nullable for c, col in self.spec.tables[table].columns.items()):
             return "error"
+        new = self.normalize(table, new, db)
+        if new is None:
+            return "error"
         if not holds(effective(self.spec, table, role, "insert", "check"), new, ctx, db):
             return "error"
         if not holds(row_constraints(self.spec, table), new, ctx, db):
+            return "error"
+        if not self.fk_exists(table, new, db) or not self.cardinality_ok(table, new, db):
             return "error"
         if self._unique_violation(table, new, db):
             return "error"
@@ -165,6 +242,9 @@ class Oracle:
             return "filtered"
         if reads_columns and not holds(sel, old, ctx, db):
             return "filtered"
+        new = self.normalize(table, new, db)
+        if new is None:
+            return "error"
         if not holds(effective(self.spec, table, role, "update", "check"), new, ctx, db):
             return "error"
         if reads_columns and not holds(sel, new, ctx, db):
@@ -174,6 +254,8 @@ class Oracle:
         if not holds(row_constraints(self.spec, table), new, ctx, db):
             return "error"
         if not holds(transition_constraints(self.spec, table), new, ctx, db, old=old, new=new):
+            return "error"
+        if not self.fk_exists(table, new, db) or not self.cardinality_ok(table, new, db, old):
             return "error"
         if self._unique_violation(table, new, db, old):
             return "error"
@@ -198,7 +280,15 @@ class Oracle:
 
     def _fk_restrict_violation(self, table: str, old: Row, new: Row | None, db: Database) -> bool:
         """ON DELETE/UPDATE RESTRICT: removing a referenced (key, value) pair of a relation
-        backed by `table` errors if any row references it."""
+        backed by `table`, or a referenced single-column key, errors if any row references it."""
+        for fk in simple_fks(self.spec):
+            if fk.parent != table:
+                continue
+            key = old[fk.parent_column]
+            if new is not None and new[fk.parent_column] == key:
+                continue
+            if any(r is not old and r[fk.column] == key for r in db.tables.get(fk.table, [])):
+                return True
         for rname, rel in self.spec.relations.items():
             if rel.table != table:
                 continue

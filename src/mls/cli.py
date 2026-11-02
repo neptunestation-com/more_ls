@@ -150,7 +150,7 @@ def _explain(spec, script, dsn: str, label: str, scale: int) -> bool:
     from mls.pg.harness import Harness, ValueGen
     import random
 
-    skinny = Script([s for s in script.statements if s.section not in ("checks", "fks", "transitions")],
+    skinny = Script([s for s in script.statements if s.section not in ("checks", "fks", "transitions", "cardinalities")],
                     script.assumptions)
     h = Harness(spec, skinny, dsn, "mls_explain")
     try:

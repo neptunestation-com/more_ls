@@ -60,7 +60,11 @@ def privileges(spec: Spec) -> dict[tuple[str, str], Priv]:
 
 
 def grant_ddl(spec: Spec, mutations: frozenset[Mutation] = frozenset()) -> list[str]:
+    from mls.compile.internal import INTERNAL_ROLE, internal_grants
+
     out = []
+    for cmd, table in internal_grants(spec):
+        out.append(f"grant {cmd} on {q(table)} to {q(INTERNAL_ROLE)}")
     for (role, table), g in sorted(privileges(spec).items()):
         for cmd in COMMANDS:
             cols = g.get(cmd)

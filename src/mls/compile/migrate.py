@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 
 from mls.compile.hardening import preamble_ddl
 from mls.compile.index import index_sql
+from mls.compile.internal import internal_role_ddl
 from mls.compile.mutations import Mutation
 from mls.compile.objects import GrantObj, Objects, objects
 from mls.compile.sql import q
@@ -53,6 +54,7 @@ LOCKS: dict[str, str | None] = {
     "add fk not valid": "ShareRowExclusiveLock",
     "create function": None,
     "replace function": None,
+    "alter function": None,
     "create trigger": "ShareRowExclusiveLock",
     "create index concurrently": "ShareUpdateExclusiveLock",
     "validate constraint": "ShareUpdateExclusiveLock",
@@ -192,6 +194,9 @@ def migrate(old: Spec, new: Spec, allow_destructive: bool = False,
     for r in o.roles:
         if r not in n.roles:
             m.notes.append(f"role '{r}' is no longer used by the spec; roles are global and are not dropped")
+    if n.internal_role and not o.internal_role:
+        for s in internal_role_ddl(new):
+            schema.add(s, "create role")
     from mls.compile.table import table_ddl
 
     for name in n.tables:
@@ -249,17 +254,31 @@ def migrate(old: Spec, new: Spec, allow_destructive: bool = False,
     for key, c in o.constraints.items():
         if key not in n.constraints and c.table in n.tables:
             swap.add(f"alter table {q(c.table)} drop constraint {q(c.name)}", "drop constraint", c.table, c.rule_id)
+    for name, f in n.functions.items():
+        prev = o.functions.get(name)
+        if prev is None:
+            for i, ddl in enumerate(f.create_ddl()):
+                cons.add(ddl, "create function" if i == 0 else "alter function", None, f.rule_id)
+        else:
+            if prev.ddl != f.ddl:
+                cons.add(f.replace_ddl(), "replace function", None, f.rule_id)
+            if prev.owner != f.owner and f.owner:
+                cons.add(f"alter function {f.signature} owner to {q(f.owner)}", "alter function", None, f.rule_id)
+            if prev.execute != f.execute:
+                for g in set(prev.execute) - set(f.execute):
+                    swap.add(f"revoke execute on function {f.signature} from {q(g)}", "alter function", None, f.rule_id)
+                for g in set(f.execute) - set(prev.execute):
+                    swap.add(f"grant execute on function {f.signature} to {q(g)}", "alter function", None, f.rule_id)
     for key, t in n.triggers.items():
         prev = o.triggers.get(key)
         if prev is None:
-            cons.add(t.fn_ddl, "create function", None, t.rule_id)
             cons.add(t.trigger_ddl, "create trigger", t.table, t.rule_id)
-        elif prev.fn_ddl != t.fn_ddl:
-            cons.add(t.replace_fn_ddl(), "replace function", None, t.rule_id)
+        elif prev.trigger_ddl != t.trigger_ddl:
+            swap.add(f"drop trigger {q(t.name)} on {q(t.table)}", "drop trigger", t.table, t.rule_id)
+            swap.add(t.trigger_ddl, "create trigger", t.table, t.rule_id)
     for key, t in o.triggers.items():
         if key not in n.triggers and t.table in n.tables:
             swap.add(f"drop trigger {q(t.name)} on {q(t.table)}", "drop trigger", t.table, t.rule_id)
-            swap.add(f"drop function {q(t.fn)}()", "drop function", None, t.rule_id)
     # ---- 3. indexes; 6. cleanup
     for key, ix in n.indexes.items():
         if key not in o.indexes:
@@ -293,6 +312,12 @@ def migrate(old: Spec, new: Spec, allow_destructive: bool = False,
     for name in o.tables:
         if name not in n.tables:
             destr.add(f"drop table {q(name)}", "drop table", name)
+    # removed helper functions go after the policies that reference them (swap), or after the
+    # dropped tables whose policies reference them (destructive)
+    for name, f in o.functions.items():
+        if name not in n.functions:
+            used_by_dropped = any(p.table not in n.tables and q(name) in p.ddl for p in o.policies.values())
+            (destr if used_by_dropped else swap).add(f"drop function {f.signature}", "drop function", None, f.rule_id)
     if not m.empty:  # the owner guard comes first
         schema.statements.insert(0, MStatement(preamble_ddl(new)[0], "create table"))
     if destr.statements and not allow_destructive:

@@ -11,17 +11,48 @@ from mls.spec.model import Spec
 PG_VERSIONS = "PostgreSQL 15, 16, 17, 18"
 
 
+def opaque_lines(spec: Spec, names: list[str]) -> list[str]:
+    """One line per opaque block a report depends on: its signature and its SQL, so a reviewer sees
+    exactly which unverified SQL the verdicts rest on (D3)."""
+    out = []
+    for name in names:
+        o = spec.opaques[name]
+        sig = [f"columns {', '.join(o.columns)}" if o.columns else "no columns",
+               f"context {', '.join(o.context)}" if o.context else "no context",
+               f"relations {', '.join(o.relations)}" if o.relations else "no relations"]
+        out.append(f"opaque block '{name}' on {o.table} ({'; '.join(sig)}) is unverified SQL: "
+                   f"`{' '.join(o.sql.split())}`")
+    return out
+
+
+def summary(results: list[PropertyResult]) -> dict[str, int]:
+    s = {v: sum(1 for r in results if r.verdict == v) for v in ("PROVED", "REFUTED", "UNKNOWN")}
+    s["CONDITIONAL"] = sum(1 for r in results if r.verdict == "PROVED" and r.conditional_on)
+    return s
+
+
 def assumptions(spec: Spec, results: list[PropertyResult]) -> list[str]:
     adapter = get_adapter(spec)
     opaque = sorted({d for r in results for d in r.conditional_on})
+    internal = bool(spec.hierarchies or spec.cardinalities())
+    trusted = ("trusted roles: the owner of the MLS schema and superusers bypass policies; the compiler "
+               "forces RLS for owners, so only superusers (and roles granted BYPASSRLS outside MLS) "
+               "remain trusted")
+    if internal:
+        trusted += ("; the internal role mls_internal owns the generated SECURITY DEFINER helpers "
+                    "(group reachability, depth and counting triggers) and may read the tables they "
+                    "need through its own policies; nobody can log in as it")
+    isolation = ("isolation level: READ COMMITTED or stronger with the parent-row lock the cardinality "
+                 "trigger takes; under REPEATABLE READ the count after the lock would use a stale "
+                 "snapshot and the bound could be exceeded"
+                 if spec.cardinalities() else
+                 "isolation level: no assumption (every construct is enforced by the engine on single rows)")
     return [
         f"identity adapter '{adapter.name}': {adapter.assumption}",
-        "trusted roles: the owner of the MLS schema and superusers bypass policies; the compiler "
-        "forces RLS for owners, so only superusers (and roles granted BYPASSRLS outside MLS) "
-        "remain trusted",
-        "isolation level: no assumption (every Milestone 1 construct is enforced by the engine "
-        "on single rows)",
+        trusted,
+        isolation,
         "opaque blocks relied on: " + (", ".join(opaque) if opaque else "none"),
+        *opaque_lines(spec, opaque),
         f"Postgres versions validated by the differential tests: {PG_VERSIONS}",
         "stored rows satisfy every CHECK and foreign key (constraints are created validated)",
         "invariant preservation uses only CHECKs, FKs and triggers as guards (policies are not "
@@ -32,7 +63,7 @@ def assumptions(spec: Spec, results: list[PropertyResult]) -> list[str]:
 def to_json(spec: Spec, results: list[PropertyResult]) -> dict:
     return {
         "assumptions": assumptions(spec, results),
-        "summary": {v: sum(1 for r in results if r.verdict == v) for v in ("PROVED", "REFUTED", "UNKNOWN")},
+        "summary": summary(results),
         "properties": [
             {
                 "id": r.id, "template": r.template, "description": r.description,
@@ -51,8 +82,9 @@ def to_json(spec: Spec, results: list[PropertyResult]) -> dict:
 
 def to_markdown(spec: Spec, results: list[PropertyResult]) -> str:
     lines = ["# MLS proof report", ""]
-    s = {v: sum(1 for r in results if r.verdict == v) for v in ("PROVED", "REFUTED", "UNKNOWN")}
-    lines.append(f"**{s['PROVED']} proved, {s['REFUTED']} refuted, {s['UNKNOWN']} unknown**")
+    s = summary(results)
+    cond = f" ({s['CONDITIONAL']} conditional on opaque blocks)" if s["CONDITIONAL"] else ""
+    lines.append(f"**{s['PROVED']} proved{cond}, {s['REFUTED']} refuted, {s['UNKNOWN']} unknown**")
     lines += ["", "## Assumptions", ""]
     lines += [f"- {a}" for a in assumptions(spec, results)]
     lines += ["", "## Properties", ""]

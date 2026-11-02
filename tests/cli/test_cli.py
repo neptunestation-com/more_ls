@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from mls.cli import main
-from tests.conftest import EXAMPLE, ROOT
+from tests.conftest import EXAMPLE, ORG_TREE, ROOT
 
 
 def test_check_ok(capsys):
@@ -54,3 +54,15 @@ def test_explain_diff_migrate(tmp_path, capsys):
     assert "phase 4: validate" in out and 'create index concurrently "mls_ix_docs_owner_id"' in out
     assert main(["migrate", str(V2), str(EXAMPLE), "--format", "json"]) == 0
     assert "destructive statements omitted" in json.loads(capsys.readouterr().out)["notes"][0]
+
+
+def test_org_tree_example(tmp_path, capsys):
+    assert main(["check", str(ORG_TREE)]) == 0
+    assert main(["prove", str(ORG_TREE), "--format", "json", "--out", str(tmp_path / "r.json")]) == 0
+    r = json.loads((tmp_path / "r.json").read_text())
+    assert r["summary"]["PROVED"] == 5 and any("READ COMMITTED" in a for a in r["assumptions"])
+    assert main(["compile", str(ORG_TREE)]) == 0
+    out = capsys.readouterr().out
+    assert 'create function "mls_reach_org"' in out and 'create role "mls_internal"' in out
+    assert main(["explain", str(ORG_TREE)]) == 0
+    assert "# Group hierarchies" in capsys.readouterr().out

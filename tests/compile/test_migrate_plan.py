@@ -94,3 +94,31 @@ def test_every_kind_has_a_documented_lock():
             for s in p.statements:
                 assert s.kind in LOCKS
         json.dumps(m.to_dict())
+
+
+def test_hierarchy_and_cardinality_migration():
+    """Adding the hierarchy and the limit creates the internal role, the SECURITY DEFINER helpers
+    (owner, EXECUTE grants), the triggers and the template constraints (NOT VALID, then validated);
+    removing them drops the helpers only after the policies that reference them."""
+    m = migrate(specs.org_flat_spec(), specs.org_base_spec())
+    s = sqls(m)
+    assert kinds(m, "schema").count("create role") == 3 and any('create role "mls_internal"' in x for x in s)
+    assert any('grant "mls_internal" to current_user' in x for x in s)
+    c = kinds(m, "constraints")
+    assert c.count("add fk not valid") == 3 and c.count("add check not valid") == 1
+    assert c.count("create function") == 4 and c.count("create trigger") == 3  # reach, depth, count, parent-immutable
+    assert any('owner to "mls_internal"' in x for x in s) and any('grant execute on function "mls_reach_org"' in x for x in s)
+    assert kinds(m, "validate") == ["validate constraint"] * 4
+    assert kinds(m, "destructive") == [] and "drop function" not in kinds(m, "swap")
+    back = migrate(specs.org_base_spec(), specs.org_flat_spec(), allow_destructive=True)
+    sw = kinds(back, "swap")
+    assert sw.count("drop function") == 3 + 1  # reach, depth, count + the implicit parent-immutable trigger
+    assert sw.index("drop function") > sw.index("create policy") and sw.count("drop trigger") == 3
+    assert any('drop policy "mls_internal_groups"' in x for x in sqls(back))
+    assert LOCKS["alter function"] is None and LOCKS["drop function"] is None
+
+
+def test_cardinality_change_replaces_the_trigger_function():
+    m = migrate(specs.org_base_spec(), specs.cardinality_spec())
+    assert kinds(m, "constraints") == ["replace function"]
+    assert any('"mls_card_files_files_per_tenant"' in x and "> 2" in x for x in sqls(m))

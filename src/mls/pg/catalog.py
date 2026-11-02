@@ -52,11 +52,11 @@ def snapshot(conn: psycopg.Connection, schema: str, tables: list[str], roles: li
             tb["policies"] = {r[0]: {"cmd": r[1], "permissive": r[2], "roles": list(r[3]),
                                      "using": _strip_schema(r[4], schema), "check": _strip_schema(r[5], schema)}
                               for r in cur.fetchall()}
-            cur.execute("""select t.tgname, pg_get_triggerdef(t.oid), p.proname, p.prosrc
+            cur.execute("""select t.tgname, pg_get_triggerdef(t.oid), p.proname
                            from pg_trigger t join pg_proc p on p.oid = t.tgfoid
                            where t.tgrelid = %s and not t.tgisinternal order by 1""", (oid,))
-            tb["triggers"] = {r[0]: {"def": _strip_schema(r[1], schema), "function": r[2],
-                                     "body": " ".join(r[3].split())} for r in cur.fetchall()}
+            tb["triggers"] = {r[0]: {"def": _strip_schema(r[1], schema), "function": r[2]}
+                              for r in cur.fetchall()}
             cur.execute("""select c2.relname, pg_get_indexdef(i.indexrelid)
                            from pg_index i join pg_class c2 on c2.oid = i.indexrelid
                            where i.indrelid = %s order by 1""", (oid,))
@@ -70,11 +70,27 @@ def snapshot(conn: psycopg.Connection, schema: str, tables: list[str], roles: li
             acl |= {(r[1].strip('"'), r[2], r[0]) for r in cur.fetchall()}
             tb["acl"] = sorted(e for e in acl if e[0] != owner)
             out["tables"][t] = tb
+        # functions in the schema (ours are named mls_*): body, language, security, owner, EXECUTE acl
+        cur.execute("""select p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
+                              p.proname, p.prosrc, l.lanname, p.prosecdef, pg_get_userbyid(p.proowner),
+                              array(select coalesce(nullif(x.grantee, 0)::regrole::text, 'public')
+                                    from aclexplode(p.proacl) x where x.privilege_type = 'EXECUTE' order by 1)
+                       from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                       join pg_language l on l.oid = p.prolang
+                       where n.nspname = %s order by 1""", (schema,))
+        out["functions"] = {}
+        for sig, name, src, lang, secdef, owner, execute in cur.fetchall():
+            out["functions"][name] = {"signature": sig, "body": " ".join(src.split()), "language": lang,
+                                      "security_definer": secdef, "owner": owner,
+                                      "execute": sorted(g.strip('"') for g in execute if g.strip('"') != owner)}
         for r in roles:
-            cur.execute("""select rolbypassrls, rolsuper,
-                                  has_parameter_privilege(rolname, 'session_replication_role', 'SET')
+            cur.execute("""select rolbypassrls, rolsuper, rolcanlogin,
+                                  has_parameter_privilege(rolname, 'session_replication_role', 'SET'),
+                                  array(select m.rolname from pg_auth_members am join pg_roles m on m.oid = am.member
+                                        where am.roleid = pg_roles.oid order by 1)
                            from pg_roles where rolname = %s""", (r,))
             row = cur.fetchone()
-            out["roles"][r] = None if row is None else {"bypassrls": row[0], "super": row[1],
-                                                        "can_set_replication_role": row[2]}
+            out["roles"][r] = None if row is None else {"bypassrls": row[0], "super": row[1], "login": row[2],
+                                                        "can_set_replication_role": row[3],
+                                                        "members": list(row[4])}
     return out

@@ -78,6 +78,25 @@ def _count_and_sample(cur, src: str, cond: str, limit: int) -> tuple[int, list[d
     return n, samples, count_sql
 
 
+def _template_fk_cond(spec: Spec, cur, schema: str, c, live_cols) -> tuple[str | None, str]:
+    """Conditions for the constraints the hierarchy and cardinality templates emit."""
+    from mls.props.effective import simple_fks
+
+    if c.kind == "check":  # hierarchy depth bound
+        hname = c.rule_id[len("hierarchy:"):]
+        h = spec.hierarchies[hname]
+        if h.depth not in (live_cols.get(h.table) or {}):
+            return None, ""
+        return f"not (({q(h.depth)} >= 0 and {q(h.depth)} <= {h.max_depth}) is true)", f"have a depth beyond {h.max_depth}"
+    fk = next(f for f in simple_fks(spec) if f.name == c.name)
+    parent_exists = _live_columns(cur, schema, fk.parent) is not None
+    if fk.column not in (live_cols.get(fk.table) or {}):
+        return None, ""
+    exists = (f"exists (select 1 from {q(schema)}.{q(fk.parent)} x where x.{q(fk.parent_column)} = t.{q(fk.column)})"
+              if parent_exists else "false")
+    return f"t.{q(fk.column)} is not null and not {exists}", f"reference a missing {fk.parent} row via {fk.column}"
+
+
 def preflight(conn: psycopg.Connection, new: Spec, old: Spec | None = None, schema: str = "public",
               samples: int = 5) -> PreflightResult:
     sc = SqlCompiler(new, get_adapter(new))
@@ -127,6 +146,20 @@ def preflight(conn: psycopg.Connection, new: Spec, old: Spec | None = None, sche
                         names = [d.name for d in cur.description]
                         out.append(Violation("schema", t, f"groups of duplicates for new unique ({', '.join(ucols)})",
                                              n, [dict(zip(names, r)) for r in cur.fetchall()]))
+            # cardinality limits that are new or tightened
+            for c in new.cardinalities():
+                prev = next((x for x in old.cardinalities() if x.table == c.table and x.name == c.name), None) if old else None
+                if prev is not None and prev.group == c.group and prev.max <= c.max:
+                    continue
+                live = live_cols[c.table]
+                if live is None or c.group not in live:
+                    continue
+                cond = (f"t.{q(c.group)} in (select {q(c.group)} from {q(schema)}.{q(c.table)} "
+                        f"where {q(c.group)} is not null group by {q(c.group)} having count(*) > {int(c.max)})")
+                n, s, sql = _count_and_sample(cur, _source(new, schema, c.table, live), cond, samples)
+                if n:
+                    out.append(Violation(c.id, c.table, f"share a {c.group} with more than {c.max} rows",
+                                         n, s, sql, cond))
             # CHECKs and FKs that are new or changed
             for key, c in n_obj.constraints.items():
                 prev = o_obj.constraints.get(key) if o_obj else None
@@ -136,6 +169,14 @@ def preflight(conn: psycopg.Connection, new: Spec, old: Spec | None = None, sche
                 if live is None:
                     continue
                 src = _source(new, schema, c.table, live)
+                if c.rule_id.startswith("hierarchy:") or c.name.startswith("mls_card_"):
+                    cond, what = _template_fk_cond(new, cur, schema, c, live_cols)
+                    if cond is None:
+                        continue
+                    n, s, sql = _count_and_sample(cur, src, cond, samples)
+                    if n:
+                        out.append(Violation(c.rule_id, c.table, what, n, s, sql, cond))
+                    continue
                 rule = new.rule(c.rule_id)
                 if c.kind == "check":
                     cond = f"not ({sc.pred(rule.predicate, c.table)} is true)"

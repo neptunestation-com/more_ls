@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from mls.compile.sql import q
 from mls.spec.model import (
-    And, ColRef, Cmp, Member, NowBetween, Or, Pred, Spec, Not, IsNull,
+    And, ColRef, Cmp, InGroup, Member, NowBetween, Or, Pred, Spec, Not, IsNull,
 )
 
 
@@ -13,6 +13,8 @@ def _groups(p: Pred) -> list[list[str]]:
     """Index column groups for a predicate: a shallow DNF over atoms."""
     if isinstance(p, Member) and isinstance(p.member.value, ColRef):
         return [[p.member.value.col]]
+    if isinstance(p, InGroup) and isinstance(p.in_group.value, ColRef):
+        return [[p.in_group.value.col]]
     if isinstance(p, Cmp) and isinstance(p.cmp[0], ColRef):
         return [[p.cmp[0].col]]
     if isinstance(p, NowBetween):
@@ -46,6 +48,8 @@ def _groups(p: Pred) -> list[list[str]]:
 def _member_cols(p: Pred, out: set[str]) -> set[str]:
     if isinstance(p, Member) and isinstance(p.member.value, ColRef):
         out.add(p.member.value.col)
+    elif isinstance(p, InGroup) and isinstance(p.in_group.value, ColRef):
+        out.add(p.in_group.value.col)
     elif isinstance(p, And):
         for a in p.and_:
             _member_cols(a, out)
@@ -79,6 +83,10 @@ def index_specs(spec: Spec) -> list[tuple[str, str, tuple[str, ...]]]:
                 want(p.table, ordered)
     for i in spec.inclusions():
         want(i.table, list(i.columns))
+    for h in spec.hierarchies.values():
+        want(h.table, [h.parent])          # the recursive CTE joins children on parent
+    for c in spec.cardinalities():
+        want(c.table, [c.group])           # the trigger counts rows per group
     for rel in spec.relations.values():
         t = spec.tables[rel.table]
         keysets = ([tuple(t.primary_key)] if t.primary_key else []) + [tuple(u) for u in t.unique]

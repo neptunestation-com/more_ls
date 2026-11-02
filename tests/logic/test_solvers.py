@@ -21,7 +21,9 @@ def test_smtlib_roundtrip_declarations():
 
 @pytest.mark.cvc5
 @pytest.mark.skipif(not cvc5_available(), reason="cvc5 not installed")
-def test_cvc5_agrees_with_z3_on_example(example_spec):
+@pytest.mark.parametrize("fixture", ["example_spec", "org_spec"])
+def test_cvc5_agrees_with_z3_on_example(request, fixture):
+    example_spec = request.getfixturevalue(fixture)
     n = 0
     for prop in example_spec.properties:
         for ob in obligations_for(example_spec, prop):

@@ -12,7 +12,7 @@ from psycopg import sql as psql
 from mls.compile.column import privileges
 from mls.identity import Adapter
 from mls.props.effective import effective
-from mls.spec.model import And, ColRef, Cmp, CtxRef, Member, Not, Or, Pred, Spec
+from mls.spec.model import And, ColRef, Cmp, CtxRef, InGroup, Member, Not, Or, Pred, Spec
 
 
 @dataclass
@@ -28,6 +28,8 @@ def index_atoms(p: Pred, out: list[tuple[str, str]]) -> list[tuple[str, str]]:
     """(kind, column) for atoms that must be index-driven: member values, ctx comparisons."""
     if isinstance(p, Member) and isinstance(p.member.value, ColRef):
         out.append(("member", p.member.value.col))
+    elif isinstance(p, InGroup) and isinstance(p.in_group.value, ColRef):
+        out.append(("in_group", p.in_group.value.col))
     elif isinstance(p, Cmp) and isinstance(p.cmp[0], ColRef) and isinstance(p.cmp[2], CtxRef):
         out.append(("cmp", p.cmp[0].col))
     elif isinstance(p, And):
@@ -102,6 +104,11 @@ def scale_load_sql(spec: Spec, adapter: Adapter, n_rows: int, n_users: int = 100
     for plan shape, so callers deploy the script without checks/fks/transitions."""
     out = []
     relation_tables = {rel.table for rel in spec.relations.values()}
+    hier_tables = {h.table: h for h in spec.hierarchies.values()}
+    for h in hier_tables.values():
+        # node i has parent i // 10 (none for 1..9) and depth floor(log10 i): the pool of
+        # group ids must stay within the declared depth bound
+        n_groups = min(n_groups, 10 ** (h.max_depth + 1) - 1)
 
     def expr(col, i: str) -> str:
         t = spec.tables  # noqa
@@ -117,7 +124,28 @@ def scale_load_sql(spec: Spec, adapter: Adapter, n_rows: int, n_users: int = 100
 
     for table, t in spec.tables.items():
         cols = list(t.columns)
-        if table in relation_tables:
+        if table in hier_tables:
+            h = hier_tables[table]
+            n = min(n_groups, 10 ** (h.max_depth + 1) - 1)
+            # level by level: the BEFORE trigger computing the depth and the parent FK need the
+            # parent row to be already stored
+            for level in range(h.max_depth + 1):
+                lo, hi = 10 ** level, min(10 ** (level + 1) - 1, n)
+                if lo > hi:
+                    break
+                parts = []
+                for c in cols:
+                    if c == h.id:
+                        parts.append("i")
+                    elif c == h.parent:
+                        parts.append("nullif(i / 10, 0)")
+                    elif c == h.depth:
+                        parts.append(str(level))
+                    else:
+                        parts.append(expr(t.columns[c], "i"))
+                out.append(f'insert into "{table}" ({", ".join(f"\"{c}\"" for c in cols)}) '
+                           f'select {", ".join(parts)} from generate_series({lo}, {hi}) i on conflict do nothing')
+        elif table in relation_tables:
             rel = next(r for r in spec.relations.values() if r.table == table)
             parts = []
             for c in cols:

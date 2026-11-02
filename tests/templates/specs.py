@@ -142,3 +142,63 @@ def v_tight() -> Spec:
                        "predicate": {"or": [{"cmp": [{"col": "archived"}, "=", {"const": 0}]},
                                             {"cmp": [{"col": "archived"}, "=", {"const": 1}]}]}})
     return make(d)
+
+
+# ----------------------------------------------------------------------------- M3
+ORG = EXAMPLE.parent / "org_tree.mls.json"
+
+
+def org_base() -> dict:
+    return json.loads(ORG.read_text())
+
+
+def hierarchy_spec() -> Spec:
+    """org_tree where authenticated may also insert and update groups (so the depth bound and the
+    parent immutability are exercised by app roles)."""
+    d = org_base()
+    d["rules"] += [
+        {"id": "G1", "kind": "policy", "name": "group_insert", "table": "groups", "role": "authenticated",
+         "command": "insert", "mode": "permissive", "check": {"lit": True}},
+        {"id": "G2", "kind": "policy", "name": "group_update", "table": "groups", "role": "authenticated",
+         "command": "update", "mode": "permissive", "using": {"lit": True}},
+        {"id": "G3", "kind": "policy", "name": "member_insert", "table": "group_members", "role": "authenticated",
+         "command": "insert", "mode": "permissive", "check": {"lit": True}},
+        {"id": "G4", "kind": "policy", "name": "member_delete", "table": "group_members", "role": "authenticated",
+         "command": "delete", "mode": "permissive", "using": {"lit": True}}]
+    d["properties"] = [p for p in d["properties"] if p["id"] != "P5"]
+    return make(d)
+
+
+def cardinality_spec() -> Spec:
+    """org_tree with a tight limit (2 files per tenant) and file deletes."""
+    d = org_base()
+    for r in d["rules"]:
+        if r["id"] == "R5":
+            r["max"] = 2
+    d["rules"].append({"id": "F1", "kind": "policy", "name": "file_delete", "table": "files",
+                       "role": "authenticated", "command": "delete", "mode": "permissive",
+                       "using": {"in_group": {"hierarchy": "org", "key": {"ctx": "uid"}, "value": {"col": "group_id"}}}})
+    d["properties"] = [p for p in d["properties"] if p["id"] != "P5"]
+    return make(d)
+
+
+def org_base_spec() -> Spec:
+    return make(org_base())
+
+
+def org_flat_spec() -> Spec:
+    """org_tree without the hierarchy and the cardinality limit: direct membership only, every
+    group a root (so a migration to org_tree finds consistent depths)."""
+    d = org_base()
+    del d["hierarchies"]
+    for r in d["rules"]:
+        for k in ("using", "check"):
+            if "in_group" in r.get(k, {}):
+                ig = r[k]["in_group"]
+                r[k] = {"member": {"relation": "group_member", "key": ig["key"], "value": ig["value"]}}
+    d["rules"] = [r for r in d["rules"] if r["kind"] != "cardinality"]
+    d["rules"].append({"id": "X1", "kind": "check", "name": "groups_are_roots", "table": "groups",
+                       "predicate": {"and": [{"is_null": {"col": "parent_id"}},
+                                             {"cmp": [{"col": "depth"}, "=", {"const": 0}]}]}})
+    d["properties"] = [p for p in d["properties"] if p["id"] in ("P4", "P5")]
+    return make(d)

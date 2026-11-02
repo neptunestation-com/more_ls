@@ -38,3 +38,20 @@ columns; an update that hides the row from its author errors. A model without th
 ## Test methodology that worked
 Random data, every (user × context) combination, three-way outcomes (filtered / ok / error), and a
 deliberately wrong model as a mutation check (a 2VL model produced 157 mismatches).
+
+## Hierarchies and cardinality (Milestone 3, PG 15–18)
+- `col = any ((select f(k)))` is a subquery-ANY ("operator does not exist: integer = integer[]");
+  the array InitPlan form needs `any ((select f(k))::int[])`. With it, `in_group` policies on
+  1M rows are index-driven (Index Cond on the group column) on all four versions.
+- A BEFORE row trigger does not see rows inserted earlier by the same statement: a hierarchy
+  table must be loaded level by level (parents in an earlier statement).
+- The parent-row `FOR UPDATE` lock is what makes the count correct: 8 parallel writers × 6
+  attempts against a limit of 5 end with exactly 5 rows with the lock and more than 5 without
+  it (CARDINALITY_NO_LOCK), under READ COMMITTED; the single-session differential test cannot
+  tell the two apart, so the concurrency test is the mutation test for the lock.
+- `ALTER FUNCTION ... OWNER TO` / `GRANT EXECUTE` / `DROP FUNCTION` hold no lock on tables; a
+  function referenced by a policy cannot be dropped before the policy (dependency error).
+- `pg_proc` snapshots (body, language, prosecdef, owner, EXECUTE acl) make tampering with a
+  SECURITY DEFINER helper visible to drift; trigger definitions alone do not.
+- cvc5 `finite-model-find` answers `unknown` on the cardinality induction (∀ over Int with
+  LIA + UF); plain `mbqi` agrees with Z3 (unsat) immediately.

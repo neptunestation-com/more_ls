@@ -15,8 +15,8 @@ from mls.logic.term import (
     FALSE, TRUE, FunDecl, Sort, Term, Var, and_, bool_var, eq, fun, int_var, le, lt, not_, or_, IntVal,
 )
 from mls.spec.model import (
-    CONTEXT_NOW, And, ColRef, Const, CtxRef, Cmp, IsNull, Lit, Member, NewRef, Not, NowBetween,
-    OldRef, OpaqueRef, Or, Pred, Spec,
+    CONTEXT_NOW, And, ColRef, Const, CtxRef, Cmp, InGroup, IsNull, Lit, Member, NewRef, Not,
+    NowBetween, OldRef, OpaqueRef, Or, Pred, Spec,
 )
 
 
@@ -36,11 +36,22 @@ def rel_fun(name: str, tag: str | None = None) -> FunDecl:
     return fun(f"rel.{name}" + (f"@{tag}" if tag else ""), Sort.INT, Sort.INT)
 
 
+def parent_fun(hierarchy: str, tag: str | None = None) -> FunDecl:
+    """parent(x): the parent node of x (meaningful where has_parent(x))."""
+    return fun(f"hier.{hierarchy}" + (f"@{tag}" if tag else "") + ".parent", Sort.INT, ret=Sort.INT)
+
+
+def has_parent_fun(hierarchy: str, tag: str | None = None) -> FunDecl:
+    return fun(f"hier.{hierarchy}" + (f"@{tag}" if tag else "") + ".has_parent", Sort.INT)
+
+
 @dataclass
 class Encoder:
     spec: Spec
     rel_tags: dict[str, str] = field(default_factory=dict)  # relation -> tag (state copy)
     opaque_tags: dict[str, str] = field(default_factory=dict)  # opaque -> tag (a different definition)
+    hier_tags: dict[str, str] = field(default_factory=dict)  # hierarchy -> tag (a different tree)
+    hierarchies_used: set[str] = field(default_factory=set)
     consts: dict[str, int] = field(default_factory=dict)    # interned text/uuid constants
     const_types: dict[str, set[str]] = field(default_factory=dict)  # constant -> column types it met
     side_conditions: list[Term] = field(default_factory=list)
@@ -133,6 +144,8 @@ class Encoder:
             ok = not_(or_(kn, vn))
             fact = self.rel(m.relation)(kv, vv)
             return and_(ok, fact), and_(ok, not_(fact))
+        if isinstance(p, InGroup):
+            return self._in_group(p, row, table)
         if isinstance(p, NowBetween):
             now = ctx_var(CONTEXT_NOW)
             parts = []
@@ -147,6 +160,29 @@ class Encoder:
         if isinstance(p, OpaqueRef):
             return self._opaque(p.opaque, row, table)
         raise TypeError(p)
+
+    def _in_group(self, p: InGroup, row: str, table: str) -> tuple[Term, Term]:
+        """key ∈ members(ancestor_i(value)) for some i ≤ max_depth, where ancestor_0 = value and
+        ancestor_{i+1} = parent(ancestor_i) exists.  Unrolled to the declared depth (D5): with the
+        depth CHECK no chain is longer, so the unrolling is exact (SEMANTICS §7)."""
+        g = p.in_group
+        h = self.spec.hierarchies[g.hierarchy]
+        self.hierarchies_used.add(g.hierarchy)
+        kv, kn = self.term(g.key, row, table)
+        vv, vn = self.term(g.value, row, table)
+        ok = not_(or_(kn, vn))
+        rel = self.rel(h.members)
+        tag = self.hier_tags.get(g.hierarchy)
+        par, has = parent_fun(g.hierarchy, tag), has_parent_fun(g.hierarchy, tag)
+        node: Term = vv
+        chain: Term = TRUE
+        alts = [and_(chain, rel(kv, node))]
+        for _ in range(h.max_depth):
+            chain = and_(chain, has(node))
+            node = par(node)
+            alts.append(and_(chain, rel(kv, node)))
+        hit = or_(*alts)
+        return and_(ok, hit), and_(ok, not_(hit))
 
     def _opaque(self, name: str, row: str, table: str) -> tuple[Term, Term]:
         o = self.spec.opaques[name]

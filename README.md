@@ -18,6 +18,7 @@ Read `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.md`, `docs/ROADMAP.m
     uv run mls prove   examples/tenant_docs.mls.json        # proof report (Markdown; --format json)
     uv run mls compile examples/tenant_docs.mls.json        # DDL
     uv run mls test    examples/tenant_docs.mls.json        # differential test on Postgres 15–18 (Docker)
+    uv run mls explain examples/org_tree.mls.json           # group hierarchy + per-tenant limit, in English
     uv run mls test    examples/tenant_docs.mls.json --versions 16 --explain   # + EXPLAIN checks at 1M rows
     uv run mls lint    examples/tenant_docs.mls.json        # leakproof lint
     uv run mls explain examples/tenant_docs.mls.json        # the rules and properties in plain English
@@ -52,10 +53,12 @@ Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 
     src/mls/english.py  plain-English rendering of rules, properties, scenarios (the approval artifact)
     tests/            spec, logic, props, cli (no Postgres); templates (Postgres 15–18, Docker)
     evals/cases       eval case format and the first cases (the prototype's three corpora)
-    examples/         tenant_docs (supabase), tenant_docs_v2 (its next version), pg_roles_docs (pg_roles)
+    examples/         tenant_docs (supabase), tenant_docs_v2 (its next version), pg_roles_docs (pg_roles),
+                      org_tree (hierarchy with in_group policies and a cardinality limit)
     prototype/        the throwaway Python + Z3 prototype this grew from
 
 ## Status
 
-Milestones 1 (core loop, no LLM) and 2 (`diff | migrate | preflight | drift`, English rendering)
-are implemented. Milestones 3–4 (hierarchies and cardinality, the LLM loop) are in `docs/ROADMAP.md`.
+Milestones 1 (core loop, no LLM), 2 (`diff | migrate | preflight | drift`, English rendering) and
+3 (group hierarchies with `in_group`, cardinality limits with a parent-row lock, full opaque-block
+reporting) are implemented. Milestone 4 (the LLM loop) is in `docs/ROADMAP.md`.

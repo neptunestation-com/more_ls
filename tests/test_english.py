@@ -23,3 +23,17 @@ def test_scenario_english():
     r = run_property(spec, next(p for p in spec.properties if p.id == "P2"))
     s = english.scenario(spec, r.obligations[0].scenario)
     assert s.startswith("the current user is uuid#") and "the existing row of docs" in s and "member_of has" in s
+
+
+def test_hierarchy_and_cardinality_english():
+    from tests.templates import specs
+
+    text = english.spec_summary(specs.org_base_spec())
+    assert ("R1**: authenticated may read rows of files where the row's group_id is one of the current "
+            "user's org groups or lies below one." in text)
+    assert ("R5**: A tenants row has at most 5 rows of files (counted by tenant_id); rows with no "
+            "tenant_id are not counted." in text)
+    assert "# Group hierarchies" in text
+    assert ("org**: rows of groups form a tree (parent_id points to the parent id) at most 3 levels deep; "
+            "a parent never changes; a user belongs to the groups listed in group_member and to everything "
+            "below them." in text)
