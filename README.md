@@ -78,4 +78,6 @@ predicate encoder (proved sound against the SQL meaning of every construct of th
 fragment, `in_group` included), Postgres policy combination (a row is admitted iff some
 permissive policy is TRUE on it and every restrictive one is), and the statement outcomes of the
 semantics: every executed statement satisfies what the proofs assume, and without column reads
-it is executed exactly when the net-effect predicate admits it.
+it is executed exactly when the net-effect predicate admits it.  The NULL normalization is a
+theorem too: with `IS TRUE`, RLS, CHECK and triggers admit the same rows, and without it they
+disagree exactly on UNKNOWN.

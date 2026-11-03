@@ -95,6 +95,9 @@ structure Env where
 
 def ofBool (b : Bool) : TV := if b then .tt else .ff
 
+theorem TV.isTrue_ofBool (b : Bool) : TV.isTrue (ofBool b) = b := by
+  cases b <;> rfl
+
 def Term.value (e : Env) (row : String) : Term → Option Int
   | .col n => e.col row n
   | .old n => e.col "old" n

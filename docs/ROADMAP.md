@@ -97,12 +97,21 @@ them holds of every executed statement), an update that hides the row from its a
 ok, and for a statement that reads no columns "executed" is exactly "admitted by the net-effect
 predicate" of D38/D40 (`update_ok_iff_net` etc.).  Not modelled: column privileges (the
 `unwritable_unchanged` conjunct of `net_terms`), grants, uniqueness, FK existence, cardinality.
-Remaining steps: (3) the NULL normalization lemma of SEMANTICS §4 — `CHECK ((p) IS TRUE)` and
-`IF NOT ((p) IS TRUE)` admit exactly the rows `admits` does, against a model of CHECK and trigger
-evaluation; (4) the CHECK and FK templates against a relational model (constraint timing, FK
-actions).  The Lean sources mirror the Python structure by hand; nothing checks that
-mechanically, so a change to `tvl.py`, `effective.py`, `pg/model.py` or the assumption builders
-in `obligations.py` must be carried to `lean/MLS` (CLAUDE.md).
+Step 3 done (`lean/MLS/Normalize.lean`): how each target decides on a three-valued result (RLS
+passes TRUE; CHECK is violated only by FALSE; a PL/pgSQL `IF` takes its branch only on TRUE; FK
+MATCH SIMPLE is satisfied by any NULL), and the normalization lemma: `CHECK ((p) IS TRUE)` and
+`IF NOT ((p) IS TRUE)` admit exactly the rows the admission rule admits (`one_meaning`,
+invariant 2), what a stored row is assumed to satisfy in a proof is what the normalized CHECK
+and trigger enforce (`check_matches_proof`, `trigger_matches_proof`, through the encoder
+theorem), and without the `IS TRUE` the targets disagree exactly on UNKNOWN
+(`check_naive_disagrees`, `trigger_naive_disagrees`: the semantic content of the `CHECK_NAIVE`
+and `TRANSITION_NAIVE` mutations).  For FKs, `inclusion_pred` is admitted exactly when MATCH
+SIMPLE is satisfied (`inclusion_matches_fk`).
+Remaining: (4) the CHECK and FK templates against a relational model (constraint timing, FK
+actions, deletes from referenced tables).  The Lean sources mirror the Python structure by hand;
+nothing checks that mechanically, so a change to `tvl.py`, `effective.py`, `pg/model.py`, the
+assumption builders in `obligations.py` or the CHECK/transition templates must be carried to
+`lean/MLS` (CLAUDE.md).
 
 ## Open details (decide during implementation, record in DECISIONS.md)
 

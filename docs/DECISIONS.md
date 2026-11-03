@@ -315,7 +315,10 @@ against the concrete evaluator.  `lean/MLS/Policy.lean` does the same for `props
 (policy combination), for the statement outcomes of `pg/model.py` and for the assumption
 builders of `props/obligations.py`: the outcome model is transcribed, and the theorems say that
 every executed statement satisfies the proof assumptions and that, without column reads,
-"executed" is "admitted by the net-effect predicate" (D38).  The Lean and the Python are two
+"executed" is "admitted by the net-effect predicate" (D38).  `lean/MLS/Normalize.lean` states how
+each target decides on a three-valued result and proves the normalization of SEMANTICS §4: with
+`IS TRUE` every target admits what the admission rule admits, without it they disagree exactly
+on UNKNOWN (the `*_NAIVE` mutations).  The Lean and the Python are two
 artifacts with no mechanical link;
 a change to the encoder is carried to the transcription by hand, or the gap is recorded in the
 ROADMAP.  What the track cannot do: say anything about Postgres itself — the "small model of
