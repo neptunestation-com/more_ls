@@ -1,0 +1,338 @@
+{
+ "$comment": "marketplace where sellers hand listings over",
+ "mls_version": "0.1",
+ "identity": {
+  "adapter": "supabase",
+  "context": {
+   "uid": {
+    "source": "auth.uid",
+    "type": "uuid"
+   }
+  }
+ },
+ "roles": [
+  "authenticated"
+ ],
+ "tables": {
+  "listings": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "seller_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "status": {
+     "type": "text",
+     "nullable": false
+    },
+    "price": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  },
+  "orders": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "listing_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "buyer_id": {
+     "type": "uuid",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  }
+ },
+ "relations": {},
+ "rules": [
+  {
+   "id": "R1",
+   "kind": "policy",
+   "name": "public_active",
+   "table": "listings",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "status"
+     },
+     "=",
+     {
+      "const": "active"
+     }
+    ]
+   },
+   "requirement": "active listings are public"
+  },
+  {
+   "id": "R2",
+   "kind": "policy",
+   "name": "seller_read",
+   "table": "listings",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "seller_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   },
+   "requirement": "sellers see their listings"
+  },
+  {
+   "id": "R3",
+   "kind": "policy",
+   "name": "seller_insert",
+   "table": "listings",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "cmp": [
+     {
+      "col": "seller_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   },
+   "requirement": "sellers create listings"
+  },
+  {
+   "id": "R4",
+   "kind": "policy",
+   "name": "seller_update",
+   "table": "listings",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "seller_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   },
+   "check": {
+    "lit": true
+   }
+  },
+  {
+   "id": "R6",
+   "kind": "check",
+   "name": "price_non_negative",
+   "table": "listings",
+   "predicate": {
+    "cmp": [
+     {
+      "col": "price"
+     },
+     ">=",
+     {
+      "const": 0
+     }
+    ]
+   },
+   "requirement": "prices"
+  },
+  {
+   "id": "R7",
+   "kind": "policy",
+   "name": "buyer_read",
+   "table": "orders",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "buyer_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   },
+   "requirement": "buyers see their orders"
+  },
+  {
+   "id": "R8",
+   "kind": "policy",
+   "name": "buyer_order",
+   "table": "orders",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "cmp": [
+     {
+      "col": "buyer_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   },
+   "requirement": "buyers order"
+  }
+ ],
+ "properties": [
+  {
+   "id": "P1",
+   "template": "custom",
+   "description": "a listing is visible only when active or to its seller",
+   "table": "listings",
+   "role": "authenticated",
+   "command": "select",
+   "which": "new",
+   "goal": {
+    "or": [
+     {
+      "cmp": [
+       {
+        "col": "status"
+       },
+       "=",
+       {
+        "const": "active"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "col": "seller_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "P2",
+   "template": "column_immutable",
+   "description": "a listing's seller never changes",
+   "table": "listings",
+   "column": "seller_id"
+  },
+  {
+   "id": "P3",
+   "template": "invariant_preserved",
+   "description": "prices are never negative",
+   "invariants": [
+    {
+     "table": "listings",
+     "predicate": {
+      "cmp": [
+       {
+        "col": "price"
+       },
+       ">=",
+       {
+        "const": 0
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "P4",
+   "template": "custom",
+   "description": "an order is visible only to its buyer",
+   "table": "orders",
+   "role": "authenticated",
+   "command": "select",
+   "which": "new",
+   "goal": {
+    "cmp": [
+     {
+      "col": "buyer_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P5",
+   "template": "custom",
+   "description": "only the seller changes a listing",
+   "table": "listings",
+   "role": "authenticated",
+   "command": "update",
+   "which": "old",
+   "goal": {
+    "cmp": [
+     {
+      "col": "seller_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P6",
+   "template": "write_subset_read",
+   "description": "whatever is written can be read back",
+   "table": "listings"
+  },
+  {
+   "id": "P7",
+   "template": "least_privilege",
+   "description": "only select/insert/update on listings and select/insert on orders",
+   "allowed": {
+    "authenticated": {
+     "listings": [
+      "select",
+      "insert",
+      "update"
+     ],
+     "orders": [
+      "select",
+      "insert"
+     ]
+    }
+   }
+  }
+ ]
+}

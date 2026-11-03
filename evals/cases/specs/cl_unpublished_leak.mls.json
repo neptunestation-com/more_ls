@@ -1,0 +1,464 @@
+{
+ "$comment": "classroom where students see unpublished assignments",
+ "mls_version": "0.1",
+ "identity": {
+  "adapter": "supabase",
+  "context": {
+   "uid": {
+    "source": "auth.uid",
+    "type": "uuid"
+   }
+  }
+ },
+ "roles": [
+  "authenticated"
+ ],
+ "tables": {
+  "courses": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  },
+  "enrollments": {
+   "columns": {
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "course_id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "user_id",
+    "course_id"
+   ]
+  },
+  "teaching": {
+   "columns": {
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "course_id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "user_id",
+    "course_id"
+   ]
+  },
+  "assignments": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "course_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "published": {
+     "type": "bool",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  },
+  "submissions": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "assignment_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "course_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "student_id": {
+     "type": "uuid",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  }
+ },
+ "relations": {
+  "enrolled": {
+   "table": "enrollments",
+   "key": "user_id",
+   "value": "course_id"
+  },
+  "teaches": {
+   "table": "teaching",
+   "key": "user_id",
+   "value": "course_id"
+  }
+ },
+ "rules": [
+  {
+   "id": "R1",
+   "kind": "policy",
+   "name": "student_read",
+   "table": "assignments",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "enrolled",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R2",
+   "kind": "policy",
+   "name": "teacher_read",
+   "table": "assignments",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "teaches",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   },
+   "requirement": "teachers see their assignments"
+  },
+  {
+   "id": "R3",
+   "kind": "policy",
+   "name": "teacher_insert",
+   "table": "assignments",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "member": {
+     "relation": "teaches",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   },
+   "requirement": "teachers create assignments"
+  },
+  {
+   "id": "R4",
+   "kind": "policy",
+   "name": "teacher_update",
+   "table": "assignments",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "teaches",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   },
+   "check": {
+    "member": {
+     "relation": "teaches",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   },
+   "requirement": "teachers edit assignments"
+  },
+  {
+   "id": "R5",
+   "kind": "policy",
+   "name": "student_submit",
+   "table": "submissions",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "and": [
+     {
+      "cmp": [
+       {
+        "col": "student_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     },
+     {
+      "member": {
+       "relation": "enrolled",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "course_id"
+       }
+      }
+     }
+    ]
+   },
+   "requirement": "students submit"
+  },
+  {
+   "id": "R6",
+   "kind": "policy",
+   "name": "student_read_own",
+   "table": "submissions",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "student_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   },
+   "requirement": "students see their submissions"
+  },
+  {
+   "id": "R7",
+   "kind": "policy",
+   "name": "teacher_read_submissions",
+   "table": "submissions",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "teaches",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   },
+   "requirement": "teachers grade"
+  },
+  {
+   "id": "R8",
+   "kind": "inclusion",
+   "name": "submitter_enrolled",
+   "table": "submissions",
+   "columns": [
+    "student_id",
+    "course_id"
+   ],
+   "relation": "enrolled",
+   "on_delete": "restrict",
+   "requirement": "submitters are enrolled"
+  }
+ ],
+ "properties": [
+  {
+   "id": "P1",
+   "template": "custom",
+   "description": "an assignment is visible to its teachers, and to enrolled students once published",
+   "table": "assignments",
+   "role": "authenticated",
+   "command": "select",
+   "which": "new",
+   "goal": {
+    "or": [
+     {
+      "member": {
+       "relation": "teaches",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "course_id"
+       }
+      }
+     },
+     {
+      "and": [
+       {
+        "member": {
+         "relation": "enrolled",
+         "key": {
+          "ctx": "uid"
+         },
+         "value": {
+          "col": "course_id"
+         }
+        }
+       },
+       {
+        "cmp": [
+         {
+          "col": "published"
+         },
+         "=",
+         {
+          "const": true
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "P2",
+   "template": "custom",
+   "description": "a submission is created only by an enrolled student, in their own name",
+   "table": "submissions",
+   "role": "authenticated",
+   "command": "insert",
+   "which": "new",
+   "goal": {
+    "and": [
+     {
+      "cmp": [
+       {
+        "col": "student_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     },
+     {
+      "member": {
+       "relation": "enrolled",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "course_id"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "P3",
+   "template": "custom",
+   "description": "a submission is visible only to its student and the course's teachers",
+   "table": "submissions",
+   "role": "authenticated",
+   "command": "select",
+   "which": "new",
+   "goal": {
+    "or": [
+     {
+      "cmp": [
+       {
+        "col": "student_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     },
+     {
+      "member": {
+       "relation": "teaches",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "course_id"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "P4",
+   "template": "monotone_in",
+   "description": "dropping a course never grants access",
+   "relation": "enrolled"
+  },
+  {
+   "id": "P5",
+   "template": "invariant_preserved",
+   "description": "every submitter is enrolled in the course",
+   "invariants": [
+    {
+     "rule": "R8"
+    }
+   ]
+  },
+  {
+   "id": "P6",
+   "template": "least_privilege",
+   "description": "only select/insert/update on assignments, select/insert on submissions, select on enrollments and teaching",
+   "allowed": {
+    "authenticated": {
+     "assignments": [
+      "select",
+      "insert",
+      "update"
+     ],
+     "submissions": [
+      "select",
+      "insert"
+     ],
+     "enrollments": [
+      "select"
+     ],
+     "teaching": [
+      "select"
+     ]
+    }
+   }
+  }
+ ]
+}

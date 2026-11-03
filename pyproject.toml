@@ -18,6 +18,9 @@ dev = [
     "testcontainers[postgres]>=4.8",
     "cvc5>=1.2",
 ]
+llm = [
+    "anthropic>=2.4.0",
+]
 
 [project.scripts]
 mls = "mls.cli:main"

@@ -1,0 +1,25 @@
+{
+ "id": "pj_owner_closes",
+ "origin": "seed",
+ "requirements": "Projects have members (project_members). Members see the tasks of their projects and may add tasks to them. A task may be assigned to a user, who must be a member of the task's project; only the assignee may update a task, and it stays in a project the assignee belongs to. Nobody deletes tasks. Additionally a project owner (owners are recorded in task_owners and must be members of the project) may delete tasks of their project.",
+ "expected_properties": [
+  "Tasks are only seen, added and changed by members of their project.",
+  "Only the assignee updates a task.",
+  "Leaving a project never grants access.",
+  "An assignee is always a member of the task's project.",
+  "Whatever is written can be read back.",
+  "The application role may only select/insert/update/delete tasks and select project_members and projects."
+ ],
+ "reference_spec": "specs/pj_owner_closes.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

@@ -1,0 +1,23 @@
+{
+ "id": "org_direct_only",
+ "origin": "seed",
+ "requirements": "Users belong to groups; groups form a tree at most 3 levels deep (a group has at most one parent, which never changes). A user may read, create and update the files of exactly the groups they belong to. Users may see the groups they belong to. A tenant holds at most 5 files. File sizes are never negative.",
+ "expected_properties": [
+  "A user only reads files of groups they are a direct member of.",
+  "Leaving a group never grants access.",
+  "A tenant never holds more than 5 files; sizes stay non-negative.",
+  "Whatever a user writes, they can read back.",
+  "The application role may only select/insert/update files and select groups."
+ ],
+ "reference_spec": "specs/org_direct_only.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

@@ -134,7 +134,8 @@ def prop(spec: Spec, p: Property) -> str:
     if isinstance(p, WriteSubsetRead):
         return f"Whatever a user can insert into or update in {p.table}, that user can also read."
     if isinstance(p, LeastPrivilege):
-        parts = [f"{role} may only {', '.join(VERB[c] for c in cmds)} {table}"
+        parts = [(f"{role} may only {', '.join(VERB[c] for c in cmds)} {table}" if cmds
+                  else f"{role} has no access to {table}")
                  for role, tables in p.allowed.items() for table, cmds in tables.items()]
         return "No role gets more than declared: " + "; ".join(parts) + "."
     if isinstance(p, InvariantPreserved):

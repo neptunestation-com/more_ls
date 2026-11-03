@@ -1,0 +1,25 @@
+{
+ "id": "cl_good",
+ "origin": "seed",
+ "requirements": "Users are enrolled in courses (enrollments) or teach them (teaching). Teachers see, create and edit the assignments of their courses; enrolled students see only published assignments. Students submit work for courses they are enrolled in, in their own name, and see their own submissions; teachers see every submission of their courses. Submissions and assignments are never deleted; submissions are never edited. A submission's student stays enrolled in its course: an enrollment with submissions cannot be removed.",
+ "expected_properties": [
+  "An assignment is visible to its teachers, and to enrolled students once published.",
+  "A submission is created only by an enrolled student, in their own name.",
+  "A submission is visible only to its student and the course's teachers.",
+  "Dropping a course never grants access.",
+  "Every submitter is enrolled in the course.",
+  "The application role may only select/insert/update assignments, select/insert submissions, and select enrollments and teaching."
+ ],
+ "reference_spec": "specs/cl_good.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

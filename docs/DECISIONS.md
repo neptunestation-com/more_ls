@@ -222,6 +222,61 @@ CARDINALITY_NO_LOCK is caught only by the parallel-writer test (`tests/templates
 Pre-flight counts the rows of over-full groups; the differential oracle (`pg/model.py`) implements
 the same rules.
 
+**D37. The LLM loop is two independent passes judged by the solver (M4, refines D16).** Pass 1
+(requirements → properties) and pass 2 (requirements → rules) share the system prompt material
+(language reference, the fixed skeleton: identity, roles, tables, relations, hierarchies, opaques,
+and the JSON Schema of the answer) but neither sees the other's answer.  Decoding is *not*
+constrained (a deviation from D15's intent, forced by the API): structured outputs reject recursive
+schemas and the predicate grammar is recursive; constraining only a free-form envelope is worse,
+because nested values are then forced to scalars.  So the schema is in the prompt, the answer is
+parsed tolerantly (bare JSON, a ```json``` block, or the first JSON object in prose) and validated
+locally with the pydantic models; `AnthropicClient(use_schema=True)` sends the schema anyway for an
+API that accepts it.
+Repair is bounded (`--max-repairs`, default 3, counted over every kind of repair): structural
+errors and checker errors (JSON path + fix, invariant 7) go back to the pass that produced them;
+compile-time soundness errors and refuted properties go to the rules pass, as the property in
+English plus the counterexample scenario in English (D10) — never as MLS or SMT.  Properties are
+never repaired after a refutation: they are the approved artifact.  Whatever is still refuted when
+the budget is spent — or when the rules pass returns its rules unchanged, i.e. stands by them
+against the property (in the first live run it correctly argued the property was wrong) — is
+escalated to a human as (property, verdict, scenario, the rules pass's notes).  Status is
+`proved | escalated | invalid | failed`.
+
+**D38. Evaluation grades the generated rules by net-effect equivalence (M4, refines D6).** A case
+is requirements + expected properties (English) + reference spec + expected verdicts.  Every
+case's requirements are self-consistent, so the loop is expected to prove its own properties; a
+"bad" seed case (e.g. a requirement that lets closed tickets be reopened) is one whose *reference*
+properties are REFUTED by design, and the generated rules must reproduce exactly those verdicts.
+A generated spec is correct when (1) the loop ends `proved`, (2) the reference properties (rule
+references replaced by their predicates, FKs included) have their expected verdicts on the
+generated rules, and (3) every role can do exactly what the reference lets it do: the net-effect
+diff (`props/diff.py:behaviour_diff`: policies, stored-row constraints, transition rules and
+column privileges taken together, per table × role × command, both directions) plus the grant
+diff finds nothing.  The layer-by-layer access/integrity diff of Milestone 2 is reported but does
+not decide: enforcing "closed tickets are never modified" as a transition rule instead of a
+restrictive policy is not a mistake (the first live run showed the model doing this routinely),
+although filtered-vs-error outcomes differ.  Other metrics: repair rounds, human escalation rate.
+The 31 seed cases (`evals/make_cases.py`, 11 schema families) are the author's rendering of common
+field patterns, not David's anonymized corpus yet; every intended verdict is confirmed by the
+solver when the generator runs, and a test reproduces the committed files.  The first live run
+showed that this grading measures the requirement text as much as the model: every sentence that
+admits two readings (does "update within clearance" bound the old row or the new one?) must be
+made precise before a mismatch counts against the model.
+
+**D39. Synthetic mutations are solver-graded and double as a coverage score.** Each rule of a
+reference spec is dropped, loosened (one conjunct removed), made permissive or given a higher
+limit; a mutant the checker rejects is discarded; a mutant whose verdicts differ from the base is
+a new case (expected outcome: escalated, also usable as a repair benchmark with `--repair`); the
+rest are reported as undetected.  The share detected is a mutation score of the property set.
+Properties are re-based on predicates before mutating (as in D38), so dropping a CHECK or FK whose
+invariant a property names is detected rather than silently removed from the property.  A synthetic
+case is a repair benchmark: it keeps its base case's requirements, reference and verdicts, carries
+the mutant rules as `start_rules`, and `mls eval --llm --repair` starts the loop from them; the
+loop must end `proved` and net-equivalent to the base reference.  Without `--repair` synthetic
+cases are skipped (they would repeat their base case).  Current corpus: 45 % (116/260) — the
+templates are safety properties (upper bounds on access), so removing a grant is rarely caught; a
+liveness template ("some member can read") is future work.
+
 **D33. English rendering is a fixed function of the spec (D10, D15).** `mls explain` and the diff
 and proof reports use `mls/english.py`; the same construct always reads the same way, so a
 reviewer can compare the rendering with the requirement text, and the Milestone 4 loop can check

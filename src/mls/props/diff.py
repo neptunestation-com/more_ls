@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from mls.compile.column import privileges
-from mls.logic.term import FALSE, Term
+from mls.logic.term import FALSE, Term, and_
 from mls.logic.tvl import Encoder
 from mls.props.effective import effective, row_constraints, transition_constraints
 from mls.props.obligations import Obligation, _relations_of, _rows_for, relation_axioms
@@ -270,6 +270,85 @@ def integrity_diff(old: Spec, new: Spec, timeout_ms: int = 20000) -> list[Integr
                 out.append(IntegrityChange(table, kind, direction, res.scenario, res.verdict,
                                            res.opaque_deps))
     return out
+
+
+# ----------------------------------------------------------------------------- behaviour (net effect)
+NET_CASES = ("select", "insert", "update", "delete")
+
+
+def _net_terms(spec: Spec, table: str, role: str, cmd: str, enc: Encoder) -> tuple[list[Pred], Term]:
+    """What `role` can do with `cmd` on `table`, all layers together: the policies, and for a
+    write the stored-row constraints on the written image and the transition rules."""
+    if cmd == "select":
+        parts = [(effective(spec, table, role, "select", "using"), "r")]
+    elif cmd == "delete":
+        parts = [(effective(spec, table, role, "delete", "using"), "old")]
+    elif cmd == "insert":
+        parts = [(effective(spec, table, role, "insert", "check"), "new"), (row_constraints(spec, table), "new")]
+    else:
+        parts = [(effective(spec, table, role, "update", "using"), "old"),
+                 (effective(spec, table, role, "update", "check"), "new"),
+                 (row_constraints(spec, table), "new"), (transition_constraints(spec, table), "new"),
+                 (_unwritable_unchanged(spec, table, role), "new")]
+    return [q for q, _ in parts], and_(*[enc.T(q, img, table) for q, img in parts])
+
+
+def _unwritable_unchanged(spec: Spec, table: str, role: str) -> Pred:
+    """Column privileges as a transition predicate: an update by `role` leaves every column it
+    may not write unchanged (NULL-safe), so a column rule and a transition rule that pin the same
+    column are the same behaviour."""
+    from mls.spec.model import Cmp, IsNull, NewRef, OldRef
+    allowed = privileges(spec).get((role, table), {}).get("update")
+    if allowed is None or allowed == "*":
+        return Lit(lit=True)
+    parts: list[Pred] = []
+    for c in spec.tables[table].columns:
+        if c in allowed:
+            continue
+        same = Cmp(cmp=(NewRef(new=c), "=", OldRef(old=c)))
+        if spec.tables[table].columns[c].nullable:
+            same = Or(**{"or": [And(**{"and": [IsNull(is_null=OldRef(old=c)), IsNull(is_null=NewRef(new=c))]}), same]})
+        parts.append(same)
+    return And(**{"and": parts}) if len(parts) > 1 else (parts[0] if parts else Lit(lit=True))
+
+
+def _net_pair(old: Spec, new: Spec, view: Spec, table: str, role: str, cmd: str,
+              timeout_ms: int) -> list[AccessChange]:
+    e_old, e_new = encoders(old, new)
+    in_old, in_new = table in old.tables, table in new.tables
+    ps_old, t_old = _net_terms(old, table, role, cmd, e_old) if in_old else ([], FALSE)
+    ps_new, t_new = _net_terms(new, table, role, cmd, e_new) if in_new else ([], FALSE)
+    if in_old and in_new and all(_same(old, new, a, b) for a, b in zip(ps_old, ps_new)):
+        return [AccessChange(table, role, cmd, "net", d, None, "PROVED") for d in ("granted", "denied")]
+    rows = _rows_for(cmd, table)
+    common: list[Term] = [*relation_axioms(old, e_old), *relation_axioms(new, e_new)]
+    for row in rows:
+        if row == "new":
+            continue  # the written image is what is compared; existing rows are legitimate in both worlds
+        if in_old:
+            common.append(e_old.T(row_constraints(old, table), row, table))
+        if in_new:
+            common.append(e_new.T(row_constraints(new, table), row, table))
+    rels = _rels(old, new, *ps_old, *ps_new)
+    out = []
+    for direction, (lhs, rhs) in (("granted", (t_new, t_old)), ("denied", (t_old, t_new))):
+        ob = Obligation("diff", f"{cmd} on {table} as {role}, all layers: {direction}",
+                        [*common, lhs], rhs, dict(rows), rels, [e_old, e_new]).finish()
+        res = _run(view, ob, timeout_ms)
+        out.append(AccessChange(table, role, cmd, "net", direction, res.scenario, res.verdict, res.opaque_deps))
+    return out
+
+
+def behaviour_diff(old: Spec, new: Spec, timeout_ms: int = 20000) -> list[AccessChange]:
+    """The net-effect diff: per table × role × command, the rows the role can read or delete and
+    the writes it can make, with policies, stored-row constraints and transition rules taken
+    together.  A rule set that enforces a requirement at a different layer (a transition rule
+    instead of a restrictive policy; an inclusion rule the insert policy already implies) has no
+    net change here although the access and integrity diffs report it.  Denial by USING (the row
+    is filtered) and by CHECK or a trigger (an error) are not distinguished."""
+    view = merged_spec(old, new)
+    return [c for table in sorted({*old.tables, *new.tables}) for role in view.roles
+            for cmd in NET_CASES for c in _net_pair(old, new, view, table, role, cmd, timeout_ms)]
 
 
 # ----------------------------------------------------------------------------- grants

@@ -99,8 +99,8 @@ class Member(Strict):
 
 
 class NowBetweenBody(Strict):
-    from_: Term | None = Field(alias="from")
-    until: Term | None
+    from_: Term | None = Field(default=None, alias="from")
+    until: Term | None = None
 
 
 class NowBetween(Strict):

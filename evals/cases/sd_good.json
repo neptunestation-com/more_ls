@@ -1,0 +1,23 @@
+{
+ "id": "sd_good",
+ "origin": "seed",
+ "requirements": "Members of a tenant read, create and edit the tenant's notes. A note is deleted by setting its deleted_at time (soft delete): a deleted note is invisible and can no longer be modified. Notes are never hard-deleted; a new note is not deleted, and a note never changes tenant.",
+ "expected_properties": [
+  "Notes are only seen and changed within the member's tenants.",
+  "A deleted note is never visible.",
+  "A deleted note is never modified.",
+  "Leaving a tenant never grants access.",
+  "There is no hard delete."
+ ],
+ "reference_spec": "specs/sd_good.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

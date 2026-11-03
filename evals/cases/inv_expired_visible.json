@@ -1,0 +1,23 @@
+{
+ "id": "inv_expired_visible",
+ "origin": "seed",
+ "requirements": "Members of a tenant may invite others: an invite belongs to the tenant, records who created it and may carry an expiry time. Members see the invites of their tenants. Only the inviter, while still a member of the tenant, may revoke (delete) an invite. Invites are never edited.",
+ "expected_properties": [
+  "Invites are only seen, created and revoked within the member's tenants.",
+  "An expired invite is never visible.",
+  "Only the inviter revokes an invite.",
+  "Leaving a tenant never grants access.",
+  "The application role may only select/insert/delete invites and select memberships."
+ ],
+ "reference_spec": "specs/inv_expired_visible.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "REFUTED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

@@ -1,0 +1,288 @@
+{
+ "$comment": "org_tree with direct membership only (no subtree access)",
+ "mls_version": "0.1",
+ "identity": {
+  "adapter": "supabase",
+  "context": {
+   "uid": {
+    "source": "auth.uid",
+    "type": "uuid"
+   }
+  }
+ },
+ "roles": [
+  "authenticated"
+ ],
+ "tables": {
+  "tenants": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  },
+  "groups": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "parent_id": {
+     "type": "int",
+     "nullable": true
+    },
+    "depth": {
+     "type": "int",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  },
+  "group_members": {
+   "columns": {
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "group_id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "user_id",
+    "group_id"
+   ]
+  },
+  "files": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "group_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": true
+    },
+    "size": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  }
+ },
+ "relations": {
+  "group_member": {
+   "table": "group_members",
+   "key": "user_id",
+   "value": "group_id"
+  }
+ },
+ "hierarchies": {
+  "org": {
+   "table": "groups",
+   "id": "id",
+   "parent": "parent_id",
+   "depth": "depth",
+   "max_depth": 3,
+   "members": "group_member"
+  }
+ },
+ "rules": [
+  {
+   "id": "R1",
+   "requirement": "REQ-1",
+   "kind": "policy",
+   "name": "group_read",
+   "table": "files",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "group_member",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "group_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R2",
+   "requirement": "REQ-2",
+   "kind": "policy",
+   "name": "group_insert",
+   "table": "files",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "member": {
+     "relation": "group_member",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "group_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R3",
+   "requirement": "REQ-2",
+   "kind": "policy",
+   "name": "group_update",
+   "table": "files",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "group_member",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "group_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R4",
+   "requirement": "REQ-3",
+   "kind": "policy",
+   "name": "own_groups_read",
+   "table": "groups",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "group_member",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R5",
+   "requirement": "REQ-4",
+   "kind": "cardinality",
+   "name": "files_per_tenant",
+   "table": "files",
+   "group": "tenant_id",
+   "parent": "tenants",
+   "max": 5
+  },
+  {
+   "id": "R6",
+   "requirement": "REQ-5",
+   "kind": "check",
+   "name": "size_positive",
+   "table": "files",
+   "predicate": {
+    "cmp": [
+     {
+      "col": "size"
+     },
+     ">=",
+     {
+      "const": 0
+     }
+    ]
+   }
+  }
+ ],
+ "properties": [
+  {
+   "id": "P1",
+   "template": "custom",
+   "description": "a user only reads files of groups they are a direct member of",
+   "table": "files",
+   "role": "authenticated",
+   "command": "select",
+   "which": "new",
+   "goal": {
+    "member": {
+     "relation": "group_member",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "group_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P2",
+   "template": "monotone_in",
+   "description": "leaving a group never grants access",
+   "relation": "group_member"
+  },
+  {
+   "id": "P3",
+   "template": "invariant_preserved",
+   "description": "a tenant never holds more than 5 files; sizes stay non-negative",
+   "invariants": [
+    {
+     "rule": "R5"
+    },
+    {
+     "rule": "R6"
+    }
+   ]
+  },
+  {
+   "id": "P4",
+   "template": "write_subset_read",
+   "description": "whatever a user writes, they can read back",
+   "table": "files"
+  },
+  {
+   "id": "P5",
+   "template": "least_privilege",
+   "allowed": {
+    "authenticated": {
+     "files": [
+      "select",
+      "insert",
+      "update"
+     ],
+     "groups": [
+      "select"
+     ],
+     "group_members": [
+      "select"
+     ]
+    }
+   }
+  }
+ ]
+}

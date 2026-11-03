@@ -1,0 +1,709 @@
+{
+ "id": "cl_good__loosen_using_R1",
+ "origin": "synthetic",
+ "base_case": "cl_good",
+ "mutation": "loosen_using:R1",
+ "requirements": "Users are enrolled in courses (enrollments) or teach them (teaching). Teachers see, create and edit the assignments of their courses; enrolled students see only published assignments. Students submit work for courses they are enrolled in, in their own name, and see their own submissions; teachers see every submission of their courses. Submissions and assignments are never deleted; submissions are never edited. A submission's student stays enrolled in its course: an enrollment with submissions cannot be removed.",
+ "expected_properties": [
+  "An assignment is visible to its teachers, and to enrolled students once published.",
+  "A submission is created only by an enrolled student, in their own name.",
+  "A submission is visible only to its student and the course's teachers.",
+  "Dropping a course never grants access.",
+  "Every submitter is enrolled in the course.",
+  "The application role may only select/insert/update assignments, select/insert submissions, and select enrollments and teaching."
+ ],
+ "reference_spec": {
+  "$comment": "classroom",
+  "mls_version": "0.1",
+  "identity": {
+   "adapter": "supabase",
+   "context": {
+    "uid": {
+     "source": "auth.uid",
+     "type": "uuid"
+    }
+   }
+  },
+  "roles": [
+   "authenticated"
+  ],
+  "tables": {
+   "courses": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": []
+   },
+   "enrollments": {
+    "columns": {
+     "user_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "course_id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "user_id",
+     "course_id"
+    ],
+    "unique": []
+   },
+   "teaching": {
+    "columns": {
+     "user_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "course_id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "user_id",
+     "course_id"
+    ],
+    "unique": []
+   },
+   "assignments": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "course_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "published": {
+      "type": "bool",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": []
+   },
+   "submissions": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "assignment_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "course_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "student_id": {
+      "type": "uuid",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": []
+   }
+  },
+  "relations": {
+   "enrolled": {
+    "table": "enrollments",
+    "key": "user_id",
+    "value": "course_id"
+   },
+   "teaches": {
+    "table": "teaching",
+    "key": "user_id",
+    "value": "course_id"
+   }
+  },
+  "hierarchies": {},
+  "opaques": {},
+  "rules": [
+   {
+    "id": "R1",
+    "name": "student_read_published",
+    "table": "assignments",
+    "requirement": "students see published assignments",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "and": [
+      {
+       "member": {
+        "relation": "enrolled",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "course_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "published"
+        },
+        "=",
+        {
+         "const": true
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "name": "teacher_read",
+    "table": "assignments",
+    "requirement": "teachers see their assignments",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "teaches",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "course_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R3",
+    "name": "teacher_insert",
+    "table": "assignments",
+    "requirement": "teachers create assignments",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "insert",
+    "mode": "permissive",
+    "check": {
+     "member": {
+      "relation": "teaches",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "course_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R4",
+    "name": "teacher_update",
+    "table": "assignments",
+    "requirement": "teachers edit assignments",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "update",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "teaches",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "course_id"
+      }
+     }
+    },
+    "check": {
+     "member": {
+      "relation": "teaches",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "course_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R5",
+    "name": "student_submit",
+    "table": "submissions",
+    "requirement": "students submit",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "insert",
+    "mode": "permissive",
+    "check": {
+     "and": [
+      {
+       "cmp": [
+        {
+         "col": "student_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      },
+      {
+       "member": {
+        "relation": "enrolled",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "course_id"
+        }
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "R6",
+    "name": "student_read_own",
+    "table": "submissions",
+    "requirement": "students see their submissions",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "cmp": [
+      {
+       "col": "student_id"
+      },
+      "=",
+      {
+       "ctx": "uid"
+      }
+     ]
+    }
+   },
+   {
+    "id": "R7",
+    "name": "teacher_read_submissions",
+    "table": "submissions",
+    "requirement": "teachers grade",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "teaches",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "course_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R8",
+    "name": "submitter_enrolled",
+    "table": "submissions",
+    "requirement": "submitters are enrolled",
+    "kind": "inclusion",
+    "columns": [
+     "student_id",
+     "course_id"
+    ],
+    "relation": "enrolled",
+    "on_delete": "restrict"
+   }
+  ],
+  "properties": [
+   {
+    "id": "P1",
+    "description": "an assignment is visible to its teachers, and to enrolled students once published",
+    "template": "custom",
+    "table": "assignments",
+    "role": "authenticated",
+    "command": "select",
+    "which": "new",
+    "goal": {
+     "or": [
+      {
+       "member": {
+        "relation": "teaches",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "course_id"
+        }
+       }
+      },
+      {
+       "and": [
+        {
+         "member": {
+          "relation": "enrolled",
+          "key": {
+           "ctx": "uid"
+          },
+          "value": {
+           "col": "course_id"
+          }
+         }
+        },
+        {
+         "cmp": [
+          {
+           "col": "published"
+          },
+          "=",
+          {
+           "const": true
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P2",
+    "description": "a submission is created only by an enrolled student, in their own name",
+    "template": "custom",
+    "table": "submissions",
+    "role": "authenticated",
+    "command": "insert",
+    "which": "new",
+    "goal": {
+     "and": [
+      {
+       "cmp": [
+        {
+         "col": "student_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      },
+      {
+       "member": {
+        "relation": "enrolled",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "course_id"
+        }
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "P3",
+    "description": "a submission is visible only to its student and the course's teachers",
+    "template": "custom",
+    "table": "submissions",
+    "role": "authenticated",
+    "command": "select",
+    "which": "new",
+    "goal": {
+     "or": [
+      {
+       "cmp": [
+        {
+         "col": "student_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      },
+      {
+       "member": {
+        "relation": "teaches",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "course_id"
+        }
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "P4",
+    "description": "dropping a course never grants access",
+    "template": "monotone_in",
+    "relation": "enrolled"
+   },
+   {
+    "id": "P5",
+    "description": "every submitter is enrolled in the course",
+    "template": "invariant_preserved",
+    "invariants": [
+     {
+      "rule": "R8"
+     }
+    ]
+   },
+   {
+    "id": "P6",
+    "description": "only select/insert/update on assignments, select/insert on submissions, select on enrollments and teaching",
+    "template": "least_privilege",
+    "allowed": {
+     "authenticated": {
+      "assignments": [
+       "select",
+       "insert",
+       "update"
+      ],
+      "submissions": [
+       "select",
+       "insert"
+      ],
+      "enrollments": [
+       "select"
+      ],
+      "teaching": [
+       "select"
+      ]
+     }
+    }
+   }
+  ]
+ },
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED"
+ },
+ "start_rules": [
+  {
+   "id": "R1",
+   "name": "student_read_published",
+   "table": "assignments",
+   "requirement": "students see published assignments",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "enrolled",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R2",
+   "name": "teacher_read",
+   "table": "assignments",
+   "requirement": "teachers see their assignments",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "teaches",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R3",
+   "name": "teacher_insert",
+   "table": "assignments",
+   "requirement": "teachers create assignments",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "member": {
+     "relation": "teaches",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R4",
+   "name": "teacher_update",
+   "table": "assignments",
+   "requirement": "teachers edit assignments",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "teaches",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   },
+   "check": {
+    "member": {
+     "relation": "teaches",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R5",
+   "name": "student_submit",
+   "table": "submissions",
+   "requirement": "students submit",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "and": [
+     {
+      "cmp": [
+       {
+        "col": "student_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     },
+     {
+      "member": {
+       "relation": "enrolled",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "course_id"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "R6",
+   "name": "student_read_own",
+   "table": "submissions",
+   "requirement": "students see their submissions",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "student_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R7",
+   "name": "teacher_read_submissions",
+   "table": "submissions",
+   "requirement": "teachers grade",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "teaches",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "course_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R8",
+   "name": "submitter_enrolled",
+   "table": "submissions",
+   "requirement": "submitters are enrolled",
+   "kind": "inclusion",
+   "columns": [
+    "student_id",
+    "course_id"
+   ],
+   "relation": "enrolled",
+   "on_delete": "restrict"
+  }
+ ],
+ "mutant_verdicts": {
+  "P1": "REFUTED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

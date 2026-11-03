@@ -1,0 +1,295 @@
+{
+ "$comment": "audit log where admins may update events",
+ "mls_version": "0.1",
+ "identity": {
+  "adapter": "supabase",
+  "context": {
+   "uid": {
+    "source": "auth.uid",
+    "type": "uuid"
+   }
+  }
+ },
+ "roles": [
+  "authenticated"
+ ],
+ "tables": {
+  "memberships": {
+   "columns": {
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "user_id",
+    "tenant_id"
+   ]
+  },
+  "admins": {
+   "columns": {
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "user_id",
+    "tenant_id"
+   ]
+  },
+  "events": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "actor_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "kind": {
+     "type": "text",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  }
+ },
+ "relations": {
+  "member_of": {
+   "table": "memberships",
+   "key": "user_id",
+   "value": "tenant_id"
+  },
+  "admin_of": {
+   "table": "admins",
+   "key": "user_id",
+   "value": "tenant_id"
+  }
+ },
+ "rules": [
+  {
+   "id": "R1",
+   "kind": "policy",
+   "name": "member_record",
+   "table": "events",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "col": "actor_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     }
+    ]
+   },
+   "requirement": "members record events"
+  },
+  {
+   "id": "R2",
+   "kind": "policy",
+   "name": "admin_read",
+   "table": "events",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "admin_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "requirement": "admins audit"
+  },
+  {
+   "id": "R3",
+   "kind": "inclusion",
+   "name": "admins_are_members",
+   "table": "admins",
+   "columns": [
+    "user_id",
+    "tenant_id"
+   ],
+   "relation": "member_of",
+   "on_delete": "restrict",
+   "requirement": "admins are members"
+  },
+  {
+   "id": "R4",
+   "kind": "policy",
+   "name": "admin_fix",
+   "table": "events",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "admin_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "check": {
+    "member": {
+     "relation": "admin_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R5",
+   "kind": "transition",
+   "name": "tenant_immutable",
+   "table": "events",
+   "predicate": {
+    "or": [
+     {
+      "and": [
+       {
+        "is_null": {
+         "old": "tenant_id"
+        }
+       },
+       {
+        "is_null": {
+         "new": "tenant_id"
+        }
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "tenant_id"
+       },
+       "=",
+       {
+        "old": "tenant_id"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "properties": [
+  {
+   "id": "P1",
+   "template": "tenant_isolation",
+   "description": "events are only recorded and read within the user's tenants",
+   "table": "events",
+   "column": "tenant_id",
+   "relation": "member_of",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select",
+    "insert"
+   ]
+  },
+  {
+   "id": "P2",
+   "template": "least_privilege",
+   "description": "the log is append-only: no update or delete on events",
+   "allowed": {
+    "authenticated": {
+     "events": [
+      "select",
+      "insert"
+     ],
+     "memberships": [
+      "select"
+     ],
+     "admins": [
+      "select"
+     ]
+    }
+   }
+  },
+  {
+   "id": "P3",
+   "template": "monotone_in",
+   "description": "losing a membership never grants access",
+   "relation": "member_of"
+  },
+  {
+   "id": "P4",
+   "template": "custom",
+   "description": "an event is recorded in the actor's own name",
+   "table": "events",
+   "role": "authenticated",
+   "command": "insert",
+   "which": "new",
+   "goal": {
+    "cmp": [
+     {
+      "col": "actor_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P5",
+   "template": "invariant_preserved",
+   "description": "admins are members",
+   "invariants": [
+    {
+     "rule": "R3"
+    }
+   ]
+  }
+ ]
+}

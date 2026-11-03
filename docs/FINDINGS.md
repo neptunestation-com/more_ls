@@ -53,5 +53,54 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
   function referenced by a policy cannot be dropped before the policy (dependency error).
 - `pg_proc` snapshots (body, language, prosecdef, owner, EXECUTE acl) make tampering with a
   SECURITY DEFINER helper visible to drift; trigger definitions alone do not.
+- Removing the seller-immutability transition of the marketplace case does **not** refute
+  `column_immutable(seller_id)`: the update policy pins `seller_id` to the user on both row images,
+  so the solver proves immutability from the policies alone.  Only a hand-over rule breaks it.
+- Mutation score of the property templates over the seed corpus: 45 % (116 of 260 mutants; 32 % before
+  properties were re-based on predicates, which lost the FK and CHECK invariants of dropped rules).  Almost
+  every undetected mutant *removes* a grant: the templates are safety properties (upper bounds), so
+  a spec that denies too much is not caught by them (only by write ⊆ read when a write survives).
 - cvc5 `finite-model-find` answers `unknown` on the cardinality induction (∀ over Int with
   LIA + UF); plain `mbqi` agrees with Z3 (unsat) immediately.
+
+## The LLM loop against a live model (Milestone 4, claude-opus-5-5)
+- Structured outputs (`output_config.format`) reject the pass schemas: "Circular reference detected
+  in schema definitions: And -> And".  The grammar of predicates is recursive and cannot be unrolled
+  without a depth bound.  Constraining only the envelope (`{"rules": {"items": {}}}`) is worse:
+  the decoder then forces every nested value to a scalar, and the model emitted placeholder strings
+  and JSON-encoded strings for predicates.  Unconstrained, the model produced schema-valid answers
+  at the first attempt (the only "error" was a ```json``` fence around them).
+- Given a `least_privilege` property that forgot the implicit membership-lookup grant (D21), the
+  rules pass refused to change its rules, explained (correctly) that the grant comes from how the
+  toolchain compiles membership subqueries, and recommended the property be revised.  The loop
+  now escalates as soon as the rules come back unchanged, and the language reference states the
+  implicit privilege.
+- Grading by solver equivalence found a 3VL reading in the author's reference, not in the model's
+  rules: "Archived documents are hidden from everyone" over a nullable `archived int` was
+  compiled as `not (archived = 1)` on every command, which hides rows with a NULL flag (UNKNOWN is
+  denied); the model wrote `archived is null or archived = 0` on select only.  Both readings fit
+  the sentence; the requirement text now says which one is meant.  The lesson generalizes:
+  spec-correctness numbers measure the requirement text as much as the model.
+- The model routinely enforces a requirement at a different layer than the reference: a transition
+  rule for "once closed, never modified" where the reference has a restrictive policy; an
+  inclusion rule left out because the insert policy already implies it; identity columns pinned by
+  a transition rule next to a write column rule.  Layer by layer these are differences (and
+  filtered-vs-error outcomes do differ); for what each role can do they are not, which is why
+  grading moved to the net-effect diff (D38).
+- The solver diff against the model's output found bugs in the author's references, not the
+  model's: the help-desk reference's restrictive "closed tickets are frozen" policy had no WITH
+  CHECK, so it applied to the new row too and nobody could close a ticket (a liveness defect the
+  safety properties cannot see); tickets, notes and audit events could be moved to another
+  organization or tenant although the requirement said otherwise.
+- Given a property it could not satisfy because the *property* was NULL-unsafe (an optional owner
+  stated as a bare membership), the rules pass twice "fixed" the rules by forbidding the NULL, and
+  said so.  The properties pass now gets explicit guidance on guarding nullable columns.
+- A "bad reference" case (a deliberate leak the reviewer's property must catch) only works when the
+  requirement text describes the leaky behaviour: given "exactly the groups they belong to" the
+  model wrote the direct-membership rule and *fixed* the planted subtree leak; given an outsider
+  assignee, it pinned the task's project because its own tenant-isolation property was refuted.
+  Four such cases were rewritten so that the text says what the reference does ("may move it to
+  any project"); the reviewer's English property keeps saying what it should do.
+- After those corrections all 30 generation cases pass; the four reruns passed at the first
+  attempt.  The remaining variance is in the model's reading of sentences that admit two
+  interpretations, and it shows up as a net-effect difference, never as a false proof.

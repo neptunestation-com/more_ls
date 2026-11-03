@@ -1,0 +1,29 @@
+{
+ "id": "hd_good",
+ "origin": "seed",
+ "requirements": "Customers open support tickets and see only their own tickets; a new ticket is 'open'. Agents belong to organizations (agents table) and may read and work on every ticket of their organizations, but cannot move a ticket to another organization. A ticket's status is 'open' or 'closed'; once closed, a ticket is never modified again. A ticket's customer never changes. Nobody deletes tickets.",
+ "expected_properties": [
+  "A ticket is visible only to its customer and to agents of its organization.",
+  "A ticket's customer never changes.",
+  "A ticket's status is always open or closed.",
+  "Closed tickets are never modified.",
+  "An agent never moves a ticket to another organization.",
+  "Removing an agent from an organization never grants access.",
+  "Whatever is written can be read back.",
+  "The application role may only select/insert/update tickets and select agents."
+ ],
+ "reference_spec": "specs/hd_good.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

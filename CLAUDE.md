@@ -58,6 +58,15 @@ Read before writing code, in this order:
   mutation is caught by the differential test. Add a mutation when you add a template.
 - Implementation defaults decided during M1 are D21–D27, during M2 D28–D33, during M3 D34–D36, in
   `docs/DECISIONS.md`.
+- M4: `uv run mls generate` / `mls eval --llm` (src/mls/llm, docs/LLM.md, D37–D39). Tests never call the
+  API: `MLS_LLM_SCRIPT=<json>` or `ScriptedClient` replays answers. `evals/make_cases.py` regenerates
+  the seed corpus (the solver must confirm every intended verdict); `mls eval evals/cases --mutate
+  evals/cases/synthetic` regenerates the mutants. Keep both committed and in sync (tests check).
+  Grading is by net effect (`props/diff.py:behaviour_diff`), not layer by layer; when a live case
+  fails, read its transcript first (`--transcripts DIR`): the model's notes usually name the real
+  cause, and so far that was an ambiguous requirement sentence or a reference bug as often as the
+  model. Live runs need `ANTHROPIC_API_KEY`; decoding is unconstrained (the API rejects recursive
+  schemas), answers are validated locally.
 - M3: hierarchies and cardinality limits compile to SECURITY DEFINER helpers owned by `mls_internal`
   (compile/internal.py, hierarchy.py, cardinality.py). The parent-row lock is only testable with
   parallel writers (`tests/templates/test_cardinality.py`); `-m cvc5` cross-checks the org_tree

@@ -1,0 +1,25 @@
+{
+ "id": "pgr_good",
+ "origin": "seed",
+ "requirements": "Users belong to tenants (memberships) and connect with their own database role (identity is current_user; there are no clearance levels). A user may read, create and update the documents of the tenants they belong to; tenant admins may read every document of their tenants. A document is archived unless its archived column holds a value other than 1 (a missing value counts as archived); archived documents are hidden from everyone: nobody can read, create, change or delete them. Levels are 0..3. A document's owner, if set, must be a member of the document's tenant; admins must be members. A document never changes tenant.",
+ "expected_properties": [
+  "A user only sees, creates or updates documents of tenants they belong to.",
+  "A document's tenant never changes.",
+  "Removing a membership never grants anyone access.",
+  "Levels stay in range; owners and admins stay members of their tenants.",
+  "Whatever a user writes, they can read back.",
+  "The application role has no privilege beyond select/insert/update on docs and reading memberships."
+ ],
+ "reference_spec": "specs/pgr_good.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

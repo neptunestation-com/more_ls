@@ -1,0 +1,25 @@
+{
+ "id": "td_clearance_write_gap",
+ "origin": "seed",
+ "requirements": "Users belong to tenants (memberships). A user may read a document of a tenant they belong to if the document's level is at most their clearance; tenant admins may read every document of their tenants. Members may create documents in their tenants at any level, and may update any document of their tenants as long as the updated document's level is within their clearance. A document is archived unless its archived column holds a value other than 1 (a missing value counts as archived); archived documents are hidden from everyone: nobody can read, create, change or delete them. Levels are 0..3. A document's owner, if set, must be a member of the document's tenant; admins must be members. A document never changes tenant.",
+ "expected_properties": [
+  "A user only sees, creates or updates documents of tenants they belong to.",
+  "A document's tenant never changes.",
+  "Removing a membership never grants anyone access.",
+  "Levels stay in range; owners and admins stay members of their tenants.",
+  "Whatever a user writes, they can read back.",
+  "The application role has no privilege beyond select/insert/update on docs and reading memberships."
+ ],
+ "reference_spec": "specs/td_clearance_write_gap.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "REFUTED",
+  "P6": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

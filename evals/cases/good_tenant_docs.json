@@ -1,6 +1,6 @@
 {
   "id": "good_tenant_docs",
-  "requirements": "Users belong to tenants (memberships). A user may read a document of a tenant they belong to if the document's level is at most their clearance; tenant admins may read every document of their tenants. Members may create and update documents in their tenants within their clearance. Archived documents are hidden from everyone. Levels are 0..3. A document's owner, if set, must be a member of the document's tenant; admins must be members. A document never changes tenant.",
+  "requirements": "Users belong to tenants (memberships). A user may read a document of a tenant they belong to if the document's level is at most their clearance; tenant admins may read every document of their tenants. Members may create documents in their tenants at a level within their clearance, and may update any document of their tenants as long as the updated document's level is within their clearance. A document is archived unless its archived column holds a value other than 1 (a missing value counts as archived); archived documents are hidden from everyone: nobody can read, create, change or delete them. Levels are 0..3. A document's owner, if set, must be a member of the document's tenant; admins must be members. A document never changes tenant.",
   "expected_properties": [
     "A user only sees, creates or updates documents of tenants they belong to.",
     "A document's tenant never changes.",

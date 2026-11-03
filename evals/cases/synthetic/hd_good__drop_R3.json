@@ -1,0 +1,704 @@
+{
+ "id": "hd_good__drop_R3",
+ "origin": "synthetic",
+ "base_case": "hd_good",
+ "mutation": "drop:R3",
+ "requirements": "Customers open support tickets and see only their own tickets; a new ticket is 'open'. Agents belong to organizations (agents table) and may read and work on every ticket of their organizations, but cannot move a ticket to another organization. A ticket's status is 'open' or 'closed'; once closed, a ticket is never modified again. A ticket's customer never changes. Nobody deletes tickets.",
+ "expected_properties": [
+  "A ticket is visible only to its customer and to agents of its organization.",
+  "A ticket's customer never changes.",
+  "A ticket's status is always open or closed.",
+  "Closed tickets are never modified.",
+  "An agent never moves a ticket to another organization.",
+  "Removing an agent from an organization never grants access.",
+  "Whatever is written can be read back.",
+  "The application role may only select/insert/update tickets and select agents."
+ ],
+ "reference_spec": {
+  "$comment": "help desk: customers, agents, ticket status",
+  "mls_version": "0.1",
+  "identity": {
+   "adapter": "supabase",
+   "context": {
+    "uid": {
+     "source": "auth.uid",
+     "type": "uuid"
+    }
+   }
+  },
+  "roles": [
+   "authenticated"
+  ],
+  "tables": {
+   "orgs": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": []
+   },
+   "agents": {
+    "columns": {
+     "user_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "org_id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "user_id",
+     "org_id"
+    ],
+    "unique": []
+   },
+   "tickets": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "org_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "customer_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "status": {
+      "type": "text",
+      "nullable": false
+     },
+     "assignee_id": {
+      "type": "uuid",
+      "nullable": true
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": []
+   }
+  },
+  "relations": {
+   "agent_of": {
+    "table": "agents",
+    "key": "user_id",
+    "value": "org_id"
+   }
+  },
+  "hierarchies": {},
+  "opaques": {},
+  "rules": [
+   {
+    "id": "R1",
+    "name": "customer_read",
+    "table": "tickets",
+    "requirement": "customers see their own tickets",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "cmp": [
+      {
+       "col": "customer_id"
+      },
+      "=",
+      {
+       "ctx": "uid"
+      }
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "name": "customer_open",
+    "table": "tickets",
+    "requirement": "customers open tickets",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "insert",
+    "mode": "permissive",
+    "check": {
+     "and": [
+      {
+       "cmp": [
+        {
+         "col": "customer_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "col": "status"
+        },
+        "=",
+        {
+         "const": "open"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "R3",
+    "name": "agent_read",
+    "table": "tickets",
+    "requirement": "agents see their org's tickets",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "agent_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "org_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R4",
+    "name": "agent_update",
+    "table": "tickets",
+    "requirement": "agents work their org's tickets",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "update",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "agent_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "org_id"
+      }
+     }
+    },
+    "check": {
+     "member": {
+      "relation": "agent_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "org_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R5",
+    "name": "closed_frozen",
+    "table": "tickets",
+    "requirement": "closed tickets are immutable",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "update",
+    "mode": "restrictive",
+    "using": {
+     "cmp": [
+      {
+       "col": "status"
+      },
+      "<>",
+      {
+       "const": "closed"
+      }
+     ]
+    },
+    "check": {
+     "lit": true
+    }
+   },
+   {
+    "id": "R6",
+    "name": "status_values",
+    "table": "tickets",
+    "requirement": "statuses",
+    "kind": "check",
+    "predicate": {
+     "or": [
+      {
+       "cmp": [
+        {
+         "col": "status"
+        },
+        "=",
+        {
+         "const": "open"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "col": "status"
+        },
+        "=",
+        {
+         "const": "closed"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "R7",
+    "name": "customer_immutable",
+    "table": "tickets",
+    "kind": "transition",
+    "predicate": {
+     "or": [
+      {
+       "and": [
+        {
+         "is_null": {
+          "old": "customer_id"
+         }
+        },
+        {
+         "is_null": {
+          "new": "customer_id"
+         }
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "customer_id"
+        },
+        "=",
+        {
+         "old": "customer_id"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "R8",
+    "name": "org_immutable",
+    "table": "tickets",
+    "kind": "transition",
+    "predicate": {
+     "or": [
+      {
+       "and": [
+        {
+         "is_null": {
+          "old": "org_id"
+         }
+        },
+        {
+         "is_null": {
+          "new": "org_id"
+         }
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "org_id"
+        },
+        "=",
+        {
+         "old": "org_id"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "properties": [
+   {
+    "id": "P1",
+    "description": "a ticket is visible only to its customer and to agents of its org",
+    "template": "custom",
+    "table": "tickets",
+    "role": "authenticated",
+    "command": "select",
+    "which": "new",
+    "goal": {
+     "or": [
+      {
+       "cmp": [
+        {
+         "col": "customer_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      },
+      {
+       "member": {
+        "relation": "agent_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "org_id"
+        }
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "P2",
+    "description": "a ticket's customer never changes",
+    "template": "column_immutable",
+    "table": "tickets",
+    "column": "customer_id"
+   },
+   {
+    "id": "P3",
+    "description": "a ticket's status is open or closed",
+    "template": "invariant_preserved",
+    "invariants": [
+     {
+      "rule": "R6"
+     }
+    ]
+   },
+   {
+    "id": "P4",
+    "description": "closed tickets are never modified",
+    "template": "custom",
+    "table": "tickets",
+    "role": "authenticated",
+    "command": "update",
+    "which": "old",
+    "goal": {
+     "cmp": [
+      {
+       "col": "status"
+      },
+      "<>",
+      {
+       "const": "closed"
+      }
+     ]
+    }
+   },
+   {
+    "id": "P5",
+    "description": "an agent never moves a ticket to another org",
+    "template": "custom",
+    "table": "tickets",
+    "role": "authenticated",
+    "command": "update",
+    "which": "new",
+    "goal": {
+     "member": {
+      "relation": "agent_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "org_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P6",
+    "description": "removing an agent from an org never grants access",
+    "template": "monotone_in",
+    "relation": "agent_of"
+   },
+   {
+    "id": "P7",
+    "description": "whatever is written can be read back",
+    "template": "write_subset_read",
+    "table": "tickets"
+   },
+   {
+    "id": "P8",
+    "description": "only select/insert/update on tickets and select on agents",
+    "template": "least_privilege",
+    "allowed": {
+     "authenticated": {
+      "tickets": [
+       "select",
+       "insert",
+       "update"
+      ],
+      "agents": [
+       "select"
+      ]
+     }
+    }
+   }
+  ]
+ },
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
+ },
+ "start_rules": [
+  {
+   "id": "R1",
+   "name": "customer_read",
+   "table": "tickets",
+   "requirement": "customers see their own tickets",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "customer_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R2",
+   "name": "customer_open",
+   "table": "tickets",
+   "requirement": "customers open tickets",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "and": [
+     {
+      "cmp": [
+       {
+        "col": "customer_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "col": "status"
+       },
+       "=",
+       {
+        "const": "open"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "R4",
+   "name": "agent_update",
+   "table": "tickets",
+   "requirement": "agents work their org's tickets",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "agent_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "org_id"
+     }
+    }
+   },
+   "check": {
+    "member": {
+     "relation": "agent_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "org_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R5",
+   "name": "closed_frozen",
+   "table": "tickets",
+   "requirement": "closed tickets are immutable",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "restrictive",
+   "using": {
+    "cmp": [
+     {
+      "col": "status"
+     },
+     "<>",
+     {
+      "const": "closed"
+     }
+    ]
+   },
+   "check": {
+    "lit": true
+   }
+  },
+  {
+   "id": "R6",
+   "name": "status_values",
+   "table": "tickets",
+   "requirement": "statuses",
+   "kind": "check",
+   "predicate": {
+    "or": [
+     {
+      "cmp": [
+       {
+        "col": "status"
+       },
+       "=",
+       {
+        "const": "open"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "col": "status"
+       },
+       "=",
+       {
+        "const": "closed"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "R7",
+   "name": "customer_immutable",
+   "table": "tickets",
+   "kind": "transition",
+   "predicate": {
+    "or": [
+     {
+      "and": [
+       {
+        "is_null": {
+         "old": "customer_id"
+        }
+       },
+       {
+        "is_null": {
+         "new": "customer_id"
+        }
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "customer_id"
+       },
+       "=",
+       {
+        "old": "customer_id"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "R8",
+   "name": "org_immutable",
+   "table": "tickets",
+   "kind": "transition",
+   "predicate": {
+    "or": [
+     {
+      "and": [
+       {
+        "is_null": {
+         "old": "org_id"
+        }
+       },
+       {
+        "is_null": {
+         "new": "org_id"
+        }
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "org_id"
+       },
+       "=",
+       {
+        "old": "org_id"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "mutant_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "REFUTED",
+  "P8": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

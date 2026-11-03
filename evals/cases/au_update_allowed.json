@@ -1,0 +1,23 @@
+{
+ "id": "au_update_allowed",
+ "origin": "seed",
+ "requirements": "Members of a tenant record audit events for their tenant, always in their own name. Tenant admins (who must be members) read the events of their tenants. Admins may correct events of their tenants (a correction never moves an event to another tenant).",
+ "expected_properties": [
+  "Events are only recorded and read within the user's tenants.",
+  "The log is append-only: no update or delete on events.",
+  "Losing a membership never grants access.",
+  "An event is recorded in the actor's own name.",
+  "Admins are members."
+ ],
+ "reference_spec": "specs/au_update_allowed.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "REFUTED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

@@ -1,0 +1,21 @@
+{
+ "id": "cr_good",
+ "origin": "seed",
+ "requirements": "Two application roles: staff and hr. Both see the employee records of the tenants they belong to, but staff never see salaries (only id, tenant, user and title). HR may update salaries and titles; nobody else changes employee records, and nothing is inserted or deleted through the application. Salaries are never negative. Users see their own memberships.",
+ "expected_properties": [
+  "Employee records are only seen and changed within the user's tenants.",
+  "Staff only read employees (never salaries); HR reads and updates.",
+  "Salaries are never negative.",
+  "Leaving a tenant never grants access."
+ ],
+ "reference_spec": "specs/cr_good.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

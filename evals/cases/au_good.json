@@ -1,0 +1,23 @@
+{
+ "id": "au_good",
+ "origin": "seed",
+ "requirements": "Members of a tenant record audit events for their tenant, always in their own name. Tenant admins (who must be members) read the events of their tenants. The log is append-only: events are never updated or deleted.",
+ "expected_properties": [
+  "Events are only recorded and read within the user's tenants.",
+  "The log is append-only: no update or delete on events.",
+  "Losing a membership never grants access.",
+  "An event is recorded in the actor's own name.",
+  "Admins are members."
+ ],
+ "reference_spec": "specs/au_good.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

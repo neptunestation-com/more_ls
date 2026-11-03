@@ -1,0 +1,236 @@
+{
+ "$comment": "invites visible after expiry",
+ "mls_version": "0.1",
+ "identity": {
+  "adapter": "supabase",
+  "context": {
+   "uid": {
+    "source": "auth.uid",
+    "type": "uuid"
+   }
+  }
+ },
+ "roles": [
+  "authenticated"
+ ],
+ "tables": {
+  "memberships": {
+   "columns": {
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "user_id",
+    "tenant_id"
+   ]
+  },
+  "invites": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "inviter_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "expires_at": {
+     "type": "timestamp",
+     "nullable": true
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  }
+ },
+ "relations": {
+  "member_of": {
+   "table": "memberships",
+   "key": "user_id",
+   "value": "tenant_id"
+  }
+ },
+ "rules": [
+  {
+   "id": "R1",
+   "kind": "policy",
+   "name": "member_read",
+   "table": "invites",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R2",
+   "kind": "policy",
+   "name": "member_invite",
+   "table": "invites",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "col": "inviter_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     }
+    ]
+   },
+   "requirement": "members invite"
+  },
+  {
+   "id": "R3",
+   "kind": "policy",
+   "name": "inviter_revoke",
+   "table": "invites",
+   "role": "authenticated",
+   "command": "delete",
+   "mode": "permissive",
+   "using": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "col": "inviter_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     }
+    ]
+   },
+   "requirement": "inviters revoke"
+  }
+ ],
+ "properties": [
+  {
+   "id": "P1",
+   "template": "tenant_isolation",
+   "description": "invites are only seen, created and revoked within the member's tenants",
+   "table": "invites",
+   "column": "tenant_id",
+   "relation": "member_of",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select",
+    "insert",
+    "delete"
+   ]
+  },
+  {
+   "id": "P2",
+   "template": "custom",
+   "description": "an expired invite is never visible",
+   "table": "invites",
+   "role": "authenticated",
+   "command": "select",
+   "which": "new",
+   "goal": {
+    "now_between": {
+     "from": null,
+     "until": {
+      "col": "expires_at"
+     }
+    }
+   }
+  },
+  {
+   "id": "P3",
+   "template": "custom",
+   "description": "only the inviter revokes an invite",
+   "table": "invites",
+   "role": "authenticated",
+   "command": "delete",
+   "which": "old",
+   "goal": {
+    "cmp": [
+     {
+      "col": "inviter_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P4",
+   "template": "monotone_in",
+   "description": "leaving a tenant never grants access",
+   "relation": "member_of"
+  },
+  {
+   "id": "P5",
+   "template": "least_privilege",
+   "description": "only select/insert/delete on invites and select on memberships",
+   "allowed": {
+    "authenticated": {
+     "invites": [
+      "select",
+      "insert",
+      "delete"
+     ],
+     "memberships": [
+      "select"
+     ]
+    }
+   }
+  }
+ ]
+}

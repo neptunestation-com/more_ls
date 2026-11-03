@@ -1,0 +1,417 @@
+{
+ "$comment": "help desk without the closed-ticket freeze",
+ "mls_version": "0.1",
+ "identity": {
+  "adapter": "supabase",
+  "context": {
+   "uid": {
+    "source": "auth.uid",
+    "type": "uuid"
+   }
+  }
+ },
+ "roles": [
+  "authenticated"
+ ],
+ "tables": {
+  "orgs": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  },
+  "agents": {
+   "columns": {
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "org_id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "user_id",
+    "org_id"
+   ]
+  },
+  "tickets": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "org_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "customer_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "status": {
+     "type": "text",
+     "nullable": false
+    },
+    "assignee_id": {
+     "type": "uuid",
+     "nullable": true
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  }
+ },
+ "relations": {
+  "agent_of": {
+   "table": "agents",
+   "key": "user_id",
+   "value": "org_id"
+  }
+ },
+ "rules": [
+  {
+   "id": "R1",
+   "kind": "policy",
+   "name": "customer_read",
+   "table": "tickets",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "customer_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   },
+   "requirement": "customers see their own tickets"
+  },
+  {
+   "id": "R2",
+   "kind": "policy",
+   "name": "customer_open",
+   "table": "tickets",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "and": [
+     {
+      "cmp": [
+       {
+        "col": "customer_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "col": "status"
+       },
+       "=",
+       {
+        "const": "open"
+       }
+      ]
+     }
+    ]
+   },
+   "requirement": "customers open tickets"
+  },
+  {
+   "id": "R3",
+   "kind": "policy",
+   "name": "agent_read",
+   "table": "tickets",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "agent_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "org_id"
+     }
+    }
+   },
+   "requirement": "agents see their org's tickets"
+  },
+  {
+   "id": "R4",
+   "kind": "policy",
+   "name": "agent_update",
+   "table": "tickets",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "agent_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "org_id"
+     }
+    }
+   },
+   "check": {
+    "member": {
+     "relation": "agent_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "org_id"
+     }
+    }
+   },
+   "requirement": "agents work their org's tickets"
+  },
+  {
+   "id": "R6",
+   "kind": "check",
+   "name": "status_values",
+   "table": "tickets",
+   "predicate": {
+    "or": [
+     {
+      "cmp": [
+       {
+        "col": "status"
+       },
+       "=",
+       {
+        "const": "open"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "col": "status"
+       },
+       "=",
+       {
+        "const": "closed"
+       }
+      ]
+     }
+    ]
+   },
+   "requirement": "statuses"
+  },
+  {
+   "id": "R7",
+   "kind": "transition",
+   "name": "customer_immutable",
+   "table": "tickets",
+   "predicate": {
+    "or": [
+     {
+      "and": [
+       {
+        "is_null": {
+         "old": "customer_id"
+        }
+       },
+       {
+        "is_null": {
+         "new": "customer_id"
+        }
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "customer_id"
+       },
+       "=",
+       {
+        "old": "customer_id"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "R8",
+   "kind": "transition",
+   "name": "org_immutable",
+   "table": "tickets",
+   "predicate": {
+    "or": [
+     {
+      "and": [
+       {
+        "is_null": {
+         "old": "org_id"
+        }
+       },
+       {
+        "is_null": {
+         "new": "org_id"
+        }
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "org_id"
+       },
+       "=",
+       {
+        "old": "org_id"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "properties": [
+  {
+   "id": "P1",
+   "template": "custom",
+   "description": "a ticket is visible only to its customer and to agents of its org",
+   "table": "tickets",
+   "role": "authenticated",
+   "command": "select",
+   "which": "new",
+   "goal": {
+    "or": [
+     {
+      "cmp": [
+       {
+        "col": "customer_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     },
+     {
+      "member": {
+       "relation": "agent_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "org_id"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "P2",
+   "template": "column_immutable",
+   "description": "a ticket's customer never changes",
+   "table": "tickets",
+   "column": "customer_id"
+  },
+  {
+   "id": "P3",
+   "template": "invariant_preserved",
+   "description": "a ticket's status is open or closed",
+   "invariants": [
+    {
+     "rule": "R6"
+    }
+   ]
+  },
+  {
+   "id": "P4",
+   "template": "custom",
+   "description": "closed tickets are never modified",
+   "table": "tickets",
+   "role": "authenticated",
+   "command": "update",
+   "which": "old",
+   "goal": {
+    "cmp": [
+     {
+      "col": "status"
+     },
+     "<>",
+     {
+      "const": "closed"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P5",
+   "template": "custom",
+   "description": "an agent never moves a ticket to another org",
+   "table": "tickets",
+   "role": "authenticated",
+   "command": "update",
+   "which": "new",
+   "goal": {
+    "member": {
+     "relation": "agent_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "org_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P6",
+   "template": "monotone_in",
+   "description": "removing an agent from an org never grants access",
+   "relation": "agent_of"
+  },
+  {
+   "id": "P7",
+   "template": "write_subset_read",
+   "description": "whatever is written can be read back",
+   "table": "tickets"
+  },
+  {
+   "id": "P8",
+   "template": "least_privilege",
+   "description": "only select/insert/update on tickets and select on agents",
+   "allowed": {
+    "authenticated": {
+     "tickets": [
+      "select",
+      "insert",
+      "update"
+     ],
+     "agents": [
+      "select"
+     ]
+    }
+   }
+  }
+ ]
+}

@@ -275,15 +275,110 @@ def cmd_drift(a) -> int:
 
 
 def cmd_eval(a) -> int:
-    from mls.evals import run_cases
+    from mls.evals import case_files, generation_case, load_case, run_cases, run_llm_case, synthetic_cases
 
-    results = run_cases([Path(p) for p in a.cases])
+    paths = [Path(p) for p in a.cases]
+    if a.mutate:
+        total_written, total_missed = 0, 0
+        for f in case_files(paths):
+            written, missed = synthetic_cases(f, Path(a.mutate))
+            total_written += len(written)
+            total_missed += len(missed)
+            print(f"{f.stem}: {len(written)} detected mutant(s) written, {len(missed)} undetected"
+                  + (f" ({', '.join(missed)})" if missed else ""))
+        caught = total_written + total_missed
+        score = f"{total_written / caught:.0%}" if caught else "n/a"
+        print(f"mutation score of the property sets: {score} ({total_written}/{caught})")
+        return 0
+    if a.llm:
+        from mls.llm.client import client_from_env
+        from mls.llm.grade import summarize
+
+        from mls.llm.grade import CaseGrade, expected_status
+
+        grades = []
+        for f in case_files(paths):
+            case = load_case(f)
+            why = generation_case(case, a.repair)
+            if why:
+                print(f"skip: {case['id']} — {why}")
+                continue
+            client = client_from_env(a.model, a.effort)
+            try:
+                g, result = run_llm_case(f, client, a.max_repairs, repair_from_reference=a.repair)
+            except Exception as e:  # noqa: BLE001 - one case must not end the run
+                g = CaseGrade(case["id"], expected_status(case), "failed", False, False, False,
+                              differences=[f"{type(e).__name__}: {e}"])
+                result = None
+            grades.append(g)
+            mark = "ok" if g.correct else "FAIL"
+            print(f"{mark}: {g.case_id} — {g.status} (expected {g.expected_status}), "
+                  f"{g.repair_rounds} repair round(s), net_equivalent={g.net_equivalent}, "
+                  f"reference_properties_hold={g.reference_properties_hold}"
+                  + (f"; {'; '.join(g.net_differences[:3])}" if g.net_differences else "")
+                  + (f"; {'; '.join(g.differences[:2])}" if result is None and g.differences else ""))
+            if result is None:
+                continue
+            if a.transcripts:
+                d = Path(a.transcripts)
+                d.mkdir(parents=True, exist_ok=True)
+                (d / f"{g.case_id}.json").write_text(json.dumps(
+                    {"grade": g.to_dict(), "result": result.to_dict(),
+                     "exchanges": [{"name": x.request.name, "user": x.request.user, "response": x.response,
+                                    "usage": x.usage} for x in getattr(client, "exchanges", [])]},
+                    indent=1, default=str))
+        summary = summarize(grades)
+        print(json.dumps(summary, indent=1) if a.json else
+              "\n".join(f"{k}: {v}" for k, v in summary.items()))
+        return 0 if all(g.correct for g in grades) else 1
+    results = run_cases(paths)
     bad = 0
     for r in results:
         status = "ok" if r.ok else "FAIL"
         print(f"{status}: {r.case_id} — {r.message}")
         bad += 0 if r.ok else 1
     return 0 if bad == 0 else 1
+
+
+def cmd_generate(a) -> int:
+    from mls import english
+    from mls.llm.client import client_from_env
+    from mls.llm.loop import generate
+    from mls.llm.schemas import skeleton_of
+
+    requirements = sys.stdin.read() if a.requirements == "-" else Path(a.requirements).read_text()
+    skeleton = skeleton_of(json.loads(Path(a.skeleton).read_text()))
+    client = client_from_env(a.model, a.effort)
+    result = generate(requirements, skeleton, client, a.max_repairs)
+    if a.transcript:
+        Path(a.transcript).write_text(json.dumps(
+            {"result": result.to_dict(),
+             "exchanges": [{"name": x.request.name, "system": x.request.system, "user": x.request.user,
+                            "response": x.response, "usage": x.usage} for x in getattr(client, "exchanges", [])]},
+            indent=1, default=str))
+    if a.out and result.spec is not None:
+        Path(a.out).write_text(json.dumps(result.spec.model_dump(by_alias=True, exclude_none=True), indent=1) + "\n")
+    if a.json:
+        print(json.dumps(result.to_dict(), indent=1, default=str))
+        return 0 if result.status == "proved" else 1
+    print(f"status: {result.status} after {result.repair_rounds} repair round(s)")
+    for st in result.steps:
+        print(f"  {st.stage}: {st.detail}")
+    if result.spec is not None:
+        print("\n# Properties (for approval)")
+        for p in result.spec.properties:
+            print(f"- {p.id} ({result.verdicts.get(p.id, '?')}): {english.prop(result.spec, p)}")
+    if result.errors:
+        print("\n# Errors")
+        for e in result.errors:
+            print(f"- {e}")
+    if result.escalations:
+        print("\n# Needs a human decision (the rules and a property disagree)")
+        for e in result.escalations:
+            print(f"- {e}")
+    for k, v in result.notes.items():
+        print(f"\nnotes from the {k} pass: {v}")
+    return 0 if result.status == "proved" else 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -364,9 +459,28 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_drift)
 
-    p = sub.add_parser("eval", help="run eval cases (expected verdicts of reference specs)")
+    p = sub.add_parser("eval", help="run eval cases (expected verdicts of reference specs; --llm runs the loop)")
     p.add_argument("cases", nargs="+")
+    p.add_argument("--llm", action="store_true", help="generate specs from the requirements with the LLM loop and grade them")
+    p.add_argument("--repair", action="store_true", help="with --llm: start from the case's reference rules (repair benchmark)")
+    p.add_argument("--mutate", metavar="DIR", help="write solver-graded synthetic mutants of the cases to DIR")
+    p.add_argument("--model", default="claude-opus-5-5")
+    p.add_argument("--effort", default="high")
+    p.add_argument("--max-repairs", type=int, default=3)
+    p.add_argument("--transcripts", metavar="DIR", help="with --llm: write one transcript per case")
+    p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_eval)
+
+    p = sub.add_parser("generate", help="write a spec from requirements with the LLM loop (D16)")
+    p.add_argument("requirements", help="text file of business requirements, or - for stdin")
+    p.add_argument("--skeleton", required=True, help="spec (or skeleton) JSON giving identity, roles, tables, relations")
+    p.add_argument("--out", help="write the generated spec here")
+    p.add_argument("--model", default="claude-opus-5-5")
+    p.add_argument("--effort", default="high")
+    p.add_argument("--max-repairs", type=int, default=3)
+    p.add_argument("--transcript", help="write the full prompt/answer transcript here")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_generate)
 
     a = ap.parse_args(argv)
     return a.fn(a)

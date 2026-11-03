@@ -19,6 +19,8 @@ Read `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.md`, `docs/ROADMAP.m
     uv run mls compile examples/tenant_docs.mls.json        # DDL
     uv run mls test    examples/tenant_docs.mls.json        # differential test on Postgres 15–18 (Docker)
     uv run mls explain examples/org_tree.mls.json           # group hierarchy + per-tenant limit, in English
+    uv run mls generate req.txt --skeleton skel.json        # LLM loop: requirements -> proved spec (docs/LLM.md)
+    uv run mls eval evals/cases [--llm] [--mutate DIR]      # grade the corpus; run the loop on it; make mutants
     uv run mls test    examples/tenant_docs.mls.json --versions 16 --explain   # + EXPLAIN checks at 1M rows
     uv run mls lint    examples/tenant_docs.mls.json        # leakproof lint
     uv run mls explain examples/tenant_docs.mls.json        # the rules and properties in plain English
@@ -59,6 +61,12 @@ Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 
 
 ## Status
 
-Milestones 1 (core loop, no LLM), 2 (`diff | migrate | preflight | drift`, English rendering) and
+Milestones 1 (core loop, no LLM), 2 (`diff | migrate | preflight | drift`, English rendering),
 3 (group hierarchies with `in_group`, cardinality limits with a parent-row lock, full opaque-block
-reporting) are implemented. Milestone 4 (the LLM loop) is in `docs/ROADMAP.md`.
+reporting) and 4 (the LLM loop with bounded repair and human escalation, the evaluation corpus with
+solver-graded mutants; `docs/LLM.md`) are implemented.  Measured live with `claude-opus-5-5`
+on the 30 generation cases of the seed corpus: every case ends proved, net-equivalent to its
+reference and with the reference properties' expected verdicts (3 cases needed one repair round,
+none was escalated).  The seed cases are the author's rendering of common patterns, and that
+number is as much a statement about their requirement texts as about the model: see
+`docs/FINDINGS.md` for what the first run found and `docs/LLM.md` for how grading works.

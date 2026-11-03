@@ -1,0 +1,219 @@
+{
+ "$comment": "projects where the assignee need not be a member and updates only check the assignee",
+ "mls_version": "0.1",
+ "identity": {
+  "adapter": "supabase",
+  "context": {
+   "uid": {
+    "source": "auth.uid",
+    "type": "uuid"
+   }
+  }
+ },
+ "roles": [
+  "authenticated"
+ ],
+ "tables": {
+  "projects": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "owner_id": {
+     "type": "uuid",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  },
+  "project_members": {
+   "columns": {
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "project_id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "user_id",
+    "project_id"
+   ]
+  },
+  "tasks": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "project_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "assignee_id": {
+     "type": "uuid",
+     "nullable": true
+    },
+    "done": {
+     "type": "bool",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  }
+ },
+ "relations": {
+  "member_of": {
+   "table": "project_members",
+   "key": "user_id",
+   "value": "project_id"
+  }
+ },
+ "rules": [
+  {
+   "id": "R1",
+   "kind": "policy",
+   "name": "member_read",
+   "table": "tasks",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R2",
+   "kind": "policy",
+   "name": "member_insert",
+   "table": "tasks",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R3",
+   "kind": "policy",
+   "name": "assignee_update",
+   "table": "tasks",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "assignee_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   },
+   "check": {
+    "cmp": [
+     {
+      "col": "assignee_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  }
+ ],
+ "properties": [
+  {
+   "id": "P1",
+   "template": "tenant_isolation",
+   "description": "tasks are only seen, added and changed by members of their project",
+   "table": "tasks",
+   "column": "project_id",
+   "relation": "member_of",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select",
+    "insert",
+    "update"
+   ]
+  },
+  {
+   "id": "P2",
+   "template": "custom",
+   "description": "only the assignee updates a task",
+   "table": "tasks",
+   "role": "authenticated",
+   "command": "update",
+   "which": "old",
+   "goal": {
+    "cmp": [
+     {
+      "col": "assignee_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P3",
+   "template": "monotone_in",
+   "description": "leaving a project never grants access",
+   "relation": "member_of"
+  },
+  {
+   "id": "P5",
+   "template": "write_subset_read",
+   "description": "whatever is written can be read back",
+   "table": "tasks"
+  },
+  {
+   "id": "P6",
+   "template": "least_privilege",
+   "description": "only select/insert/update on tasks and select on project_members",
+   "allowed": {
+    "authenticated": {
+     "tasks": [
+      "select",
+      "insert",
+      "update"
+     ],
+     "project_members": [
+      "select"
+     ]
+    }
+   }
+  }
+ ]
+}
