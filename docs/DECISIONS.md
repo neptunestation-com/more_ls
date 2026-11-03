@@ -287,8 +287,16 @@ everything: a dropped grant, or the help-desk reference whose restrictive "close
 frozen" policy lacked WITH CHECK and so made closing a ticket impossible (found only by diffing
 against the model's output).  `must_allow {table, role, command, when}` states that every row —
 for update, every pair of images — that satisfies `when` and the stored-row constraints is admitted
-to the command, all layers together: the net-effect predicate the behaviour diff compares (D38), so
-a policy, a transition rule and a column rule that forbid the same change refute it the same way.
+by the command's access layers: the effective policies, the transition rules and the column
+privileges, so a policy, a transition rule and a column rule that forbid the same change refute it
+the same way.  *Amended the same day after the first live run:* the written image is assumed valid
+(it satisfies the table's CHECKs and FKs) rather than proved valid.  With the constraints in the
+goal, a lower bound had to restate every CHECK of the table in its condition; the model never did,
+its natural "a member can insert a document in their tenant" was refuted by the level-range CHECK,
+and the rules pass either stood by its rules and escalated or dropped the CHECK to satisfy the
+bound — four of thirty seed cases.  Now the condition states what the role can do; an
+over-restrictive CHECK surfaces as vacuity in the witness obligation, with its message.  The net
+effect the behaviour diff compares (D38) keeps the constraints; only the lower bound drops them.
 It is universal, hence decidable in the same fragment as `custom` (same encoding, implication
 reversed).  The existential part — that `when` is satisfiable — is a witness obligation whose model
 is reported as an example (the "allowed" scenarios D10 asks for come from here); a condition no row

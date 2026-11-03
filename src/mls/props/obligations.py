@@ -289,17 +289,36 @@ def custom(spec: Spec, p: Custom) -> list[Obligation]:
                        [enc]).finish()]
 
 
+def access_terms(spec: Spec, table: str, role: str, cmd: str, enc: Encoder) -> Term:
+    """The access layers of `cmd` as `role`: the effective policies and, for an update, the
+    transition rules and the column privileges — `net_terms` without the stored-row constraints
+    on the written image (D40: a lower bound assumes the written row is valid)."""
+    if cmd == "select":
+        parts = [(effective(spec, table, role, "select", "using"), "r")]
+    elif cmd == "delete":
+        parts = [(effective(spec, table, role, "delete", "using"), "old")]
+    elif cmd == "insert":
+        parts = [(effective(spec, table, role, "insert", "check"), "new")]
+    else:
+        parts = [(effective(spec, table, role, "update", "using"), "old"),
+                 (effective(spec, table, role, "update", "check"), "new"),
+                 (transition_constraints(spec, table), "new"),
+                 (unwritable_unchanged(spec, table, role), "new")]
+    return and_(*[enc.T(q, img, table) for q, img in parts])
+
+
 def must_allow(spec: Spec, p: MustAllow) -> list[Obligation]:
-    """Lower bound: constraints(existing images) ∧ when → admitted, where admitted is the net
-    effect of the command (net_terms).  Plus a witness obligation: the assumptions are satisfiable
-    (a condition no row meets would make the property vacuous)."""
+    """Lower bound (D40): constraints(every image) ∧ when → admitted by the access layers
+    (policies, transitions, column privileges).  The written image is assumed valid — it satisfies
+    the table's CHECKs and FKs — so the condition states what the role can do, not the integrity
+    rules.  Plus a witness obligation: the assumptions are satisfiable (a condition no valid row
+    meets would make the property vacuous; an over-restrictive CHECK shows up here)."""
     enc = Encoder(spec)
-    preds, admitted = net_terms(spec, p.table, p.role, p.command, enc)
+    admitted = access_terms(spec, p.table, p.role, p.command, enc)
     rows = _rows_for(p.command, p.table)
     assumptions: list[Term] = [*relation_axioms(spec, enc)]
     for row in rows:
-        if row != "new":  # existing rows are stored, so they satisfy the constraints; the written image must be proved
-            assumptions.append(_T(enc, row_constraints(spec, p.table), row, p.table))
+        assumptions.append(_T(enc, row_constraints(spec, p.table), row, p.table))
     assumptions.append(_T(enc, p.when, _image(p.command, "new"), p.table))
     rels = _all_relations(spec, p.table, p.role, p.command) + _relations_of(spec, p.when)
     witness = Obligation(p.id, f"{p.command} as {p.role}: some row meets the condition",

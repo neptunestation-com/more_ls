@@ -66,7 +66,9 @@ Read before writing code, in this order:
   the seed corpus (the solver must confirm every intended verdict); `mls eval evals/cases --mutate
   evals/cases/synthetic` regenerates the mutants. Keep both committed and in sync (tests check).
   `must_allow` (D40) is the lower bound: without one per stated grant a reference's mutation score
-  cannot see dropped grants, and `mls eval --mutate` is idempotent over its own output.
+  cannot see dropped grants, and `mls eval --mutate` is idempotent over its own output. Its written
+  image is assumed valid (CHECKs and FKs are assumptions, not goals): a lower bound that had to
+  restate the CHECKs made the model drop them.
   Grading is by net effect (`props/diff.py:behaviour_diff`), not layer by layer; when a live case
   fails, read its transcript first (`--transcripts DIR`): the model's notes usually name the real
   cause, and so far that was an ambiguous requirement sentence or a reference bug as often as the

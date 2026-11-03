@@ -80,17 +80,24 @@ one is a checker case) and the solver-graded mutants of every seed case (`evals/
 194 cases, mutation score 75 %; a mutant counts as detected when a property the base proves no
 longer proves — the lower-bound template `must_allow` (D40) is what makes a dropped grant count).
 
-## Measured (2026-11-02, `claude-opus-5-5`, effort high, max 3 repairs)
+## Measured (`claude-opus-5-5`, effort high, max 3 repairs)
 
-| Metric | Seed corpus (30 cases) |
-|---|---|
-| outcome_match_rate | 1.0 |
-| spec_correctness_rate | 1.0 |
-| net_equivalence_rate | 1.0 |
-| equivalence_rate (layer by layer) | 0.77 |
-| reference_properties_hold_rate | 1.0 |
-| mean_repair_rounds | 0.1 (three cases needed one round) |
-| human_escalation_rate | 0.0 |
+| Metric | Seed corpus, 2026-11-02, before `must_allow` | Seed corpus, 2026-11-03, with `must_allow` (D40 as amended) |
+|---|---|---|
+| outcome_match_rate | 1.0 | 1.0 |
+| spec_correctness_rate | 1.0 | 0.93 |
+| net_equivalence_rate | 1.0 | 0.93 |
+| equivalence_rate (layer by layer) | 0.77 | — |
+| reference_properties_hold_rate | 1.0 | 1.0 |
+| mean_repair_rounds | 0.1 (three cases needed one round) | 0.13 (four cases needed one round) |
+| human_escalation_rate | 0.0 | 0.0 |
+
+The 2026-11-03 run: 64 API calls, about 200k output tokens.  The two failures are not proof
+failures: the marketplace hand-over case, where the model pins the listing id by its own property
+(the judgement call of the repair benchmark below), and the project case, where the text said
+"may move it to any project" and the reference also kept the assignee fixed; the text now says
+so, and the case passes when rerun on its own (0 repair rounds).  Both were visible only as net-effect differences, with the reference properties
+holding.
 
 Repair benchmark (`--repair`, all 100 synthetic cases, same model and settings):
 
@@ -110,13 +117,15 @@ because the text says nothing about it (FINDINGS).  202 API calls, about 529k ou
 218k input tokens plus 1.2M cache reads.  The run also removed 16 synthetic cases whose mutation had
 only dropped a planted leak (nothing to repair; see D39).
 
-After these runs the properties prompt gained `must_allow` (D40), so the measured numbers are
-for a prompt without it.  A sanity sample with the new prompt (2026-11-03: hd_good, sd_good,
-cr_good, pj_good): 4/4 proved and net-equivalent, 3 to 5 `must_allow` properties per case, all
-proved at the first attempt, each stating the whole change ("an agent can close an open ticket of
-their organization, leaving everything else unchanged"); one case needed a repair round for its
-own column-immutability properties, not for a lower bound.  The full corpus has not been
-re-measured with it.
+After these runs the properties prompt gained `must_allow` (D40).  The first re-measurement
+(2026-11-03, same model and settings) scored 24/30: outcome match 0.87, spec correctness 0.80,
+net equivalence 0.87, mean repair rounds 0.57, escalation rate 0.13.  Four failures were one
+defect in D40's first semantics — the written image's CHECKs were part of the goal, so a lower
+bound that did not restate them was refuted by a CHECK and the rules pass escalated or dropped
+the CHECK (FINDINGS) — one was the primary-key judgement call of the repair benchmark, and one a
+reading of "may move it to any project".  D40 was amended (the written row is assumed valid) and
+the corpus re-measured: the table above.  The repair benchmark (below) has not been re-run with
+the `must_allow` prompt.
 
 Seed run: 63 API calls, about 158k output tokens and 87k input tokens (most of them cache reads).
 This is the third run: the first two found a schema-decoding problem (D37), ambiguous requirement

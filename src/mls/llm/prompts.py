@@ -59,11 +59,12 @@ the key and value columns of R's table (the membership lookup runs as the user),
   keeps the invariants (inductive proof)
 - custom: {"table", "role", "command", "which": old|new, "goal": p}  every row the role can <command>
   satisfies goal (an upper bound on access)
-- must_allow: {"table", "role", "command", "when": p}  every row where p holds is admitted to the
-  role's <command>, all layers together (a lower bound: catches rules that deny too much).  For
-  update p ranges over {"old": c} / {"new": c} (a bare {"col": c} is the new image); state the whole
-  change, e.g. the status goes from open to closed and the other columns stay the same.  A p that
-  no row can meet refutes the property.
+- must_allow: {"table", "role", "command", "when": p}  every valid row where p holds is admitted by
+  the role's <command> (a lower bound: catches policies, transitions and column rules that deny too
+  much).  The rows are assumed to satisfy the table's checks and inclusions, so p states what the
+  user can do, not the integrity rules.  For update p ranges over {"old": c} / {"new": c} (a bare
+  {"col": c} is the new image); state the whole change, e.g. the status goes from open to closed
+  and the other columns stay the same.  A p that no valid row can meet refutes the property.
 """.strip()
 
 ROLE_PROPERTIES = """You write the PROPERTIES a database access-control rule set must satisfy, from business

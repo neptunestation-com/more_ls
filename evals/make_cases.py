@@ -343,7 +343,7 @@ PJ_OK = {f"P{i}": "PROVED" for i in range(1, 10)}
 case("pj_good", PJ_REQ, PJ_ENG, spec("projects, members, assignees", PJ_TABLES, PJ_REL, PJ_RULES, PJ_PROPS), PJ_OK)
 case("pj_assignee_outsider",
      PJ_REQ.replace(", who must be a member of the task's project", ", who need not be a member of the project")
-     .replace(", and it stays in a project the assignee belongs to", ", and may move it to any project"), PJ_ENG,
+     .replace(", and it stays in a project the assignee belongs to", ", and may move it to any project; the task keeps its assignee"), PJ_ENG,
      spec("projects where the assignee need not be a member and updates only check the assignee", PJ_TABLES, PJ_REL,
           [policy("R1", "member_read", "tasks", "select", using=pm), policy("R2", "member_insert", "tasks", "insert", check=pm),
            policy("R3", "assignee_update", "tasks", "update", using=assignee, check=assignee)],

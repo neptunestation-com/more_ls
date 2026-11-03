@@ -1,7 +1,7 @@
 {
  "id": "pj_assignee_outsider",
  "origin": "seed",
- "requirements": "Projects have members (project_members). Members see the tasks of their projects and may add tasks to them. A task may be assigned to a user, who need not be a member of the project; only the assignee may update a task, and may move it to any project. Nobody deletes tasks.",
+ "requirements": "Projects have members (project_members). Members see the tasks of their projects and may add tasks to them. A task may be assigned to a user, who need not be a member of the project; only the assignee may update a task, and may move it to any project; the task keeps its assignee. Nobody deletes tasks.",
  "expected_properties": [
   "Tasks are only seen, added and changed by members of their project.",
   "Only the assignee updates a task.",

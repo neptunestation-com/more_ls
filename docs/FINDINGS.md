@@ -122,7 +122,14 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
   old bug (restrictive policy without WITH CHECK) "an agent of the ticket's organization closes an
   open ticket" is refuted with the exact scenario, and dropping any grant of a reference is refuted
   by the property that states it.  With one `must_allow` per stated grant in every reference the
-  mutation score went from 38 % to 75 %.  The remaining undetected mutants are, almost entirely,
+  mutation score went from 38 % to 75 %.  Measured live, the first semantics was wrong: with the
+  written image's CHECKs in the goal, the model's natural lower bound ("a member can insert a
+  document in their tenant within their clearance") was refuted by the level-range CHECK, and the
+  rules pass either escalated or *dropped the CHECK* to satisfy it (after which the invariant was
+  refuted): 4 of 30 seed cases, 24/30 correct, escalation rate 0.13.  The amended D40 assumes the
+  written row valid and the corpus's score is unchanged (75 %); re-measured, 28/30, no
+  escalation, 0.13 repair rounds — the two left are the listing-id judgement call and a sentence
+  ("may move it to any project") that did not say the task keeps its assignee, which it now does.  The remaining undetected mutants are, almost entirely,
   mutations without a behaviour change: the per-user membership-read policies of the salaries case
   are redundant with the implicit relation grant (D21); dropping the student-name check of a
   submission insert changes nothing because the FK still forces enrolment; dropping the seller

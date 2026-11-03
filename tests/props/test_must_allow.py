@@ -91,6 +91,29 @@ def test_vacuous_condition_is_refuted_with_a_message():
     assert w.verdict == "REFUTED" and "no row can meet the condition" in w.message and w.scenario is None
 
 
+def test_written_row_is_assumed_valid():
+    """D40 as amended: a lower bound on a write need not restate the table's CHECKs; a condition
+    that contradicts a CHECK is vacuous, and an insert policy that denies a valid row is refuted."""
+    d = hd()
+    d["tables"]["tickets"]["columns"]["priority"] = {"type": "int", "nullable": False}
+    d["rules"].append({"id": "CK", "kind": "check", "name": "priority_range", "table": "tickets",
+                       "predicate": {"and": [{"cmp": [{"col": "priority"}, ">=", {"const": 0}]},
+                                             {"cmp": [{"col": "priority"}, "<=", {"const": 3}]}]}})
+    d["properties"].append({"id": "PA", "template": "must_allow", "description": "a customer opens a ticket",
+                            "table": "tickets", "role": "authenticated", "command": "insert",
+                            "when": {"and": [eq({"col": "customer_id"}, {"ctx": "uid"}),
+                                             eq({"col": "status"}, {"const": "open"})]}})
+    d["properties"].append({"id": "PB", "template": "must_allow", "description": "priority 7 is not a valid ticket",
+                            "table": "tickets", "role": "authenticated", "command": "insert",
+                            "when": {"and": [eq({"col": "customer_id"}, {"ctx": "uid"}),
+                                             eq({"col": "priority"}, {"const": 7})]}})
+    spec = make(d)
+    assert run_property(spec, prop(spec, "PA")).verdict == "PROVED"
+    r = run_property(spec, prop(spec, "PB"))
+    assert r.verdict == "REFUTED"
+    assert "no row can meet the condition" in next(o for o in r.obligations if "some row" in o.name).message
+
+
 def test_column_privileges_are_part_of_admitted():
     """cr_good: HR may write salary and title only; a must_allow that changes user_id is refuted."""
     d = json.loads((ROOT / "evals" / "cases" / "specs" / "cr_good.mls.json").read_text())
