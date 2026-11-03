@@ -84,8 +84,10 @@ Read before writing code, in this order:
   transcribed clause for clause and proved sound against the SQL meaning; `lean/MLS/Policy.lean`
   transcribes `props/effective.py`, the statement outcomes of `pg/model.py` and the assumption
   builders of `props/obligations.py`; `lean/MLS/Normalize.lean` is the NULL normalization of the
-  CHECK and transition templates (and of their `*_NAIVE` mutations). When you change any of
-  them, change the transcription and re-prove, or record the gap in ROADMAP. No local toolchain is needed: a throwaway container
+  CHECK and transition templates (and of their `*_NAIVE` mutations); `lean/MLS/Relational.lean`
+  is the CHECK and FK templates against a relational model, with the RESTRICT guard and
+  relation-change axioms of `obligations.py` derived from it. When you change any of them,
+  change the transcription and re-prove, or record the gap in ROADMAP. No local toolchain is needed: a throwaway container
   works (`docs/ROADMAP.md`, CI uses `leanprover/lean-action`).
 
 ## Suggested layout

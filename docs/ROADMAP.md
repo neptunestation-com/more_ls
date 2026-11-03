@@ -107,10 +107,23 @@ theorem), and without the `IS TRUE` the targets disagree exactly on UNKNOWN
 (`check_naive_disagrees`, `trigger_naive_disagrees`: the semantic content of the `CHECK_NAIVE`
 and `TRANSITION_NAIVE` mutations).  For FKs, `inclusion_pred` is admitted exactly when MATCH
 SIMPLE is satisfied (`inclusion_matches_fk`).
-Remaining: (4) the CHECK and FK templates against a relational model (constraint timing, FK
-actions, deletes from referenced tables).  The Lean sources mirror the Python structure by hand;
-nothing checks that mechanically, so a change to `tvl.py`, `effective.py`, `pg/model.py`, the
-assumption builders in `obligations.py` or the CHECK/transition templates must be carried to
+Step 4 done (`lean/MLS/Relational.lean`): a relational model — a state is the set of stored
+rows per table plus the facts of each relation, a relation is backed by its table, statements
+are inserts, deletes and replacements of one row — and the two templates against it.  CHECK:
+`CHECK ((p) IS TRUE)` keeps "every stored row is admitted by `p`" across every statement,
+because a CHECK predicate reads only its row (`eval_rowOnly`); without the `IS TRUE` a row with
+a NULL passes while the admission rule rejects it.  FK: `MATCH SIMPLE ON UPDATE RESTRICT ON
+DELETE RESTRICT` keeps "every stored row of the referencing table satisfies MATCH SIMPLE" across
+every statement on either table, with the RESTRICT guard being exactly the one
+`props/obligations.py:_restrict_guard` gives the solver, and the relation-change axioms of
+`_relation_change` following from the model.  Self-referencing FKs are outside the theorems;
+rows are sets, not bags.  With this the track listed in D11 is complete: 3VL, predicate
+semantics, policy combination, NULL normalization, CHECK and FK templates.  Open, not planned:
+the transition trigger as a two-image statement guard is covered by the outcome model of step 2
+rather than by a relational theorem; cardinality and hierarchies stay with the concurrency test
+and the cvc5 cross-check.  The Lean sources mirror the Python structure by hand; nothing checks
+that mechanically, so a change to `tvl.py`, `effective.py`, `pg/model.py`, the assumption
+builders in `obligations.py` or the CHECK/FK/transition templates must be carried to
 `lean/MLS` (CLAUDE.md).
 
 ## Open details (decide during implementation, record in DECISIONS.md)

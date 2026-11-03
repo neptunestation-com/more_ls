@@ -318,8 +318,11 @@ every executed statement satisfies the proof assumptions and that, without colum
 "executed" is "admitted by the net-effect predicate" (D38).  `lean/MLS/Normalize.lean` states how
 each target decides on a three-valued result and proves the normalization of SEMANTICS §4: with
 `IS TRUE` every target admits what the admission rule admits, without it they disagree exactly
-on UNKNOWN (the `*_NAIVE` mutations).  The Lean and the Python are two
-artifacts with no mechanical link;
+on UNKNOWN (the `*_NAIVE` mutations).  `lean/MLS/Relational.lean` is the "small model of
+Postgres" D11 asked for: states, backed relations, one-row statements, and the CHECK and FK
+templates proved to keep their invariants under every statement, with the FK RESTRICT guard and
+the relation-change axioms of the invariant-preservation obligations derived from it.  The Lean
+and the Python are two artifacts with no mechanical link;
 a change to the encoder is carried to the transcription by hand, or the gap is recorded in the
 ROADMAP.  What the track cannot do: say anything about Postgres itself — the "small model of
 Postgres" of the later steps is our own axiomatization, and the differential tests remain the only

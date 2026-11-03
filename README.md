@@ -80,4 +80,6 @@ permissive policy is TRUE on it and every restrictive one is), and the statement
 semantics: every executed statement satisfies what the proofs assume, and without column reads
 it is executed exactly when the net-effect predicate admits it.  The NULL normalization is a
 theorem too: with `IS TRUE`, RLS, CHECK and triggers admit the same rows, and without it they
-disagree exactly on UNKNOWN.
+disagree exactly on UNKNOWN.  Against a small relational model, the CHECK and FK templates keep
+their invariants under every statement, and the RESTRICT guard the proofs assume is the one the
+FK enforces.
