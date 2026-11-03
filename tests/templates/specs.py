@@ -2,7 +2,6 @@
 isolates one template and the data shape its mutation needs (NULLs, column lists, bounds...)."""
 from __future__ import annotations
 
-import copy
 import json
 
 from mls.spec import check_spec
@@ -78,29 +77,14 @@ def opaque_impl():
     return {"low_or_cleared": lambda row, ctx: row["level"] < 1 or ctx["clearance"] >= 3}
 
 
+PG_ROLES = EXAMPLE.parent / "pg_roles_docs.mls.json"
+
+
 def pg_roles_spec() -> Spec:
-    d = base()
-    d["identity"] = {"adapter": "pg_roles", "context": {"uid": {"source": "current_user", "type": "text"}}}
-    for t in d["tables"].values():
-        for c in t["columns"].values():
-            if c["type"] == "uuid":
-                c["type"] = "text"
-    # no clearance claim with pg_roles: drop the level comparisons
-    def strip(p):
-        if isinstance(p, dict):
-            if "and" in p:
-                items = [strip(x) for x in p["and"] if not ("cmp" in x and x["cmp"][2] == {"ctx": "clearance"})]
-                return items[0] if len(items) == 1 else {"and": items}
-            return {k: strip(v) for k, v in p.items()}
-        return p
-    for r in d["rules"]:
-        for k in ("using", "check"):
-            if k in r:
-                r[k] = strip(r[k])
-    for p in d["properties"]:  # must_allow conditions mention the claim too
-        if "when" in p:
-            p["when"] = strip(p["when"])
-    return make(d)
+    """The pg_roles rendering of the example (`examples/pg_roles_docs.mls.json`): same tables and
+    rule shape (two permissive SELECT policies on docs, so the all-restrictive mutation is
+    detectable), identity from `current_user`, no clearance claim."""
+    return make(json.loads(PG_ROLES.read_text()))
 
 
 # ----------------------------------------------------------------------------- versions (M2)

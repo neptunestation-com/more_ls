@@ -55,7 +55,10 @@ Read before writing code, in this order:
   `postgres:15..18` containers (set `MLS_PG_VERSIONS=16` for one, `MLS_PG_DSN=...` for an existing
   server). `-m slow` runs the EXPLAIN checks at 1M rows.
 - Every compiler template has a `Mutation` (compile/mutations.py); `tests/templates` proves each
-  mutation is caught by the differential test. Add a mutation when you add a template.
+  mutation is caught by the differential test. Add a mutation when you add a template. The
+  fixtures (`tests/templates/specs.py`) derive from the example specs; `test_specs.py` builds and
+  checks every one without Docker, so an example edit that breaks a fixture fails in the fast
+  suite, not only in the Postgres jobs.
 - Implementation defaults decided during M1 are D21–D27, during M2 D28–D33, during M3 D34–D36, in
   `docs/DECISIONS.md`.
 - M4: `uv run mls generate` / `mls eval --llm` (src/mls/llm, docs/LLM.md, D37–D39). Tests never call the
