@@ -272,6 +272,130 @@
      ]
     }
    }
+  },
+  {
+   "id": "P6",
+   "template": "must_allow",
+   "description": "a member reads the live notes of their tenants",
+   "table": "notes",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "is_null": {
+       "col": "deleted_at"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "P7",
+   "template": "must_allow",
+   "description": "a member creates a live note in their tenant",
+   "table": "notes",
+   "role": "authenticated",
+   "command": "insert",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "is_null": {
+       "col": "deleted_at"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "P8",
+   "template": "must_allow",
+   "description": "a member soft-deletes a live note of their tenant",
+   "table": "notes",
+   "role": "authenticated",
+   "command": "update",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "old": "tenant_id"
+       }
+      }
+     },
+     {
+      "is_null": {
+       "old": "deleted_at"
+      }
+     },
+     {
+      "not": {
+       "is_null": {
+        "new": "deleted_at"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "new": "id"
+       },
+       "=",
+       {
+        "old": "id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "tenant_id"
+       },
+       "=",
+       {
+        "old": "tenant_id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "body"
+       },
+       "=",
+       {
+        "old": "body"
+       }
+      ]
+     }
+    ]
+   }
   }
  ]
 }

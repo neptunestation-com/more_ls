@@ -8,7 +8,11 @@
   "Employee records are only seen and changed within the user's tenants.",
   "Staff only read employees (never salaries); HR reads and updates.",
   "Salaries are never negative.",
-  "Leaving a tenant never grants access."
+  "Leaving a tenant never grants access.",
+  "Staff can read the employee records of their tenants.",
+  "HR can read the employee records of their tenants.",
+  "HR can set a non-negative salary on an employee of their tenants.",
+  "A user can read their own memberships."
  ],
  "reference_spec": {
   "$comment": "column rules where staff may also update",
@@ -341,6 +345,141 @@
     "description": "leaving a tenant never grants access",
     "template": "monotone_in",
     "relation": "member_of"
+   },
+   {
+    "id": "P5",
+    "description": "staff read the employee records of their tenants",
+    "template": "must_allow",
+    "table": "employees",
+    "role": "staff",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "tenant_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P6",
+    "description": "HR read the employee records of their tenants",
+    "template": "must_allow",
+    "table": "employees",
+    "role": "hr",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "tenant_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P7",
+    "description": "HR set a non-negative salary on an employee of their tenants",
+    "template": "must_allow",
+    "table": "employees",
+    "role": "hr",
+    "command": "update",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "old": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "new": "id"
+        },
+        "=",
+        {
+         "old": "id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "tenant_id"
+        },
+        "=",
+        {
+         "old": "tenant_id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "user_id"
+        },
+        "=",
+        {
+         "old": "user_id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "title"
+        },
+        "=",
+        {
+         "old": "title"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "salary"
+        },
+        ">=",
+        {
+         "const": 0
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P8",
+    "description": "a user reads their own memberships",
+    "template": "must_allow",
+    "table": "memberships",
+    "role": "staff",
+    "command": "select",
+    "when": {
+     "cmp": [
+      {
+       "col": "user_id"
+      },
+      "=",
+      {
+       "ctx": "uid"
+      }
+     ]
+    }
    }
   ]
  },
@@ -348,7 +487,11 @@
   "P1": "PROVED",
   "P2": "REFUTED",
   "P3": "PROVED",
-  "P4": "PROVED"
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
  },
  "start_rules": [
   {
@@ -540,7 +683,11 @@
   "P1": "PROVED",
   "P2": "REFUTED",
   "P3": "REFUTED",
-  "P4": "PROVED"
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

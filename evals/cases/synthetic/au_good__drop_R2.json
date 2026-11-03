@@ -1,0 +1,375 @@
+{
+ "id": "au_good__drop_R2",
+ "origin": "synthetic",
+ "base_case": "au_good",
+ "mutation": "drop:R2",
+ "requirements": "Members of a tenant record audit events for their tenant, always in their own name. Tenant admins (who must be members) read the events of their tenants. The log is append-only: events are never updated or deleted.",
+ "expected_properties": [
+  "Events are only recorded and read within the user's tenants.",
+  "The log is append-only: no update or delete on events.",
+  "Losing a membership never grants access.",
+  "An event is recorded in the actor's own name.",
+  "Admins are members.",
+  "A member can record an event for their tenant in their own name.",
+  "An admin can read the events of their tenants."
+ ],
+ "reference_spec": {
+  "$comment": "append-only audit log",
+  "mls_version": "0.1",
+  "identity": {
+   "adapter": "supabase",
+   "context": {
+    "uid": {
+     "source": "auth.uid",
+     "type": "uuid"
+    }
+   }
+  },
+  "roles": [
+   "authenticated"
+  ],
+  "tables": {
+   "memberships": {
+    "columns": {
+     "user_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "tenant_id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "user_id",
+     "tenant_id"
+    ],
+    "unique": []
+   },
+   "admins": {
+    "columns": {
+     "user_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "tenant_id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "user_id",
+     "tenant_id"
+    ],
+    "unique": []
+   },
+   "events": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "tenant_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "actor_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "kind": {
+      "type": "text",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": []
+   }
+  },
+  "relations": {
+   "member_of": {
+    "table": "memberships",
+    "key": "user_id",
+    "value": "tenant_id"
+   },
+   "admin_of": {
+    "table": "admins",
+    "key": "user_id",
+    "value": "tenant_id"
+   }
+  },
+  "hierarchies": {},
+  "opaques": {},
+  "rules": [
+   {
+    "id": "R1",
+    "name": "member_record",
+    "table": "events",
+    "requirement": "members record events",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "insert",
+    "mode": "permissive",
+    "check": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "actor_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "name": "admin_read",
+    "table": "events",
+    "requirement": "admins audit",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "admin_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "tenant_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R3",
+    "name": "admins_are_members",
+    "table": "admins",
+    "requirement": "admins are members",
+    "kind": "inclusion",
+    "columns": [
+     "user_id",
+     "tenant_id"
+    ],
+    "relation": "member_of",
+    "on_delete": "restrict"
+   }
+  ],
+  "properties": [
+   {
+    "id": "P1",
+    "description": "events are only recorded and read within the user's tenants",
+    "template": "tenant_isolation",
+    "table": "events",
+    "column": "tenant_id",
+    "relation": "member_of",
+    "key": {
+     "ctx": "uid"
+    },
+    "commands": [
+     "select",
+     "insert"
+    ]
+   },
+   {
+    "id": "P2",
+    "description": "the log is append-only: no update or delete on events",
+    "template": "least_privilege",
+    "allowed": {
+     "authenticated": {
+      "events": [
+       "select",
+       "insert"
+      ],
+      "memberships": [
+       "select"
+      ],
+      "admins": [
+       "select"
+      ]
+     }
+    }
+   },
+   {
+    "id": "P3",
+    "description": "losing a membership never grants access",
+    "template": "monotone_in",
+    "relation": "member_of"
+   },
+   {
+    "id": "P4",
+    "description": "an event is recorded in the actor's own name",
+    "template": "custom",
+    "table": "events",
+    "role": "authenticated",
+    "command": "insert",
+    "which": "new",
+    "goal": {
+     "cmp": [
+      {
+       "col": "actor_id"
+      },
+      "=",
+      {
+       "ctx": "uid"
+      }
+     ]
+    }
+   },
+   {
+    "id": "P5",
+    "description": "admins are members",
+    "template": "invariant_preserved",
+    "invariants": [
+     {
+      "rule": "R3"
+     }
+    ]
+   },
+   {
+    "id": "P6",
+    "description": "a member records an event for their tenant in their own name",
+    "template": "must_allow",
+    "table": "events",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "actor_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P7",
+    "description": "an admin reads the events of their tenants",
+    "template": "must_allow",
+    "table": "events",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "admin_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "tenant_id"
+      }
+     }
+    }
+   }
+  ]
+ },
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED"
+ },
+ "start_rules": [
+  {
+   "id": "R1",
+   "name": "member_record",
+   "table": "events",
+   "requirement": "members record events",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "col": "actor_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "R3",
+   "name": "admins_are_members",
+   "table": "admins",
+   "requirement": "admins are members",
+   "kind": "inclusion",
+   "columns": [
+    "user_id",
+    "tenant_id"
+   ],
+   "relation": "member_of",
+   "on_delete": "restrict"
+  }
+ ],
+ "mutant_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "REFUTED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

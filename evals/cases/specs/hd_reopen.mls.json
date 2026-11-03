@@ -412,6 +412,185 @@
      ]
     }
    }
+  },
+  {
+   "id": "P9",
+   "template": "must_allow",
+   "description": "a customer reads their own tickets",
+   "table": "tickets",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "cmp": [
+     {
+      "col": "customer_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P10",
+   "template": "must_allow",
+   "description": "a customer opens a ticket in their own name",
+   "table": "tickets",
+   "role": "authenticated",
+   "command": "insert",
+   "when": {
+    "and": [
+     {
+      "cmp": [
+       {
+        "col": "customer_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "col": "status"
+       },
+       "=",
+       {
+        "const": "open"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "P11",
+   "template": "must_allow",
+   "description": "an agent reads the tickets of their organizations",
+   "table": "tickets",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "agent_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "org_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P12",
+   "template": "must_allow",
+   "description": "an agent of the ticket's organization closes an open ticket",
+   "table": "tickets",
+   "role": "authenticated",
+   "command": "update",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "agent_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "old": "org_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "old": "status"
+       },
+       "=",
+       {
+        "const": "open"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "status"
+       },
+       "=",
+       {
+        "const": "closed"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "id"
+       },
+       "=",
+       {
+        "old": "id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "org_id"
+       },
+       "=",
+       {
+        "old": "org_id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "customer_id"
+       },
+       "=",
+       {
+        "old": "customer_id"
+       }
+      ]
+     },
+     {
+      "or": [
+       {
+        "and": [
+         {
+          "is_null": {
+           "old": "assignee_id"
+          }
+         },
+         {
+          "is_null": {
+           "new": "assignee_id"
+          }
+         }
+        ]
+       },
+       {
+        "cmp": [
+         {
+          "new": "assignee_id"
+         },
+         "=",
+         {
+          "old": "assignee_id"
+         }
+        ]
+       }
+      ]
+     }
+    ]
+   }
   }
  ]
 }

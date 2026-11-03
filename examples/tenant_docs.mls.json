@@ -4,81 +4,682 @@
   "identity": {
     "adapter": "supabase",
     "context": {
-      "uid": {"source": "auth.uid", "type": "uuid"},
-      "clearance": {"source": "jwt.claims.clearance", "type": "int"}
+      "uid": {
+        "source": "auth.uid",
+        "type": "uuid"
+      },
+      "clearance": {
+        "source": "jwt.claims.clearance",
+        "type": "int"
+      }
     }
   },
-  "roles": ["authenticated"],
+  "roles": [
+    "authenticated"
+  ],
   "tables": {
     "memberships": {
-      "columns": {"user_id": {"type": "uuid", "nullable": false}, "tenant_id": {"type": "int", "nullable": false}},
-      "primary_key": ["user_id", "tenant_id"]
+      "columns": {
+        "user_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "tenant_id": {
+          "type": "int",
+          "nullable": false
+        }
+      },
+      "primary_key": [
+        "user_id",
+        "tenant_id"
+      ]
     },
     "admins": {
-      "columns": {"user_id": {"type": "uuid", "nullable": false}, "tenant_id": {"type": "int", "nullable": false}},
-      "primary_key": ["user_id", "tenant_id"]
+      "columns": {
+        "user_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "tenant_id": {
+          "type": "int",
+          "nullable": false
+        }
+      },
+      "primary_key": [
+        "user_id",
+        "tenant_id"
+      ]
     },
     "docs": {
       "columns": {
-        "id": {"type": "int", "nullable": false},
-        "tenant_id": {"type": "int", "nullable": false},
-        "owner_id": {"type": "uuid", "nullable": true},
-        "level": {"type": "int", "nullable": false},
-        "archived": {"type": "int", "nullable": true}
+        "id": {
+          "type": "int",
+          "nullable": false
+        },
+        "tenant_id": {
+          "type": "int",
+          "nullable": false
+        },
+        "owner_id": {
+          "type": "uuid",
+          "nullable": true
+        },
+        "level": {
+          "type": "int",
+          "nullable": false
+        },
+        "archived": {
+          "type": "int",
+          "nullable": true
+        }
       },
-      "primary_key": ["id"]
+      "primary_key": [
+        "id"
+      ]
     }
   },
   "relations": {
-    "member_of": {"table": "memberships", "key": "user_id", "value": "tenant_id"},
-    "admin_of": {"table": "admins", "key": "user_id", "value": "tenant_id"}
+    "member_of": {
+      "table": "memberships",
+      "key": "user_id",
+      "value": "tenant_id"
+    },
+    "admin_of": {
+      "table": "admins",
+      "key": "user_id",
+      "value": "tenant_id"
+    }
   },
   "rules": [
-    {"id": "R1", "requirement": "REQ-1", "kind": "policy", "name": "member_read", "table": "docs",
-     "role": "authenticated", "command": "select", "mode": "permissive",
-     "using": {"and": [
-       {"member": {"relation": "member_of", "key": {"ctx": "uid"}, "value": {"col": "tenant_id"}}},
-       {"cmp": [{"col": "level"}, "<=", {"ctx": "clearance"}]}]}},
-    {"id": "R2", "requirement": "REQ-2", "kind": "policy", "name": "admin_read", "table": "docs",
-     "role": "authenticated", "command": "select", "mode": "permissive",
-     "using": {"member": {"relation": "admin_of", "key": {"ctx": "uid"}, "value": {"col": "tenant_id"}}}},
-    {"id": "R3", "requirement": "REQ-3", "kind": "policy", "name": "member_insert", "table": "docs",
-     "role": "authenticated", "command": "insert", "mode": "permissive",
-     "check": {"and": [
-       {"member": {"relation": "member_of", "key": {"ctx": "uid"}, "value": {"col": "tenant_id"}}},
-       {"cmp": [{"col": "level"}, "<=", {"ctx": "clearance"}]}]}},
-    {"id": "R4", "requirement": "REQ-3", "kind": "policy", "name": "member_update", "table": "docs",
-     "role": "authenticated", "command": "update", "mode": "permissive",
-     "using": {"member": {"relation": "member_of", "key": {"ctx": "uid"}, "value": {"col": "tenant_id"}}},
-     "check": {"and": [
-       {"member": {"relation": "member_of", "key": {"ctx": "uid"}, "value": {"col": "tenant_id"}}},
-       {"cmp": [{"col": "level"}, "<=", {"ctx": "clearance"}]}]}},
-    {"id": "R5", "requirement": "REQ-4", "kind": "policy", "name": "not_archived", "table": "docs",
-     "role": "authenticated", "command": "all", "mode": "restrictive",
-     "using": {"not": {"cmp": [{"col": "archived"}, "=", {"const": 1}]}}},
-    {"id": "R6", "requirement": "REQ-5", "kind": "check", "name": "level_range", "table": "docs",
-     "predicate": {"and": [{"cmp": [{"col": "level"}, ">=", {"const": 0}]},
-                           {"cmp": [{"col": "level"}, "<=", {"const": 3}]}]}},
-    {"id": "R7", "requirement": "REQ-6", "kind": "inclusion", "name": "owner_in_tenant", "table": "docs",
-     "columns": ["owner_id", "tenant_id"], "relation": "member_of", "on_delete": "restrict"},
-    {"id": "R8", "requirement": "REQ-6", "kind": "inclusion", "name": "admin_is_member", "table": "admins",
-     "columns": ["user_id", "tenant_id"], "relation": "member_of", "on_delete": "restrict"},
-    {"id": "R9", "requirement": "REQ-7", "kind": "transition", "name": "tenant_immutable", "table": "docs",
-     "predicate": {"cmp": [{"new": "tenant_id"}, "=", {"old": "tenant_id"}]}}
+    {
+      "id": "R1",
+      "requirement": "REQ-1",
+      "kind": "policy",
+      "name": "member_read",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "select",
+      "mode": "permissive",
+      "using": {
+        "and": [
+          {
+            "member": {
+              "relation": "member_of",
+              "key": {
+                "ctx": "uid"
+              },
+              "value": {
+                "col": "tenant_id"
+              }
+            }
+          },
+          {
+            "cmp": [
+              {
+                "col": "level"
+              },
+              "<=",
+              {
+                "ctx": "clearance"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "R2",
+      "requirement": "REQ-2",
+      "kind": "policy",
+      "name": "admin_read",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "select",
+      "mode": "permissive",
+      "using": {
+        "member": {
+          "relation": "admin_of",
+          "key": {
+            "ctx": "uid"
+          },
+          "value": {
+            "col": "tenant_id"
+          }
+        }
+      }
+    },
+    {
+      "id": "R3",
+      "requirement": "REQ-3",
+      "kind": "policy",
+      "name": "member_insert",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "insert",
+      "mode": "permissive",
+      "check": {
+        "and": [
+          {
+            "member": {
+              "relation": "member_of",
+              "key": {
+                "ctx": "uid"
+              },
+              "value": {
+                "col": "tenant_id"
+              }
+            }
+          },
+          {
+            "cmp": [
+              {
+                "col": "level"
+              },
+              "<=",
+              {
+                "ctx": "clearance"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "R4",
+      "requirement": "REQ-3",
+      "kind": "policy",
+      "name": "member_update",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "update",
+      "mode": "permissive",
+      "using": {
+        "member": {
+          "relation": "member_of",
+          "key": {
+            "ctx": "uid"
+          },
+          "value": {
+            "col": "tenant_id"
+          }
+        }
+      },
+      "check": {
+        "and": [
+          {
+            "member": {
+              "relation": "member_of",
+              "key": {
+                "ctx": "uid"
+              },
+              "value": {
+                "col": "tenant_id"
+              }
+            }
+          },
+          {
+            "cmp": [
+              {
+                "col": "level"
+              },
+              "<=",
+              {
+                "ctx": "clearance"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "R5",
+      "requirement": "REQ-4",
+      "kind": "policy",
+      "name": "not_archived",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "all",
+      "mode": "restrictive",
+      "using": {
+        "not": {
+          "cmp": [
+            {
+              "col": "archived"
+            },
+            "=",
+            {
+              "const": 1
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "R6",
+      "requirement": "REQ-5",
+      "kind": "check",
+      "name": "level_range",
+      "table": "docs",
+      "predicate": {
+        "and": [
+          {
+            "cmp": [
+              {
+                "col": "level"
+              },
+              ">=",
+              {
+                "const": 0
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "col": "level"
+              },
+              "<=",
+              {
+                "const": 3
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "R7",
+      "requirement": "REQ-6",
+      "kind": "inclusion",
+      "name": "owner_in_tenant",
+      "table": "docs",
+      "columns": [
+        "owner_id",
+        "tenant_id"
+      ],
+      "relation": "member_of",
+      "on_delete": "restrict"
+    },
+    {
+      "id": "R8",
+      "requirement": "REQ-6",
+      "kind": "inclusion",
+      "name": "admin_is_member",
+      "table": "admins",
+      "columns": [
+        "user_id",
+        "tenant_id"
+      ],
+      "relation": "member_of",
+      "on_delete": "restrict"
+    },
+    {
+      "id": "R9",
+      "requirement": "REQ-7",
+      "kind": "transition",
+      "name": "tenant_immutable",
+      "table": "docs",
+      "predicate": {
+        "cmp": [
+          {
+            "new": "tenant_id"
+          },
+          "=",
+          {
+            "old": "tenant_id"
+          }
+        ]
+      }
+    }
   ],
   "properties": [
-    {"id": "P1", "template": "tenant_isolation", "description": "a user only touches docs of tenants they belong to",
-     "table": "docs", "column": "tenant_id", "relation": "member_of", "key": {"ctx": "uid"},
-     "commands": ["select", "insert", "update"]},
-    {"id": "P2", "template": "column_immutable", "description": "a doc never changes tenant",
-     "table": "docs", "column": "tenant_id"},
-    {"id": "P3", "template": "monotone_in", "description": "removing a membership never grants access",
-     "relation": "member_of"},
-    {"id": "P4", "template": "invariant_preserved", "description": "levels stay in range, owners stay members, admins stay members",
-     "invariants": [{"rule": "R6"}, {"rule": "R7"}, {"rule": "R8"}]},
-    {"id": "P5", "template": "write_subset_read", "description": "whatever a user writes, they can read back",
-     "table": "docs"},
-    {"id": "P6", "template": "least_privilege",
-     "allowed": {"authenticated": {"docs": ["select", "insert", "update"], "memberships": ["select"], "admins": ["select"]}}}
+    {
+      "id": "P1",
+      "template": "tenant_isolation",
+      "description": "a user only touches docs of tenants they belong to",
+      "table": "docs",
+      "column": "tenant_id",
+      "relation": "member_of",
+      "key": {
+        "ctx": "uid"
+      },
+      "commands": [
+        "select",
+        "insert",
+        "update"
+      ]
+    },
+    {
+      "id": "P2",
+      "template": "column_immutable",
+      "description": "a doc never changes tenant",
+      "table": "docs",
+      "column": "tenant_id"
+    },
+    {
+      "id": "P3",
+      "template": "monotone_in",
+      "description": "removing a membership never grants access",
+      "relation": "member_of"
+    },
+    {
+      "id": "P4",
+      "template": "invariant_preserved",
+      "description": "levels stay in range, owners stay members, admins stay members",
+      "invariants": [
+        {
+          "rule": "R6"
+        },
+        {
+          "rule": "R7"
+        },
+        {
+          "rule": "R8"
+        }
+      ]
+    },
+    {
+      "id": "P5",
+      "template": "write_subset_read",
+      "description": "whatever a user writes, they can read back",
+      "table": "docs"
+    },
+    {
+      "id": "P6",
+      "template": "least_privilege",
+      "allowed": {
+        "authenticated": {
+          "docs": [
+            "select",
+            "insert",
+            "update"
+          ],
+          "memberships": [
+            "select"
+          ],
+          "admins": [
+            "select"
+          ]
+        }
+      }
+    },
+    {
+      "id": "P7",
+      "template": "must_allow",
+      "description": "a member reads the unarchived documents of their tenants within their clearance",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "select",
+      "when": {
+        "and": [
+          {
+            "member": {
+              "relation": "member_of",
+              "key": {
+                "ctx": "uid"
+              },
+              "value": {
+                "col": "tenant_id"
+              }
+            }
+          },
+          {
+            "cmp": [
+              {
+                "col": "level"
+              },
+              "<=",
+              {
+                "ctx": "clearance"
+              }
+            ]
+          },
+          {
+            "and": [
+              {
+                "not": {
+                  "is_null": {
+                    "col": "archived"
+                  }
+                }
+              },
+              {
+                "cmp": [
+                  {
+                    "col": "archived"
+                  },
+                  "<>",
+                  {
+                    "const": 1
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "P8",
+      "template": "must_allow",
+      "description": "an admin reads every unarchived document of their tenants",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "select",
+      "when": {
+        "and": [
+          {
+            "member": {
+              "relation": "admin_of",
+              "key": {
+                "ctx": "uid"
+              },
+              "value": {
+                "col": "tenant_id"
+              }
+            }
+          },
+          {
+            "and": [
+              {
+                "not": {
+                  "is_null": {
+                    "col": "archived"
+                  }
+                }
+              },
+              {
+                "cmp": [
+                  {
+                    "col": "archived"
+                  },
+                  "<>",
+                  {
+                    "const": 1
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "P9",
+      "template": "must_allow",
+      "description": "a member creates an unarchived document in their tenant within their clearance",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "insert",
+      "when": {
+        "and": [
+          {
+            "member": {
+              "relation": "member_of",
+              "key": {
+                "ctx": "uid"
+              },
+              "value": {
+                "col": "tenant_id"
+              }
+            }
+          },
+          {
+            "cmp": [
+              {
+                "col": "level"
+              },
+              ">=",
+              {
+                "const": 0
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "col": "level"
+              },
+              "<=",
+              {
+                "const": 3
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "col": "level"
+              },
+              "<=",
+              {
+                "ctx": "clearance"
+              }
+            ]
+          },
+          {
+            "is_null": {
+              "col": "owner_id"
+            }
+          },
+          {
+            "cmp": [
+              {
+                "col": "archived"
+              },
+              "=",
+              {
+                "const": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "P10",
+      "template": "must_allow",
+      "description": "a member updates an unarchived document of their tenant, keeping its tenant and staying within their clearance",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "update",
+      "when": {
+        "and": [
+          {
+            "member": {
+              "relation": "member_of",
+              "key": {
+                "ctx": "uid"
+              },
+              "value": {
+                "old": "tenant_id"
+              }
+            }
+          },
+          {
+            "cmp": [
+              {
+                "old": "archived"
+              },
+              "=",
+              {
+                "const": 0
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "new": "archived"
+              },
+              "=",
+              {
+                "const": 0
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "new": "tenant_id"
+              },
+              "=",
+              {
+                "old": "tenant_id"
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "new": "id"
+              },
+              "=",
+              {
+                "old": "id"
+              }
+            ]
+          },
+          {
+            "is_null": {
+              "new": "owner_id"
+            }
+          },
+          {
+            "cmp": [
+              {
+                "new": "level"
+              },
+              ">=",
+              {
+                "const": 0
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "new": "level"
+              },
+              "<=",
+              {
+                "const": 3
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "new": "level"
+              },
+              "<=",
+              {
+                "ctx": "clearance"
+              }
+            ]
+          }
+        ]
+      }
+    }
   ]
 }

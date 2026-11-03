@@ -23,7 +23,7 @@ from pydantic import ValidationError
 from mls.errors import ErrorSink, MlsError, SpecError
 from mls.spec.model import (
     CONTEXT_NOW, And, CardinalityRule, CheckRule, ColRef, ColType, ColumnRule, Cmp, Const, CtxRef,
-    Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, NewRef, Not,
+    Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
     NowBetween, OldRef, OpaqueRef, Or, PolicyRule, Spec, TenantIsolation, ColumnImmutable,
     WriteSubsetRead, LeastPrivilege, TransitionRule,
 )
@@ -90,6 +90,13 @@ def goal_scope(table: str) -> Scope:
                  now_between=True, opaque=True, opaque_ctx=True)
 
 
+def must_allow_scope(table: str, command: str) -> Scope:
+    """The condition of a must_allow property: a goal predicate that, for update, may also name
+    the old and new images."""
+    return Scope("must_allow condition", table, cols=True, ctx=True, member=True, member_col_key=True,
+                 now_between=True, opaque=True, opaque_ctx=True, old_new=(command == "update"))
+
+
 class Checker:
     def __init__(self, spec: Spec):
         self.spec = spec
@@ -123,7 +130,8 @@ class Checker:
             return ty
         if isinstance(term, (OldRef, NewRef)):
             if not scope.old_new:
-                self.err(path, f"old/new references are only allowed in transition predicates",
+                self.err(path, f"old/new references are only allowed in transition predicates and in the "
+                               f"condition of a must_allow property on update",
                          "use {\"col\": name} here")
                 return None
             col = term.old if isinstance(term, OldRef) else term.new
@@ -618,7 +626,7 @@ class Checker:
             if p.id in ids:
                 self.err(path + ".id", f"duplicate property id '{p.id}'")
             ids.add(p.id)
-            if isinstance(p, (TenantIsolation, ColumnImmutable, WriteSubsetRead, Custom)):
+            if isinstance(p, (TenantIsolation, ColumnImmutable, WriteSubsetRead, Custom, MustAllow)):
                 if p.table not in self.spec.tables:
                     self.err(path + ".table", f"unknown table '{p.table}'")
                     continue
@@ -664,6 +672,10 @@ class Checker:
                 if p.role not in self.spec.roles:
                     self.err(path + ".role", f"unknown role '{p.role}'")
                 self.pred(p.goal, goal_scope(p.table), path + ".goal")
+            elif isinstance(p, MustAllow):
+                if p.role not in self.spec.roles:
+                    self.err(path + ".role", f"unknown role '{p.role}'")
+                self.pred(p.when, must_allow_scope(p.table, p.command), path + ".when")
 
 
 def check_spec(spec: Spec) -> None:

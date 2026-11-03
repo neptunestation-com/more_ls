@@ -9,7 +9,9 @@
   "Leaving a group never grants access.",
   "A tenant never holds more than 5 files; sizes stay non-negative.",
   "Whatever a user writes, they can read back.",
-  "The application role may only select/insert/update files and select groups."
+  "The application role may only select/insert/update files and select groups.",
+  "A user can read the files of the groups they belong to.",
+  "A user can add a file to a group they belong to."
  ],
  "reference_spec": {
   "$comment": "org_tree with direct membership only (no subtree access)",
@@ -301,6 +303,59 @@
       ]
      }
     }
+   },
+   {
+    "id": "P6",
+    "description": "a user reads the files of the groups they belong to",
+    "template": "must_allow",
+    "table": "files",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "group_member",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "group_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P7",
+    "description": "a user adds a file to a group they belong to",
+    "template": "must_allow",
+    "table": "files",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "group_member",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "group_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "size"
+        },
+        ">=",
+        {
+         "const": 0
+        }
+       ]
+      }
+     ]
+    }
    }
   ]
  },
@@ -309,7 +364,9 @@
   "P2": "PROVED",
   "P3": "PROVED",
   "P4": "PROVED",
-  "P5": "PROVED"
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED"
  },
  "start_rules": [
   {
@@ -412,7 +469,9 @@
   "P2": "PROVED",
   "P3": "REFUTED",
   "P4": "PROVED",
-  "P5": "PROVED"
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

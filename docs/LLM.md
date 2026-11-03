@@ -77,8 +77,8 @@ check (`expected_check_errors`) are checker cases and are skipped by `--llm`.
 
 The corpus: 31 seed cases in 11 schema families (`evals/make_cases.py`; 30 are generation cases,
 one is a checker case) and the solver-graded mutants of every seed case (`evals/cases/synthetic`,
-100 cases, mutation score 38 %; a mutant counts as detected when a property the base proves no
-longer proves).
+194 cases, mutation score 75 %; a mutant counts as detected when a property the base proves no
+longer proves — the lower-bound template `must_allow` (D40) is what makes a dropped grant count).
 
 ## Measured (2026-11-02, `claude-opus-5-5`, effort high, max 3 repairs)
 
@@ -109,6 +109,14 @@ set pinned the listing id and its repair enforced it, while the reference leaves
 because the text says nothing about it (FINDINGS).  202 API calls, about 529k output tokens,
 218k input tokens plus 1.2M cache reads.  The run also removed 16 synthetic cases whose mutation had
 only dropped a planted leak (nothing to repair; see D39).
+
+After these runs the properties prompt gained `must_allow` (D40), so the measured numbers are
+for a prompt without it.  A sanity sample with the new prompt (2026-11-03: hd_good, sd_good,
+cr_good, pj_good): 4/4 proved and net-equivalent, 3 to 5 `must_allow` properties per case, all
+proved at the first attempt, each stating the whole change ("an agent can close an open ticket of
+their organization, leaving everything else unchanged"); one case needed a repair round for its
+own column-immutability properties, not for a lower bound.  The full corpus has not been
+re-measured with it.
 
 Seed run: 63 API calls, about 158k output tokens and 87k input tokens (most of them cache reads).
 This is the third run: the first two found a schema-decoding problem (D37), ambiguous requirement

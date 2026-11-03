@@ -214,6 +214,131 @@
      ]
     }
    }
+  },
+  {
+   "id": "P7",
+   "template": "must_allow",
+   "description": "a member reads the tasks of their projects",
+   "table": "tasks",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P8",
+   "template": "must_allow",
+   "description": "a member adds an unassigned task to their project",
+   "table": "tasks",
+   "role": "authenticated",
+   "command": "insert",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "project_id"
+       }
+      }
+     },
+     {
+      "is_null": {
+       "col": "assignee_id"
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "P9",
+   "template": "must_allow",
+   "description": "an assignee marks their task done",
+   "table": "tasks",
+   "role": "authenticated",
+   "command": "update",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "old": "project_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "old": "assignee_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "assignee_id"
+       },
+       "=",
+       {
+        "old": "assignee_id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "id"
+       },
+       "=",
+       {
+        "old": "id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "project_id"
+       },
+       "=",
+       {
+        "old": "project_id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "done"
+       },
+       "=",
+       {
+        "const": true
+       }
+      ]
+     }
+    ]
+   }
   }
  ]
 }

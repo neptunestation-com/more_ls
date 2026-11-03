@@ -280,6 +280,59 @@
      ]
     }
    }
+  },
+  {
+   "id": "P6",
+   "template": "must_allow",
+   "description": "a user reads the files of the groups they belong to",
+   "table": "files",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "group_member",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "group_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P7",
+   "template": "must_allow",
+   "description": "a user adds a file to a group they belong to",
+   "table": "files",
+   "role": "authenticated",
+   "command": "insert",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "group_member",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "group_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "col": "size"
+       },
+       ">=",
+       {
+        "const": 0
+       }
+      ]
+     }
+    ]
+   }
   }
  ]
 }

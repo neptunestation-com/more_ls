@@ -11,7 +11,13 @@
   "An order is visible only to its buyer.",
   "Only the seller changes a listing.",
   "Whatever is written can be read back.",
-  "The application role may only select/insert/update listings and select/insert orders."
+  "The application role may only select/insert/update listings and select/insert orders.",
+  "Every signed-in user can read active listings.",
+  "A seller can read their own listings.",
+  "A seller can create a listing with a non-negative price.",
+  "A seller can reprice their listing.",
+  "A buyer can place an order in their own name.",
+  "A buyer can read their own orders."
  ],
  "reference_spec": {
   "$comment": "marketplace where sellers hand listings over",
@@ -352,6 +358,183 @@
       ]
      }
     }
+   },
+   {
+    "id": "P8",
+    "description": "every signed-in user reads active listings",
+    "template": "must_allow",
+    "table": "listings",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "cmp": [
+      {
+       "col": "status"
+      },
+      "=",
+      {
+       "const": "active"
+      }
+     ]
+    }
+   },
+   {
+    "id": "P9",
+    "description": "a seller reads their own listings",
+    "template": "must_allow",
+    "table": "listings",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "cmp": [
+      {
+       "col": "seller_id"
+      },
+      "=",
+      {
+       "ctx": "uid"
+      }
+     ]
+    }
+   },
+   {
+    "id": "P10",
+    "description": "a seller creates a listing with a non-negative price",
+    "template": "must_allow",
+    "table": "listings",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "cmp": [
+        {
+         "col": "seller_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "col": "price"
+        },
+        ">=",
+        {
+         "const": 0
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P11",
+    "description": "a seller reprices their listing",
+    "template": "must_allow",
+    "table": "listings",
+    "role": "authenticated",
+    "command": "update",
+    "when": {
+     "and": [
+      {
+       "cmp": [
+        {
+         "old": "seller_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "id"
+        },
+        "=",
+        {
+         "old": "id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "seller_id"
+        },
+        "=",
+        {
+         "old": "seller_id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "status"
+        },
+        "=",
+        {
+         "old": "status"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "price"
+        },
+        ">=",
+        {
+         "const": 0
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P12",
+    "description": "a buyer places an order in their own name",
+    "template": "must_allow",
+    "table": "orders",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "cmp": [
+      {
+       "col": "buyer_id"
+      },
+      "=",
+      {
+       "ctx": "uid"
+      }
+     ]
+    }
+   },
+   {
+    "id": "P13",
+    "description": "a buyer reads their own orders",
+    "template": "must_allow",
+    "table": "orders",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "cmp": [
+      {
+       "col": "buyer_id"
+      },
+      "=",
+      {
+       "ctx": "uid"
+      }
+     ]
+    }
    }
   ]
  },
@@ -362,7 +545,13 @@
   "P4": "PROVED",
   "P5": "PROVED",
   "P6": "REFUTED",
-  "P7": "PROVED"
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED",
+  "P11": "PROVED",
+  "P12": "PROVED",
+  "P13": "PROVED"
  },
  "start_rules": [
   {
@@ -501,7 +690,13 @@
   "P4": "PROVED",
   "P5": "PROVED",
   "P6": "REFUTED",
-  "P7": "PROVED"
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED",
+  "P11": "PROVED",
+  "P12": "PROVED",
+  "P13": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

@@ -231,6 +231,105 @@
      ]
     }
    }
+  },
+  {
+   "id": "P6",
+   "template": "must_allow",
+   "description": "a member reads the unexpired invites of their tenants",
+   "table": "invites",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "now_between": {
+       "from": null,
+       "until": {
+        "col": "expires_at"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "P7",
+   "template": "must_allow",
+   "description": "a member creates an invite in their own name",
+   "table": "invites",
+   "role": "authenticated",
+   "command": "insert",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "col": "inviter_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "P8",
+   "template": "must_allow",
+   "description": "the inviter, while a member, revokes their invite",
+   "table": "invites",
+   "role": "authenticated",
+   "command": "delete",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "col": "inviter_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     }
+    ]
+   }
   }
  ]
 }

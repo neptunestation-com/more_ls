@@ -281,6 +281,8 @@ def cmd_eval(a) -> int:
     if a.mutate:
         total_written, total_missed = 0, 0
         for f in case_files(paths):
+            if load_case(f).get("origin") == "synthetic":
+                continue  # mutants of mutants are not cases; the command is idempotent over its own output
             written, missed = synthetic_cases(f, Path(a.mutate))
             total_written += len(written)
             total_missed += len(missed)

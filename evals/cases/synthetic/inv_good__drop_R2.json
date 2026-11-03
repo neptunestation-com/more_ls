@@ -1,0 +1,459 @@
+{
+ "id": "inv_good__drop_R2",
+ "origin": "synthetic",
+ "base_case": "inv_good",
+ "mutation": "drop:R2",
+ "requirements": "Members of a tenant may invite others: an invite belongs to the tenant, records who created it and may carry an expiry time. Members see the invites of their tenants, but never an expired one. Only the inviter, while still a member of the tenant, may revoke (delete) an invite. Invites are never edited.",
+ "expected_properties": [
+  "Invites are only seen, created and revoked within the member's tenants.",
+  "An expired invite is never visible.",
+  "Only the inviter revokes an invite.",
+  "Leaving a tenant never grants access.",
+  "The application role may only select/insert/delete invites and select memberships.",
+  "A member can read the unexpired invites of their tenants.",
+  "A member can create an invite in their own name.",
+  "The inviter, while a member, can revoke their invite."
+ ],
+ "reference_spec": {
+  "$comment": "time-bounded invites",
+  "mls_version": "0.1",
+  "identity": {
+   "adapter": "supabase",
+   "context": {
+    "uid": {
+     "source": "auth.uid",
+     "type": "uuid"
+    }
+   }
+  },
+  "roles": [
+   "authenticated"
+  ],
+  "tables": {
+   "memberships": {
+    "columns": {
+     "user_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "tenant_id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "user_id",
+     "tenant_id"
+    ],
+    "unique": []
+   },
+   "invites": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "tenant_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "inviter_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "expires_at": {
+      "type": "timestamp",
+      "nullable": true
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": []
+   }
+  },
+  "relations": {
+   "member_of": {
+    "table": "memberships",
+    "key": "user_id",
+    "value": "tenant_id"
+   }
+  },
+  "hierarchies": {},
+  "opaques": {},
+  "rules": [
+   {
+    "id": "R1",
+    "name": "member_read_live",
+    "table": "invites",
+    "requirement": "members see unexpired invites",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "now_between": {
+        "until": {
+         "col": "expires_at"
+        }
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "R2",
+    "name": "member_invite",
+    "table": "invites",
+    "requirement": "members invite",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "insert",
+    "mode": "permissive",
+    "check": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "inviter_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "R3",
+    "name": "inviter_revoke",
+    "table": "invites",
+    "requirement": "inviters revoke",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "delete",
+    "mode": "permissive",
+    "using": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "inviter_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ],
+  "properties": [
+   {
+    "id": "P1",
+    "description": "invites are only seen, created and revoked within the member's tenants",
+    "template": "tenant_isolation",
+    "table": "invites",
+    "column": "tenant_id",
+    "relation": "member_of",
+    "key": {
+     "ctx": "uid"
+    },
+    "commands": [
+     "select",
+     "insert",
+     "delete"
+    ]
+   },
+   {
+    "id": "P2",
+    "description": "an expired invite is never visible",
+    "template": "custom",
+    "table": "invites",
+    "role": "authenticated",
+    "command": "select",
+    "which": "new",
+    "goal": {
+     "now_between": {
+      "until": {
+       "col": "expires_at"
+      }
+     }
+    }
+   },
+   {
+    "id": "P3",
+    "description": "only the inviter revokes an invite",
+    "template": "custom",
+    "table": "invites",
+    "role": "authenticated",
+    "command": "delete",
+    "which": "old",
+    "goal": {
+     "cmp": [
+      {
+       "col": "inviter_id"
+      },
+      "=",
+      {
+       "ctx": "uid"
+      }
+     ]
+    }
+   },
+   {
+    "id": "P4",
+    "description": "leaving a tenant never grants access",
+    "template": "monotone_in",
+    "relation": "member_of"
+   },
+   {
+    "id": "P5",
+    "description": "only select/insert/delete on invites and select on memberships",
+    "template": "least_privilege",
+    "allowed": {
+     "authenticated": {
+      "invites": [
+       "select",
+       "insert",
+       "delete"
+      ],
+      "memberships": [
+       "select"
+      ]
+     }
+    }
+   },
+   {
+    "id": "P6",
+    "description": "a member reads the unexpired invites of their tenants",
+    "template": "must_allow",
+    "table": "invites",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "now_between": {
+        "until": {
+         "col": "expires_at"
+        }
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "P7",
+    "description": "a member creates an invite in their own name",
+    "template": "must_allow",
+    "table": "invites",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "inviter_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P8",
+    "description": "the inviter, while a member, revokes their invite",
+    "template": "must_allow",
+    "table": "invites",
+    "role": "authenticated",
+    "command": "delete",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "inviter_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ]
+ },
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
+ },
+ "start_rules": [
+  {
+   "id": "R1",
+   "name": "member_read_live",
+   "table": "invites",
+   "requirement": "members see unexpired invites",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "now_between": {
+       "until": {
+        "col": "expires_at"
+       }
+      }
+     }
+    ]
+   }
+  },
+  {
+   "id": "R3",
+   "name": "inviter_revoke",
+   "table": "invites",
+   "requirement": "inviters revoke",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "delete",
+   "mode": "permissive",
+   "using": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "col": "inviter_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ],
+ "mutant_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "REFUTED",
+  "P8": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

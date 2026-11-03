@@ -333,6 +333,183 @@
      ]
     }
    }
+  },
+  {
+   "id": "P8",
+   "template": "must_allow",
+   "description": "every signed-in user reads active listings",
+   "table": "listings",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "cmp": [
+     {
+      "col": "status"
+     },
+     "=",
+     {
+      "const": "active"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P9",
+   "template": "must_allow",
+   "description": "a seller reads their own listings",
+   "table": "listings",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "cmp": [
+     {
+      "col": "seller_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P10",
+   "template": "must_allow",
+   "description": "a seller creates a listing with a non-negative price",
+   "table": "listings",
+   "role": "authenticated",
+   "command": "insert",
+   "when": {
+    "and": [
+     {
+      "cmp": [
+       {
+        "col": "seller_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "col": "price"
+       },
+       ">=",
+       {
+        "const": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "P11",
+   "template": "must_allow",
+   "description": "a seller reprices their listing",
+   "table": "listings",
+   "role": "authenticated",
+   "command": "update",
+   "when": {
+    "and": [
+     {
+      "cmp": [
+       {
+        "old": "seller_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "id"
+       },
+       "=",
+       {
+        "old": "id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "seller_id"
+       },
+       "=",
+       {
+        "old": "seller_id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "status"
+       },
+       "=",
+       {
+        "old": "status"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "price"
+       },
+       ">=",
+       {
+        "const": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "P12",
+   "template": "must_allow",
+   "description": "a buyer places an order in their own name",
+   "table": "orders",
+   "role": "authenticated",
+   "command": "insert",
+   "when": {
+    "cmp": [
+     {
+      "col": "buyer_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P13",
+   "template": "must_allow",
+   "description": "a buyer reads their own orders",
+   "table": "orders",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "cmp": [
+     {
+      "col": "buyer_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
   }
  ]
 }

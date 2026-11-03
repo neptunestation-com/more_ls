@@ -8,7 +8,11 @@
   "Removing a membership never grants anyone access.",
   "Levels stay in range; owners and admins stay members of their tenants.",
   "Whatever a user writes, they can read back.",
-  "The application role has no privilege beyond select/insert/update on docs and reading memberships."
+  "The application role has no privilege beyond select/insert/update on docs and reading memberships.",
+  "A member can read any unarchived document of their tenants within their clearance.",
+  "An admin can read every unarchived document of their tenants.",
+  "A member can create an unarchived document in their tenant within their clearance.",
+  "A member can update an unarchived document of their tenant, keeping its tenant and staying within their clearance."
  ],
  "reference_spec": "specs/td_tenant_move.mls.json",
  "expected_verdicts": {
@@ -17,7 +21,11 @@
   "P3": "PROVED",
   "P4": "PROVED",
   "P5": "PROVED",
-  "P6": "PROVED"
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

@@ -1,0 +1,634 @@
+{
+ "id": "pj_owner_closes__drop_R2",
+ "origin": "synthetic",
+ "base_case": "pj_owner_closes",
+ "mutation": "drop:R2",
+ "requirements": "Projects have members (project_members). Members see the tasks of their projects and may add tasks to them. A task may be assigned to a user, who must be a member of the task's project; only the assignee may update a task, and it stays in a project the assignee belongs to. Nobody deletes tasks. Additionally a project owner (owners are recorded in task_owners and must be members of the project) may delete tasks of their project.",
+ "expected_properties": [
+  "Tasks are only seen, added and changed by members of their project.",
+  "Only the assignee updates a task.",
+  "Leaving a project never grants access.",
+  "An assignee is always a member of the task's project.",
+  "Whatever is written can be read back.",
+  "The application role may only select/insert/update/delete tasks and select project_members and projects.",
+  "A member can read the tasks of their projects.",
+  "A member can add an unassigned task to their project.",
+  "An assignee can mark their task done.",
+  "A project owner can delete any task of their project."
+ ],
+ "reference_spec": {
+  "$comment": "projects where owners delete tasks",
+  "mls_version": "0.1",
+  "identity": {
+   "adapter": "supabase",
+   "context": {
+    "uid": {
+     "source": "auth.uid",
+     "type": "uuid"
+    }
+   }
+  },
+  "roles": [
+   "authenticated"
+  ],
+  "tables": {
+   "projects": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "owner_id": {
+      "type": "uuid",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": []
+   },
+   "project_members": {
+    "columns": {
+     "user_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "project_id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "user_id",
+     "project_id"
+    ],
+    "unique": []
+   },
+   "tasks": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "project_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "assignee_id": {
+      "type": "uuid",
+      "nullable": true
+     },
+     "done": {
+      "type": "bool",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": []
+   },
+   "task_owners": {
+    "columns": {
+     "user_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "project_id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "user_id",
+     "project_id"
+    ],
+    "unique": []
+   }
+  },
+  "relations": {
+   "member_of": {
+    "table": "project_members",
+    "key": "user_id",
+    "value": "project_id"
+   },
+   "owner_of": {
+    "table": "task_owners",
+    "key": "user_id",
+    "value": "project_id"
+   }
+  },
+  "hierarchies": {},
+  "opaques": {},
+  "rules": [
+   {
+    "id": "R1",
+    "name": "member_read",
+    "table": "tasks",
+    "requirement": "members see tasks of their projects",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "project_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R2",
+    "name": "member_insert",
+    "table": "tasks",
+    "requirement": "members add tasks",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "insert",
+    "mode": "permissive",
+    "check": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "project_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R3",
+    "name": "assignee_update",
+    "table": "tasks",
+    "requirement": "assignees update their tasks",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "update",
+    "mode": "permissive",
+    "using": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "project_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "assignee_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      }
+     ]
+    },
+    "check": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "project_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R4",
+    "name": "assignee_is_member",
+    "table": "tasks",
+    "requirement": "assignees are members",
+    "kind": "inclusion",
+    "columns": [
+     "assignee_id",
+     "project_id"
+    ],
+    "relation": "member_of",
+    "on_delete": "restrict"
+   },
+   {
+    "id": "R5",
+    "name": "owner_delete",
+    "table": "tasks",
+    "requirement": "owners delete",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "delete",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "owner_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "project_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R6",
+    "name": "owners_are_members",
+    "table": "task_owners",
+    "kind": "inclusion",
+    "columns": [
+     "user_id",
+     "project_id"
+    ],
+    "relation": "member_of",
+    "on_delete": "restrict"
+   }
+  ],
+  "properties": [
+   {
+    "id": "P1",
+    "description": "tasks are only seen, added and changed by members of their project",
+    "template": "tenant_isolation",
+    "table": "tasks",
+    "column": "project_id",
+    "relation": "member_of",
+    "key": {
+     "ctx": "uid"
+    },
+    "commands": [
+     "select",
+     "insert",
+     "update",
+     "delete"
+    ]
+   },
+   {
+    "id": "P2",
+    "description": "only the assignee updates a task",
+    "template": "custom",
+    "table": "tasks",
+    "role": "authenticated",
+    "command": "update",
+    "which": "old",
+    "goal": {
+     "cmp": [
+      {
+       "col": "assignee_id"
+      },
+      "=",
+      {
+       "ctx": "uid"
+      }
+     ]
+    }
+   },
+   {
+    "id": "P3",
+    "description": "leaving a project never grants access",
+    "template": "monotone_in",
+    "relation": "member_of"
+   },
+   {
+    "id": "P4",
+    "description": "assignees and owners are members",
+    "template": "invariant_preserved",
+    "invariants": [
+     {
+      "rule": "R4"
+     },
+     {
+      "rule": "R6"
+     }
+    ]
+   },
+   {
+    "id": "P5",
+    "description": "whatever is written can be read back",
+    "template": "write_subset_read",
+    "table": "tasks"
+   },
+   {
+    "id": "P6",
+    "description": "only select/insert/update/delete on tasks, select on members and owners",
+    "template": "least_privilege",
+    "allowed": {
+     "authenticated": {
+      "tasks": [
+       "select",
+       "insert",
+       "update",
+       "delete"
+      ],
+      "project_members": [
+       "select"
+      ],
+      "task_owners": [
+       "select"
+      ]
+     }
+    }
+   },
+   {
+    "id": "P7",
+    "description": "a member reads the tasks of their projects",
+    "template": "must_allow",
+    "table": "tasks",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "project_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P8",
+    "description": "a member adds an unassigned task to their project",
+    "template": "must_allow",
+    "table": "tasks",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "project_id"
+        }
+       }
+      },
+      {
+       "is_null": {
+        "col": "assignee_id"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "P9",
+    "description": "an assignee marks their task done",
+    "template": "must_allow",
+    "table": "tasks",
+    "role": "authenticated",
+    "command": "update",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "old": "project_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "old": "assignee_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "assignee_id"
+        },
+        "=",
+        {
+         "old": "assignee_id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "id"
+        },
+        "=",
+        {
+         "old": "id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "project_id"
+        },
+        "=",
+        {
+         "old": "project_id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "done"
+        },
+        "=",
+        {
+         "const": true
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P10",
+    "description": "a project owner deletes any task of their project",
+    "template": "must_allow",
+    "table": "tasks",
+    "role": "authenticated",
+    "command": "delete",
+    "when": {
+     "member": {
+      "relation": "owner_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "project_id"
+      }
+     }
+    }
+   }
+  ]
+ },
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED"
+ },
+ "start_rules": [
+  {
+   "id": "R1",
+   "name": "member_read",
+   "table": "tasks",
+   "requirement": "members see tasks of their projects",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R3",
+   "name": "assignee_update",
+   "table": "tasks",
+   "requirement": "assignees update their tasks",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "project_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "col": "assignee_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     }
+    ]
+   },
+   "check": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R4",
+   "name": "assignee_is_member",
+   "table": "tasks",
+   "requirement": "assignees are members",
+   "kind": "inclusion",
+   "columns": [
+    "assignee_id",
+    "project_id"
+   ],
+   "relation": "member_of",
+   "on_delete": "restrict"
+  },
+  {
+   "id": "R5",
+   "name": "owner_delete",
+   "table": "tasks",
+   "requirement": "owners delete",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "delete",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "owner_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R6",
+   "name": "owners_are_members",
+   "table": "task_owners",
+   "kind": "inclusion",
+   "columns": [
+    "user_id",
+    "project_id"
+   ],
+   "relation": "member_of",
+   "on_delete": "restrict"
+  }
+ ],
+ "mutant_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "REFUTED",
+  "P9": "PROVED",
+  "P10": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

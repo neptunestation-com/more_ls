@@ -8,7 +8,11 @@
   "Leaving a project never grants access.",
   "An assignee is always a member of the task's project.",
   "Whatever is written can be read back.",
-  "The application role may only select/insert/update/delete tasks and select project_members and projects."
+  "The application role may only select/insert/update/delete tasks and select project_members and projects.",
+  "A member can read the tasks of their projects.",
+  "A member can add an unassigned task to their project.",
+  "An assignee can mark their task done.",
+  "A project owner can delete any task of their project."
  ],
  "reference_spec": "specs/pj_owner_closes.mls.json",
  "expected_verdicts": {
@@ -17,7 +21,11 @@
   "P3": "PROVED",
   "P4": "PROVED",
   "P5": "PROVED",
-  "P6": "PROVED"
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

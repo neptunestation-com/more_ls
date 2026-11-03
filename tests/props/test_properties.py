@@ -201,4 +201,4 @@ def test_report_formats(example_spec):
     md = to_markdown(example_spec, results)
     assert "## Assumptions" in md and "identity adapter 'supabase'" in md
     js = json.loads(dumps_json(example_spec, results))
-    assert js["summary"]["PROVED"] == 6 and js["properties"][0]["obligations"]
+    assert js["summary"]["PROVED"] == 10 and js["properties"][0]["obligations"]

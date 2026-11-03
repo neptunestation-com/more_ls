@@ -106,6 +106,21 @@ def custom(id, desc, table, role, command, goal, which="new"):
             "which": which, "goal": goal}
 
 
+def must_allow(id, desc, table, role, command, when):
+    """The lower bound (D40): every row meeting `when` is admitted to the command, all layers together."""
+    return {"id": id, "template": "must_allow", "description": desc, "table": table, "role": role, "command": command,
+            "when": when}
+
+
+def member_old(rel, value, key="uid"):
+    return {"member": {"relation": rel, "key": ctx(key), "value": old(value)}}
+
+
+def same(*cols):
+    """new = old for non-nullable columns (an update that keeps them)."""
+    return [eq(new(c), old(c)) for c in cols]
+
+
 # ----------------------------------------------------------------------------- schema helpers
 SUPABASE = {"adapter": "supabase", "context": {"uid": {"source": "auth.uid", "type": "uuid"}}}
 
@@ -138,7 +153,7 @@ def case(id, requirements, expected_properties, spec_data, verdicts, loop=None):
 TD = json.loads((ROOT / "examples" / "tenant_docs.mls.json").read_text())
 TD_REQ = json.loads((OUT / "good_tenant_docs.json").read_text())["requirements"]
 TD_PROPS = json.loads((OUT / "good_tenant_docs.json").read_text())["expected_properties"]
-TD_OK = {f"P{i}": "PROVED" for i in range(1, 7)}
+TD_OK = {f"P{i}": "PROVED" for i in range(1, 11)}
 
 
 def td(rules=None, props=None, comment=None):
@@ -156,9 +171,9 @@ admin = member("admin_of", "tenant_id")
 r = td()["rules"]
 case("td_admin_delete",
      TD_REQ + " Tenant admins may also delete documents of their tenants.",
-     TD_PROPS[:5] + ["The application role has no privilege beyond select/insert/update/delete on docs and reading memberships and admins."],
+     TD_PROPS[:5] + ["The application role has no privilege beyond select/insert/update/delete on docs and reading memberships and admins."] + TD_PROPS[6:],
      td(rules=r + [policy("R10", "admin_delete", "docs", "delete", using=admin, req="admins delete")],
-        props=TD["properties"][:5] + [{**TD["properties"][5], "allowed": {"authenticated": {"docs": ["select", "insert", "update", "delete"], "memberships": ["select"], "admins": ["select"]}}}],
+        props=TD["properties"][:5] + [{**TD["properties"][5], "allowed": {"authenticated": {"docs": ["select", "insert", "update", "delete"], "memberships": ["select"], "admins": ["select"]}}}] + TD["properties"][6:],
         comment="tenant_docs plus admin delete"),
      TD_OK)
 
@@ -190,8 +205,9 @@ ORG_PROPS = ["A user only reads files of groups they belong to or that lie below
              "Leaving a group never grants access.",
              "A tenant never holds more than 5 files; sizes stay non-negative.",
              "Whatever a user writes, they can read back.",
-             "The application role may only select/insert/update files and select groups."]
-case("org_good", ORG_REQ, ORG_PROPS, ORG, {f"P{i}": "PROVED" for i in range(1, 6)})
+             "The application role may only select/insert/update files and select groups.",
+             "A user can read the files of the groups they belong to.", "A user can add a file to a group they belong to."]
+case("org_good", ORG_REQ, ORG_PROPS, ORG, {f"P{i}": "PROVED" for i in range(1, 8)})
 
 d = json.loads(json.dumps(ORG))
 d["$comment"] = "org_tree where the read policy says in_group but the property asks for direct membership"
@@ -200,7 +216,7 @@ d["properties"][0] = custom("P1", "a user only reads files of groups they are a 
 case("org_subtree_leak",  # the requirement grants the subtree; the reviewer's property asks for direct membership
      ORG_REQ,
      ["A user only reads files of groups they are a direct member of."] + ORG_PROPS[1:],
-     d, {"P1": "REFUTED", "P2": "PROVED", "P3": "PROVED", "P4": "PROVED", "P5": "PROVED"})
+     d, {"P1": "REFUTED", "P2": "PROVED", "P3": "PROVED", "P4": "PROVED", "P5": "PROVED", "P6": "PROVED", "P7": "PROVED"})
 
 d = json.loads(json.dumps(ORG))
 d["$comment"] = "org_tree with direct membership only (no subtree access)"
@@ -216,7 +232,7 @@ case("org_direct_only",
      ORG_REQ.replace("of the groups they belong to and of every group below those", "of exactly the groups they belong to")
      .replace("Users may see which groups they belong to (directly or below).", "Users may see the groups they belong to."),
      ["A user only reads files of groups they are a direct member of."] + ORG_PROPS[1:],
-     d, {f"P{i}": "PROVED" for i in range(1, 6)})
+     d, {f"P{i}": "PROVED" for i in range(1, 8)})
 
 # ============================================================================= F3 help desk
 HD_TABLES = {
@@ -251,6 +267,14 @@ HD_PROPS = [
     write_subset_read("P7", "whatever is written can be read back", "tickets"),
     least_privilege("P8", "only select/insert/update on tickets and select on agents",
                     {"authenticated": {"tickets": ["select", "insert", "update"], "agents": ["select"]}}),
+    must_allow("P9", "a customer reads their own tickets", "tickets", "authenticated", "select", mine),
+    must_allow("P10", "a customer opens a ticket in their own name", "tickets", "authenticated", "insert",
+               and_(mine, eq(col("status"), const("open")))),
+    must_allow("P11", "an agent reads the tickets of their organizations", "tickets", "authenticated", "select", agent),
+    must_allow("P12", "an agent of the ticket's organization closes an open ticket", "tickets", "authenticated", "update",
+               and_(member_old("agent_of", "org_id"), eq(old("status"), const("open")), eq(new("status"), const("closed")),
+                    *same("id", "org_id", "customer_id"),
+                    or_(and_(is_null(old("assignee_id")), is_null(new("assignee_id"))), eq(new("assignee_id"), old("assignee_id"))))),
 ]
 HD_REQ = ("Customers open support tickets and see only their own tickets; a new ticket is 'open'. Agents belong to "
           "organizations (agents table) and may read and work on every ticket of their organizations, but cannot move "
@@ -261,8 +285,11 @@ HD_ENG = ["A ticket is visible only to its customer and to agents of its organiz
           "Closed tickets are never modified.", "An agent never moves a ticket to another organization.",
           "Removing an agent from an organization never grants access.",
           "Whatever is written can be read back.",
-          "The application role may only select/insert/update tickets and select agents."]
-HD_OK = {f"P{i}": "PROVED" for i in range(1, 9)}
+          "The application role may only select/insert/update tickets and select agents.",
+          "A customer can read their own tickets.", "A customer can open a ticket in their own name.",
+          "An agent can read the tickets of their organizations.",
+          "An agent of the ticket's organization can close an open ticket."]
+HD_OK = {f"P{i}": "PROVED" for i in range(1, 13)}
 case("hd_good", HD_REQ, HD_ENG, spec("help desk: customers, agents, ticket status", HD_TABLES, HD_REL, HD_RULES, HD_PROPS), HD_OK)
 case("hd_reopen", HD_REQ.replace(" once closed, a ticket is never modified again.", ""), HD_ENG,
      spec("help desk without the closed-ticket freeze", HD_TABLES, HD_REL, [x for x in HD_RULES if x["id"] != "R5"], HD_PROPS),
@@ -297,14 +324,22 @@ PJ_PROPS = [
     write_subset_read("P5", "whatever is written can be read back", "tasks"),
     least_privilege("P6", "only select/insert/update on tasks and select on project_members",
                     {"authenticated": {"tasks": ["select", "insert", "update"], "project_members": ["select"]}}),
+    must_allow("P7", "a member reads the tasks of their projects", "tasks", "authenticated", "select", pm),
+    must_allow("P8", "a member adds an unassigned task to their project", "tasks", "authenticated", "insert",
+               and_(pm, is_null(col("assignee_id")))),
+    must_allow("P9", "an assignee marks their task done", "tasks", "authenticated", "update",
+               and_(member_old("member_of", "project_id"), eq(old("assignee_id"), ctx("uid")), eq(new("assignee_id"), old("assignee_id")),
+                    *same("id", "project_id"), eq(new("done"), const(True)))),
 ]
 PJ_REQ = ("Projects have members (project_members). Members see the tasks of their projects and may add tasks to them. "
           "A task may be assigned to a user, who must be a member of the task's project; only the assignee may update "
           "a task, and it stays in a project the assignee belongs to. Nobody deletes tasks.")
 PJ_ENG = ["Tasks are only seen, added and changed by members of their project.", "Only the assignee updates a task.",
           "Leaving a project never grants access.", "An assignee is always a member of the task's project.",
-          "Whatever is written can be read back.", "The application role may only select/insert/update tasks and select project_members."]
-PJ_OK = {f"P{i}": "PROVED" for i in range(1, 7)}
+          "Whatever is written can be read back.", "The application role may only select/insert/update tasks and select project_members.",
+          "A member can read the tasks of their projects.", "A member can add an unassigned task to their project.",
+          "An assignee can mark their task done."]
+PJ_OK = {f"P{i}": "PROVED" for i in range(1, 10)}
 case("pj_good", PJ_REQ, PJ_ENG, spec("projects, members, assignees", PJ_TABLES, PJ_REL, PJ_RULES, PJ_PROPS), PJ_OK)
 case("pj_assignee_outsider",
      PJ_REQ.replace(", who must be a member of the task's project", ", who need not be a member of the project")
@@ -313,10 +348,11 @@ case("pj_assignee_outsider",
           [policy("R1", "member_read", "tasks", "select", using=pm), policy("R2", "member_insert", "tasks", "insert", check=pm),
            policy("R3", "assignee_update", "tasks", "update", using=assignee, check=assignee)],
           [p for p in PJ_PROPS if p["id"] != "P4"]),
-     {"P1": "REFUTED", "P2": "PROVED", "P3": "PROVED", "P5": "REFUTED", "P6": "PROVED"})
+     {"P1": "REFUTED", "P2": "PROVED", "P3": "PROVED", "P5": "REFUTED", "P6": "PROVED", "P7": "PROVED", "P8": "PROVED", "P9": "PROVED"})
 case("pj_owner_closes", PJ_REQ + " Additionally a project owner (owners are recorded in task_owners and must be members of "
                                   "the project) may delete tasks of their project.",
-     PJ_ENG[:5] + ["The application role may only select/insert/update/delete tasks and select project_members and projects."],
+     PJ_ENG[:5] + ["The application role may only select/insert/update/delete tasks and select project_members and projects."]
+     + PJ_ENG[6:] + ["A project owner can delete any task of their project."],
      spec("projects where owners delete tasks", {**PJ_TABLES, "task_owners": pairs(other="project_id")},
           {**PJ_REL, "owner_of": {"table": "task_owners", "key": "user_id", "value": "project_id"}},
           PJ_RULES + [policy("R5", "owner_delete", "tasks", "delete", using=member("owner_of", "project_id"), req="owners delete"),
@@ -325,8 +361,11 @@ case("pj_owner_closes", PJ_REQ + " Additionally a project owner (owners are reco
            invariants("P4", "assignees and owners are members", "R4", "R6"), PJ_PROPS[4],
            least_privilege("P6", "only select/insert/update/delete on tasks, select on members and owners",
                            {"authenticated": {"tasks": ["select", "insert", "update", "delete"], "project_members": ["select"],
-                                              "task_owners": ["select"]}})]),
-     PJ_OK)
+                                              "task_owners": ["select"]}}),
+           *PJ_PROPS[6:],
+           must_allow("P10", "a project owner deletes any task of their project", "tasks", "authenticated", "delete",
+                      member("owner_of", "project_id"))]),
+     {**PJ_OK, "P10": "PROVED"})
 
 # ============================================================================= F5 time-bounded invites
 INV_TABLES = {"memberships": pairs(),
@@ -348,14 +387,21 @@ INV_PROPS = [
     monotone("P4", "leaving a tenant never grants access", "member_of"),
     least_privilege("P5", "only select/insert/delete on invites and select on memberships",
                     {"authenticated": {"invites": ["select", "insert", "delete"], "memberships": ["select"]}}),
+    must_allow("P6", "a member reads the unexpired invites of their tenants", "invites", "authenticated", "select", and_(mem, live)),
+    must_allow("P7", "a member creates an invite in their own name", "invites", "authenticated", "insert",
+               and_(mem, eq(col("inviter_id"), ctx("uid")))),
+    must_allow("P8", "the inviter, while a member, revokes their invite", "invites", "authenticated", "delete",
+               and_(mem, eq(col("inviter_id"), ctx("uid")))),
 ]
 INV_REQ = ("Members of a tenant may invite others: an invite belongs to the tenant, records who created it and may carry "
            "an expiry time. Members see the invites of their tenants, but never an expired one. Only the inviter, while "
            "still a member of the tenant, may revoke (delete) an invite. Invites are never edited.")
 INV_ENG = ["Invites are only seen, created and revoked within the member's tenants.", "An expired invite is never visible.",
            "Only the inviter revokes an invite.", "Leaving a tenant never grants access.",
-           "The application role may only select/insert/delete invites and select memberships."]
-INV_OK = {f"P{i}": "PROVED" for i in range(1, 6)}
+           "The application role may only select/insert/delete invites and select memberships.",
+           "A member can read the unexpired invites of their tenants.", "A member can create an invite in their own name.",
+           "The inviter, while a member, can revoke their invite."]
+INV_OK = {f"P{i}": "PROVED" for i in range(1, 9)}
 case("inv_good", INV_REQ, INV_ENG, spec("time-bounded invites", INV_TABLES, INV_REL, INV_RULES, INV_PROPS), INV_OK)
 case("inv_expired_visible", INV_REQ.replace(", but never an expired one", ""), INV_ENG,
      spec("invites visible after expiry", INV_TABLES, INV_REL,
@@ -370,7 +416,10 @@ PGR_REQ = ("Users belong to tenants (memberships) and connect with their own dat
            "column holds a value other than 1 (a missing value counts as archived); archived documents are hidden from "
            "everyone: nobody can read, create, change or delete them. Levels are 0..3. A document's owner, if set, must "
            "be a member of the document's tenant; admins must be members. A document never changes tenant.")
-case("pgr_good", PGR_REQ, TD_PROPS, PGR, TD_OK)
+PGR_ENG = TD_PROPS[:6] + ["A member can read any unarchived document of their tenants.",
+                         "A member can create an unarchived document in their tenant.",
+                         "A member can update an unarchived document of their tenant, keeping its tenant."]
+case("pgr_good", PGR_REQ, PGR_ENG, PGR, {f"P{i}": "PROVED" for i in range(1, 10)})
 
 # ============================================================================= F7 marketplace
 MK_TABLES = {
@@ -400,14 +449,24 @@ MK_PROPS = [
     write_subset_read("P6", "whatever is written can be read back", "listings"),
     least_privilege("P7", "only select/insert/update on listings and select/insert on orders",
                     {"authenticated": {"listings": ["select", "insert", "update"], "orders": ["select", "insert"]}}),
+    must_allow("P8", "every signed-in user reads active listings", "listings", "authenticated", "select", active),
+    must_allow("P9", "a seller reads their own listings", "listings", "authenticated", "select", seller),
+    must_allow("P10", "a seller creates a listing with a non-negative price", "listings", "authenticated", "insert", and_(seller, price_ok)),
+    must_allow("P11", "a seller reprices their listing", "listings", "authenticated", "update",
+               and_(eq(old("seller_id"), ctx("uid")), *same("id", "seller_id", "status"), cmp(new("price"), ">=", const(0)))),
+    must_allow("P12", "a buyer places an order in their own name", "orders", "authenticated", "insert", buyer),
+    must_allow("P13", "a buyer reads their own orders", "orders", "authenticated", "select", buyer),
 ]
 MK_REQ = ("Sellers create listings with a status and a price; a listing's seller never changes and prices are never "
           "negative. Every signed-in user sees active listings; sellers also see and edit their own listings whatever "
           "the status. Buyers place orders on listings and see only their own orders. Nothing is deleted.")
 MK_ENG = ["A listing is visible only when active or to its seller.", "A listing's seller never changes.",
           "Prices are never negative.", "An order is visible only to its buyer.", "Only the seller changes a listing.",
-          "Whatever is written can be read back.", "The application role may only select/insert/update listings and select/insert orders."]
-MK_OK = {f"P{i}": "PROVED" for i in range(1, 8)}
+          "Whatever is written can be read back.", "The application role may only select/insert/update listings and select/insert orders.",
+          "Every signed-in user can read active listings.", "A seller can read their own listings.",
+          "A seller can create a listing with a non-negative price.", "A seller can reprice their listing.",
+          "A buyer can place an order in their own name.", "A buyer can read their own orders."]
+MK_OK = {f"P{i}": "PROVED" for i in range(1, 14)}
 case("mk_good", MK_REQ, MK_ENG, spec("marketplace", MK_TABLES, {}, MK_RULES, MK_PROPS), MK_OK)
 case("mk_price_unchecked", MK_REQ.replace(" and prices are never negative", ""), MK_ENG,
      spec("marketplace without the price check", MK_TABLES, {}, [x for x in MK_RULES if x["id"] != "R6"], MK_PROPS),
@@ -457,6 +516,15 @@ CL_PROPS = [
     least_privilege("P6", "only select/insert/update on assignments, select/insert on submissions, select on enrollments and teaching",
                     {"authenticated": {"assignments": ["select", "insert", "update"], "submissions": ["select", "insert"],
                                        "enrollments": ["select"], "teaching": ["select"]}}),
+    must_allow("P7", "a teacher reads the assignments of their courses", "assignments", "authenticated", "select", teaches),
+    must_allow("P8", "an enrolled student reads the published assignments of their courses", "assignments", "authenticated", "select",
+               and_(enrolled, published)),
+    must_allow("P9", "a teacher creates an assignment in their course", "assignments", "authenticated", "insert", teaches),
+    must_allow("P10", "a teacher publishes an assignment of their course", "assignments", "authenticated", "update",
+               and_(member_old("teaches", "course_id"), *same("id", "course_id"), eq(new("published"), const(True)))),
+    must_allow("P11", "an enrolled student submits work in their own name", "submissions", "authenticated", "insert", and_(student, enrolled)),
+    must_allow("P12", "a student reads their own submissions", "submissions", "authenticated", "select", student),
+    must_allow("P13", "a teacher reads every submission of their courses", "submissions", "authenticated", "select", teaches),
 ]
 CL_REQ = ("Users are enrolled in courses (enrollments) or teach them (teaching). Teachers see, create and edit the "
           "assignments of their courses; enrolled students see only published assignments. Students submit work for "
@@ -467,8 +535,12 @@ CL_ENG = ["An assignment is visible to its teachers, and to enrolled students on
           "A submission is created only by an enrolled student, in their own name.",
           "A submission is visible only to its student and the course's teachers.", "Dropping a course never grants access.",
           "Every submitter is enrolled in the course.",
-          "The application role may only select/insert/update assignments, select/insert submissions, and select enrollments and teaching."]
-CL_OK = {f"P{i}": "PROVED" for i in range(1, 7)}
+          "The application role may only select/insert/update assignments, select/insert submissions, and select enrollments and teaching.",
+          "A teacher can read the assignments of their courses.", "An enrolled student can read the published assignments of their courses.",
+          "A teacher can create an assignment in their course.", "A teacher can publish an assignment of their course.",
+          "An enrolled student can submit work in their own name.", "A student can read their own submissions.",
+          "A teacher can read every submission of their courses."]
+CL_OK = {f"P{i}": "PROVED" for i in range(1, 14)}
 case("cl_good", CL_REQ, CL_ENG, spec("classroom", CL_TABLES, CL_REL, CL_RULES, CL_PROPS), CL_OK)
 case("cl_unpublished_leak", CL_REQ.replace("enrolled students see only published assignments", "enrolled students see the assignments"), CL_ENG,
      spec("classroom where students see unpublished assignments", CL_TABLES, CL_REL,
@@ -498,19 +570,25 @@ AU_PROPS = [
     monotone("P3", "losing a membership never grants access", "member_of"),
     custom("P4", "an event is recorded in the actor's own name", "events", "authenticated", "insert", actor),
     invariants("P5", "admins are members", "R3"),
+    must_allow("P6", "a member records an event for their tenant in their own name", "events", "authenticated", "insert", and_(mem, actor)),
+    must_allow("P7", "an admin reads the events of their tenants", "events", "authenticated", "select", member("admin_of", "tenant_id")),
 ]
 AU_REQ = ("Members of a tenant record audit events for their tenant, always in their own name. Tenant admins (who must "
           "be members) read the events of their tenants. The log is append-only: events are never updated or deleted.")
 AU_ENG = ["Events are only recorded and read within the user's tenants.", "The log is append-only: no update or delete on events.",
-          "Losing a membership never grants access.", "An event is recorded in the actor's own name.", "Admins are members."]
-AU_OK = {f"P{i}": "PROVED" for i in range(1, 6)}
+          "Losing a membership never grants access.", "An event is recorded in the actor's own name.", "Admins are members.",
+          "A member can record an event for their tenant in their own name.", "An admin can read the events of their tenants."]
+AU_OK = {f"P{i}": "PROVED" for i in range(1, 8)}
 case("au_good", AU_REQ, AU_ENG, spec("append-only audit log", AU_TABLES, AU_REL, AU_RULES, AU_PROPS), AU_OK)
 case("au_update_allowed", AU_REQ.replace(" The log is append-only: events are never updated or deleted.",
-                                         " Admins may correct events of their tenants (a correction never moves an event to another tenant)."), AU_ENG,
+                                         " Admins may correct events of their tenants (a correction never moves an event to another tenant)."),
+     AU_ENG + ["An admin can correct the kind of an event of their tenant."],
      spec("audit log where admins may update events", AU_TABLES, AU_REL,
           AU_RULES + [policy("R4", "admin_fix", "events", "update", using=member("admin_of", "tenant_id"), check=member("admin_of", "tenant_id")),
-                      immutable("R5", "tenant_immutable", "events", "tenant_id")], AU_PROPS),
-     {**AU_OK, "P2": "REFUTED"})
+                      immutable("R5", "tenant_immutable", "events", "tenant_id")],
+          AU_PROPS + [must_allow("P8", "an admin corrects the kind of an event of their tenant", "events", "authenticated", "update",
+                                 and_(member_old("admin_of", "tenant_id"), *same("id", "tenant_id", "actor_id")))]),
+     {**AU_OK, "P2": "REFUTED", "P8": "PROVED"})
 
 # ============================================================================= F10 soft deletion
 SD_TABLES = {"memberships": pairs(),
@@ -530,13 +608,20 @@ SD_PROPS = [
     custom("P3", "a deleted note is never modified", "notes", "authenticated", "update", alive, which="old"),
     monotone("P4", "leaving a tenant never grants access", "member_of"),
     least_privilege("P5", "no hard delete", {"authenticated": {"notes": ["select", "insert", "update"], "memberships": ["select"]}}),
+    must_allow("P6", "a member reads the live notes of their tenants", "notes", "authenticated", "select", and_(mem, alive)),
+    must_allow("P7", "a member creates a live note in their tenant", "notes", "authenticated", "insert", and_(mem, alive)),
+    must_allow("P8", "a member soft-deletes a live note of their tenant", "notes", "authenticated", "update",
+               and_(member_old("member_of", "tenant_id"), is_null(old("deleted_at")), not_(is_null(new("deleted_at"))),
+                    *same("id", "tenant_id", "body"))),
 ]
 SD_REQ = ("Members of a tenant read, create and edit the tenant's notes. A note is deleted by setting its deleted_at "
           "time (soft delete): a deleted note is invisible and can no longer be modified. Notes are never hard-deleted; a "
           "new note is not deleted, and a note never changes tenant.")
 SD_ENG = ["Notes are only seen and changed within the member's tenants.", "A deleted note is never visible.",
-          "A deleted note is never modified.", "Leaving a tenant never grants access.", "There is no hard delete."]
-SD_OK = {f"P{i}": "PROVED" for i in range(1, 6)}
+          "A deleted note is never modified.", "Leaving a tenant never grants access.", "There is no hard delete.",
+          "A member can read the live notes of their tenants.", "A member can create a live note in their tenant.",
+          "A member can soft-delete a live note of their tenant."]
+SD_OK = {f"P{i}": "PROVED" for i in range(1, 9)}
 case("sd_good", SD_REQ, SD_ENG, spec("soft deletion", SD_TABLES, SD_REL, SD_RULES, SD_PROPS), SD_OK)
 case("sd_deleted_visible", SD_REQ.replace("a deleted note is invisible and ", "a deleted note "), SD_ENG,
      spec("soft deletion without the hiding policy", SD_TABLES, SD_REL, [x for x in SD_RULES if x["id"] != "R2"], SD_PROPS),
@@ -563,6 +648,11 @@ CR_PROPS = [
                     {"staff": {"employees": ["select"], "memberships": ["select"]}, "hr": {"employees": ["select", "update"], "memberships": ["select"]}}),
     invariants("P3", "salaries are never negative", "R6"),
     monotone("P4", "leaving a tenant never grants access", "member_of"),
+    must_allow("P5", "staff read the employee records of their tenants", "employees", "staff", "select", mem),
+    must_allow("P6", "HR read the employee records of their tenants", "employees", "hr", "select", mem),
+    must_allow("P7", "HR set a non-negative salary on an employee of their tenants", "employees", "hr", "update",
+               and_(member_old("member_of", "tenant_id"), *same("id", "tenant_id", "user_id", "title"), cmp(new("salary"), ">=", const(0)))),
+    must_allow("P8", "a user reads their own memberships", "memberships", "staff", "select", eq(col("user_id"), ctx("uid"))),
 ]
 CR_REQ = ("Two application roles: staff and hr. Both see the employee records of the tenants they belong to, but staff "
           "never see salaries (only id, tenant, user and title). HR may update salaries and titles; nobody else changes "
@@ -570,8 +660,10 @@ CR_REQ = ("Two application roles: staff and hr. Both see the employee records of
           "Users see their own memberships.")
 CR_ENG = ["Employee records are only seen and changed within the user's tenants.",
           "Staff only read employees (never salaries); HR reads and updates.", "Salaries are never negative.",
-          "Leaving a tenant never grants access."]
-CR_OK = {f"P{i}": "PROVED" for i in range(1, 5)}
+          "Leaving a tenant never grants access.", "Staff can read the employee records of their tenants.",
+          "HR can read the employee records of their tenants.", "HR can set a non-negative salary on an employee of their tenants.",
+          "A user can read their own memberships."]
+CR_OK = {f"P{i}": "PROVED" for i in range(1, 9)}
 case("cr_good", CR_REQ, CR_ENG, spec("column rules: salaries", CR_TABLES, CR_REL, CR_RULES, CR_PROPS, roles=("staff", "hr")), CR_OK)
 case("cr_staff_update", CR_REQ.replace("HR may update salaries and titles; nobody else changes employee records", "HR may update salaries and titles; staff may update titles"), CR_ENG,
      spec("column rules where staff may also update", CR_TABLES, CR_REL,

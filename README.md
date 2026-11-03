@@ -68,6 +68,8 @@ solver-graded mutants; `docs/LLM.md`) are implemented.  Measured live with `clau
 on the 30 generation cases of the seed corpus: every case ends proved, net-equivalent to its
 reference and with the reference properties' expected verdicts (3 cases needed one repair round,
 none was escalated); on the 100 synthetic repair benchmarks (the loop starts from mutated rules)
-99 end proved and net-equivalent after about one repair round.  The seed cases are the author's rendering of common patterns, and that
+99 end proved and net-equivalent after about one repair round.  Properties state both bounds:
+the safety templates say what a role may never do, `must_allow` says what it must be able to do
+(D40), and the solver-graded mutation score of the corpus's property sets is 75 %.  The seed cases are the author's rendering of common patterns, and that
 number is as much a statement about their requirement texts as about the model: see
 `docs/FINDINGS.md` for what the first run found and `docs/LLM.md` for how grading works.

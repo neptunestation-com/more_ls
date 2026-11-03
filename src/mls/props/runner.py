@@ -15,6 +15,7 @@ class ObligationResult:
     verdict: str  # PROVED | REFUTED | UNKNOWN
     scenario: Scenario | None = None
     message: str = ""
+    example: Scenario | None = None   # a witness obligation's model: a row the property admits
     opaque_deps: list[str] = field(default_factory=list)
     smtlib: str = ""
 
@@ -35,6 +36,15 @@ def run_obligation(spec: Spec, ob: Obligation, timeout_ms: int = 20000, keep_smt
     res = solve(ob.assumptions, ob.goal, timeout_ms)
     deps = sorted(ob.opaque_deps())
     smt = res.smtlib() if keep_smt else ""
+    if ob.witness:  # goal is FALSE: "refuted" means the assumptions have a model, i.e. a witness
+        if res.status == "refuted":
+            return ObligationResult(ob.name, "PROVED", example=render_scenario(spec, ob, res.model),
+                                    opaque_deps=deps, smtlib=smt)
+        if res.proved:
+            return ObligationResult(ob.name, "REFUTED", message="no row can meet the condition (together with "
+                                    "the table's constraints), so the property would require nothing",
+                                    opaque_deps=deps, smtlib=smt)
+        return ObligationResult(ob.name, "UNKNOWN", message="solver timeout", opaque_deps=deps, smtlib=smt)
     if res.proved:
         return ObligationResult(ob.name, "PROVED", opaque_deps=deps, smtlib=smt)
     if res.status == "refuted":

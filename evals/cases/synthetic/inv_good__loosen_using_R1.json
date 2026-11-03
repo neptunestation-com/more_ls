@@ -9,7 +9,10 @@
   "An expired invite is never visible.",
   "Only the inviter revokes an invite.",
   "Leaving a tenant never grants access.",
-  "The application role may only select/insert/delete invites and select memberships."
+  "The application role may only select/insert/delete invites and select memberships.",
+  "A member can read the unexpired invites of their tenants.",
+  "A member can create an invite in their own name.",
+  "The inviter, while a member, can revoke their invite."
  ],
  "reference_spec": {
   "$comment": "time-bounded invites",
@@ -259,6 +262,104 @@
       ]
      }
     }
+   },
+   {
+    "id": "P6",
+    "description": "a member reads the unexpired invites of their tenants",
+    "template": "must_allow",
+    "table": "invites",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "now_between": {
+        "until": {
+         "col": "expires_at"
+        }
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "P7",
+    "description": "a member creates an invite in their own name",
+    "template": "must_allow",
+    "table": "invites",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "inviter_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P8",
+    "description": "the inviter, while a member, revokes their invite",
+    "template": "must_allow",
+    "table": "invites",
+    "role": "authenticated",
+    "command": "delete",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "inviter_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      }
+     ]
+    }
    }
   ]
  },
@@ -267,7 +368,10 @@
   "P2": "PROVED",
   "P3": "PROVED",
   "P4": "PROVED",
-  "P5": "PROVED"
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
  },
  "start_rules": [
   {
@@ -369,7 +473,10 @@
   "P2": "REFUTED",
   "P3": "PROVED",
   "P4": "PROVED",
-  "P5": "PROVED"
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

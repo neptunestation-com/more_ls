@@ -10,7 +10,11 @@
   "An agent never moves a ticket to another organization.",
   "Removing an agent from an organization never grants access.",
   "Whatever is written can be read back.",
-  "The application role may only select/insert/update tickets and select agents."
+  "The application role may only select/insert/update tickets and select agents.",
+  "A customer can read their own tickets.",
+  "A customer can open a ticket in their own name.",
+  "An agent can read the tickets of their organizations.",
+  "An agent of the ticket's organization can close an open ticket."
  ],
  "reference_spec": "specs/hd_reopen.mls.json",
  "expected_verdicts": {
@@ -21,7 +25,11 @@
   "P5": "PROVED",
   "P6": "PROVED",
   "P7": "PROVED",
-  "P8": "PROVED"
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED",
+  "P11": "PROVED",
+  "P12": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

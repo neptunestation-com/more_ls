@@ -124,6 +124,12 @@ An adapter maps context names to SQL expressions and declares its trust assumpti
 All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered as a scenario.
 
 - **Template properties** (D9), e.g. isolation: `effective_select(r) → member(memberships, uid, r.tenant)`.
+- **must_allow (the lower bound, D40):** `constraints(existing images) ∧ when → admitted`, where
+  `admitted` is the command's net effect — the effective policies and, for a write, the constraints
+  on the written image, the transition rules and the column privileges (the predicate the behaviour
+  diff compares).  For update `when` ranges over `old`/`new`.  A second, *witness* obligation asks
+  that `constraints ∧ when` be satisfiable; its model is reported as an example, and a condition no
+  row meets refutes the property (it would require nothing).
 - **Invariant preservation (induction):** for every compiled transition τ (INSERT/UPDATE/DELETE on
   every table the invariant mentions, including referenced tables):
   `I(state) ∧ guards(τ) → I(τ(state))`. Referenced-table deletes are modeled with two copies of

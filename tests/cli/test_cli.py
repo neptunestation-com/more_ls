@@ -23,7 +23,7 @@ def test_check_errors_json(tmp_path, capsys):
 
 def test_prove_and_compile(tmp_path, capsys):
     assert main(["prove", str(EXAMPLE), "--format", "json", "--out", str(tmp_path / "r.json")]) == 0
-    assert json.loads((tmp_path / "r.json").read_text())["summary"]["PROVED"] == 6
+    assert json.loads((tmp_path / "r.json").read_text())["summary"]["PROVED"] == 10
     assert main(["compile", str(EXAMPLE)]) == 0
     out = capsys.readouterr().out
     assert "create policy \"member_read\"" in out and "force row level security" in out
@@ -60,7 +60,7 @@ def test_org_tree_example(tmp_path, capsys):
     assert main(["check", str(ORG_TREE)]) == 0
     assert main(["prove", str(ORG_TREE), "--format", "json", "--out", str(tmp_path / "r.json")]) == 0
     r = json.loads((tmp_path / "r.json").read_text())
-    assert r["summary"]["PROVED"] == 5 and any("READ COMMITTED" in a for a in r["assumptions"])
+    assert r["summary"]["PROVED"] == 7 and any("READ COMMITTED" in a for a in r["assumptions"])
     assert main(["compile", str(ORG_TREE)]) == 0
     out = capsys.readouterr().out
     assert 'create function "mls_reach_org"' in out and 'create role "mls_internal"' in out

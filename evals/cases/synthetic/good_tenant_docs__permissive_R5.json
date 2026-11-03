@@ -10,7 +10,11 @@
   "Removing a membership never grants anyone access.",
   "Levels stay in range; owners and admins stay members of their tenants.",
   "Whatever a user writes, they can read back.",
-  "The application role has no privilege beyond select/insert/update on docs and reading memberships."
+  "The application role has no privilege beyond select/insert/update on docs and reading memberships.",
+  "A member can read any unarchived document of their tenants within their clearance.",
+  "An admin can read every unarchived document of their tenants.",
+  "A member can create an unarchived document in their tenant within their clearance.",
+  "A member can update an unarchived document of their tenant, keeping its tenant and staying within their clearance."
  ],
  "reference_spec": {
   "$comment": "Tenant-scoped documents with membership-based access, clearance levels, an archived flag, and integrity rules. Mirrors prototype/demo.py and prototype/integrity.py (GOOD corpus).",
@@ -421,6 +425,284 @@
       ]
      }
     }
+   },
+   {
+    "id": "P7",
+    "description": "a member reads the unarchived documents of their tenants within their clearance",
+    "template": "must_allow",
+    "table": "docs",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "level"
+        },
+        "<=",
+        {
+         "ctx": "clearance"
+        }
+       ]
+      },
+      {
+       "and": [
+        {
+         "not": {
+          "is_null": {
+           "col": "archived"
+          }
+         }
+        },
+        {
+         "cmp": [
+          {
+           "col": "archived"
+          },
+          "<>",
+          {
+           "const": 1
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P8",
+    "description": "an admin reads every unarchived document of their tenants",
+    "template": "must_allow",
+    "table": "docs",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "admin_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "and": [
+        {
+         "not": {
+          "is_null": {
+           "col": "archived"
+          }
+         }
+        },
+        {
+         "cmp": [
+          {
+           "col": "archived"
+          },
+          "<>",
+          {
+           "const": 1
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P9",
+    "description": "a member creates an unarchived document in their tenant within their clearance",
+    "template": "must_allow",
+    "table": "docs",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "level"
+        },
+        ">=",
+        {
+         "const": 0
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "col": "level"
+        },
+        "<=",
+        {
+         "const": 3
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "col": "level"
+        },
+        "<=",
+        {
+         "ctx": "clearance"
+        }
+       ]
+      },
+      {
+       "is_null": {
+        "col": "owner_id"
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "archived"
+        },
+        "=",
+        {
+         "const": 0
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P10",
+    "description": "a member updates an unarchived document of their tenant, keeping its tenant and staying within their clearance",
+    "template": "must_allow",
+    "table": "docs",
+    "role": "authenticated",
+    "command": "update",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "old": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "old": "archived"
+        },
+        "=",
+        {
+         "const": 0
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "archived"
+        },
+        "=",
+        {
+         "const": 0
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "tenant_id"
+        },
+        "=",
+        {
+         "old": "tenant_id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "id"
+        },
+        "=",
+        {
+         "old": "id"
+        }
+       ]
+      },
+      {
+       "is_null": {
+        "new": "owner_id"
+       }
+      },
+      {
+       "cmp": [
+        {
+         "new": "level"
+        },
+        ">=",
+        {
+         "const": 0
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "level"
+        },
+        "<=",
+        {
+         "const": 3
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "level"
+        },
+        "<=",
+        {
+         "ctx": "clearance"
+        }
+       ]
+      }
+     ]
+    }
    }
   ]
  },
@@ -430,7 +712,11 @@
   "P3": "PROVED",
   "P4": "PROVED",
   "P5": "PROVED",
-  "P6": "PROVED"
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED"
  },
  "start_rules": [
   {
@@ -680,7 +966,11 @@
   "P3": "PROVED",
   "P4": "PROVED",
   "P5": "PROVED",
-  "P6": "REFUTED"
+  "P6": "REFUTED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

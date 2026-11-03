@@ -6,14 +6,22 @@
   "Employee records are only seen and changed within the user's tenants.",
   "Staff only read employees (never salaries); HR reads and updates.",
   "Salaries are never negative.",
-  "Leaving a tenant never grants access."
+  "Leaving a tenant never grants access.",
+  "Staff can read the employee records of their tenants.",
+  "HR can read the employee records of their tenants.",
+  "HR can set a non-negative salary on an employee of their tenants.",
+  "A user can read their own memberships."
  ],
  "reference_spec": "specs/cr_staff_update.mls.json",
  "expected_verdicts": {
   "P1": "PROVED",
   "P2": "REFUTED",
   "P3": "PROVED",
-  "P4": "PROVED"
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

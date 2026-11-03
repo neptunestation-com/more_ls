@@ -56,7 +56,8 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
 - Removing the seller-immutability transition of the marketplace case does **not** refute
   `column_immutable(seller_id)`: the update policy pins `seller_id` to the user on both row images,
   so the solver proves immutability from the policies alone.  Only a hand-over rule breaks it.
-- Mutation score of the property templates over the seed corpus: 38 % (100 of 260 mutants; 32 % before
+- Mutation score of the property templates over the seed corpus: 75 % (194 of 260 mutants) once every
+  reference carries `must_allow` properties (D40); 38 % with safety templates only (32 % before
   properties were re-based on predicates, which lost the FK and CHECK invariants of dropped rules;
   45 % while a mutant that merely *fixed* a planted leak — a refuted property turning proved — was
   miscounted as detected).  Almost
@@ -117,3 +118,14 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
   rewrite the primary key because the requirement text says nothing about it.  The net diff reports
   exactly that (updates the reference allows, the repaired rules deny).  Left as is: making every
   reference pin its keys would be tuning the corpus to one run's choice.
+- `must_allow` (D40) sees what the safety templates could not: on the help-desk reference with the
+  old bug (restrictive policy without WITH CHECK) "an agent of the ticket's organization closes an
+  open ticket" is refuted with the exact scenario, and dropping any grant of a reference is refuted
+  by the property that states it.  With one `must_allow` per stated grant in every reference the
+  mutation score went from 38 % to 75 %.  The remaining undetected mutants are, almost entirely,
+  mutations without a behaviour change: the per-user membership-read policies of the salaries case
+  are redundant with the implicit relation grant (D21); dropping the student-name check of a
+  submission insert changes nothing because the FK still forces enrolment; dropping the seller
+  immutability transition changes nothing because the update policy pins the seller on both images.
+  The rest are cardinality rule references (not re-based) and grants the author's property sets
+  do not state (own-group reads in the org tree, the admin read of the pg_roles example).

@@ -68,4 +68,4 @@ def test_cardinality_invariant_proved_and_reported():
     assert any("mls_internal" in s for s in a)
     assert any("READ COMMITTED" in s for s in a)
     js = json.loads(dumps_json(spec, results))
-    assert js["summary"]["PROVED"] == 5 and any("READ COMMITTED" in s for s in js["assumptions"])
+    assert js["summary"]["PROVED"] == 7 and any("READ COMMITTED" in s for s in js["assumptions"])

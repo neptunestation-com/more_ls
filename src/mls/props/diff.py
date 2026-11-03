@@ -26,7 +26,9 @@ from mls.compile.column import privileges
 from mls.logic.term import FALSE, Term, and_
 from mls.logic.tvl import Encoder
 from mls.props.effective import effective, row_constraints, transition_constraints
-from mls.props.obligations import Obligation, _relations_of, _rows_for, relation_axioms
+from mls.props.obligations import (
+    Obligation, _relations_of, _rows_for, net_terms as _net_terms, relation_axioms,
+)
 from mls.props.runner import ObligationResult, run_obligation
 from mls.props.scenario import Scenario
 from mls.spec.model import And, InGroup, Lit, Member, Not, OpaqueRef, Or, Pred, Spec, Table
@@ -274,42 +276,6 @@ def integrity_diff(old: Spec, new: Spec, timeout_ms: int = 20000) -> list[Integr
 
 # ----------------------------------------------------------------------------- behaviour (net effect)
 NET_CASES = ("select", "insert", "update", "delete")
-
-
-def _net_terms(spec: Spec, table: str, role: str, cmd: str, enc: Encoder) -> tuple[list[Pred], Term]:
-    """What `role` can do with `cmd` on `table`, all layers together: the policies, and for a
-    write the stored-row constraints on the written image and the transition rules."""
-    if cmd == "select":
-        parts = [(effective(spec, table, role, "select", "using"), "r")]
-    elif cmd == "delete":
-        parts = [(effective(spec, table, role, "delete", "using"), "old")]
-    elif cmd == "insert":
-        parts = [(effective(spec, table, role, "insert", "check"), "new"), (row_constraints(spec, table), "new")]
-    else:
-        parts = [(effective(spec, table, role, "update", "using"), "old"),
-                 (effective(spec, table, role, "update", "check"), "new"),
-                 (row_constraints(spec, table), "new"), (transition_constraints(spec, table), "new"),
-                 (_unwritable_unchanged(spec, table, role), "new")]
-    return [q for q, _ in parts], and_(*[enc.T(q, img, table) for q, img in parts])
-
-
-def _unwritable_unchanged(spec: Spec, table: str, role: str) -> Pred:
-    """Column privileges as a transition predicate: an update by `role` leaves every column it
-    may not write unchanged (NULL-safe), so a column rule and a transition rule that pin the same
-    column are the same behaviour."""
-    from mls.spec.model import Cmp, IsNull, NewRef, OldRef
-    allowed = privileges(spec).get((role, table), {}).get("update")
-    if allowed is None or allowed == "*":
-        return Lit(lit=True)
-    parts: list[Pred] = []
-    for c in spec.tables[table].columns:
-        if c in allowed:
-            continue
-        same = Cmp(cmp=(NewRef(new=c), "=", OldRef(old=c)))
-        if spec.tables[table].columns[c].nullable:
-            same = Or(**{"or": [And(**{"and": [IsNull(is_null=OldRef(old=c)), IsNull(is_null=NewRef(new=c))]}), same]})
-        parts.append(same)
-    return And(**{"and": parts}) if len(parts) > 1 else (parts[0] if parts else Lit(lit=True))
 
 
 def _net_pair(old: Spec, new: Spec, view: Spec, table: str, role: str, cmd: str,

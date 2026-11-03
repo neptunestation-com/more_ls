@@ -58,14 +58,21 @@ the key and value columns of R's table (the membership lookup runs as the user),
 - invariant_preserved: {"invariants": [{"rule": id} | {"table", "predicate"}]}  every admitted change
   keeps the invariants (inductive proof)
 - custom: {"table", "role", "command", "which": old|new, "goal": p}  every row the role can <command>
-  satisfies goal
+  satisfies goal (an upper bound on access)
+- must_allow: {"table", "role", "command", "when": p}  every row where p holds is admitted to the
+  role's <command>, all layers together (a lower bound: catches rules that deny too much).  For
+  update p ranges over {"old": c} / {"new": c} (a bare {"col": c} is the new image); state the whole
+  change, e.g. the status goes from open to closed and the other columns stay the same.  A p that
+  no row can meet refutes the property.
 """.strip()
 
 ROLE_PROPERTIES = """You write the PROPERTIES a database access-control rule set must satisfy, from business
 requirements.  Properties are what a human reviewer approves; they must restate the requirements as
 checkable statements (who may never see what, what never changes, what the data must always
-satisfy), be independent of how the rules will be written, and cover every requirement.  Prefer
-template properties; use custom for anything else.  Do not write rules.  A property's predicate
+satisfy, and what must be possible), be independent of how the rules will be written, and cover
+every requirement in both directions: an upper bound for every restriction (tenant_isolation,
+custom, ...) and a must_allow for every grant the requirements state, so that rules that deny too
+much are caught too.  Prefer template properties; use custom for anything else.  Do not write rules.  A property's predicate
 must be TRUE to hold, so guard nullable columns: an optional owner that must be a member is
 {"or": [{"is_null": {"col": "owner_id"}}, {"member": ...}]}, not the bare membership.  Write the plain-English
 "description" of each property so a product owner can verify it against the requirements.  Put any

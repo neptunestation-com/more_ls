@@ -60,9 +60,11 @@ Acceptance:
 Implemented (D37–D39, `docs/LLM.md`) and measured live: 30/30 seed generation cases correct
 after the first run's findings were fixed in the corpus (`docs/LLM.md`, FINDINGS).  Open: replace
 the author's seed cases with David's anonymized corpus (the measured number is bounded by the
-quality of the author's requirement texts); a liveness property template so that dropped grants
-are caught by the mutation score (the repair benchmark over all 100 synthetic cases: 99/100, see
-`docs/LLM.md`).  Nice to have: a terse human-readable rendering of the JSON syntax
+quality of the author's requirement texts); re-measure the live loop with the properties prompt
+that asks for `must_allow` (D40 came after the measured runs; only a sanity sample has run since).
+Done since the measurement: `must_allow`, the lower-bound template (D40), in every reference —
+mutation score 38 % → 75 %, 194 synthetic repair benchmarks (the 100 that existed before: 99/100,
+see `docs/LLM.md`).  Nice to have: a terse human-readable rendering of the JSON syntax
 (`mls explain` renders English; this would be a concrete syntax for predicates and rules, for
 reading transcripts and diffs — not a new input format, D15 stands).
 

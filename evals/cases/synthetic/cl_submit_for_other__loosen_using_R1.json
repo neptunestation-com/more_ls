@@ -10,7 +10,14 @@
   "A submission is visible only to its student and the course's teachers.",
   "Dropping a course never grants access.",
   "Every submitter is enrolled in the course.",
-  "The application role may only select/insert/update assignments, select/insert submissions, and select enrollments and teaching."
+  "The application role may only select/insert/update assignments, select/insert submissions, and select enrollments and teaching.",
+  "A teacher can read the assignments of their courses.",
+  "An enrolled student can read the published assignments of their courses.",
+  "A teacher can create an assignment in their course.",
+  "A teacher can publish an assignment of their course.",
+  "An enrolled student can submit work in their own name.",
+  "A student can read their own submissions.",
+  "A teacher can read every submission of their courses."
  ],
  "reference_spec": {
   "$comment": "classroom where a student may submit under another name",
@@ -480,6 +487,206 @@
       ]
      }
     }
+   },
+   {
+    "id": "P7",
+    "description": "a teacher reads the assignments of their courses",
+    "template": "must_allow",
+    "table": "assignments",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "teaches",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "course_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P8",
+    "description": "an enrolled student reads the published assignments of their courses",
+    "template": "must_allow",
+    "table": "assignments",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "enrolled",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "course_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "published"
+        },
+        "=",
+        {
+         "const": true
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P9",
+    "description": "a teacher creates an assignment in their course",
+    "template": "must_allow",
+    "table": "assignments",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "member": {
+      "relation": "teaches",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "course_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P10",
+    "description": "a teacher publishes an assignment of their course",
+    "template": "must_allow",
+    "table": "assignments",
+    "role": "authenticated",
+    "command": "update",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "teaches",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "old": "course_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "new": "id"
+        },
+        "=",
+        {
+         "old": "id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "course_id"
+        },
+        "=",
+        {
+         "old": "course_id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "published"
+        },
+        "=",
+        {
+         "const": true
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P11",
+    "description": "an enrolled student submits work in their own name",
+    "template": "must_allow",
+    "table": "submissions",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "cmp": [
+        {
+         "col": "student_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      },
+      {
+       "member": {
+        "relation": "enrolled",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "course_id"
+        }
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "P12",
+    "description": "a student reads their own submissions",
+    "template": "must_allow",
+    "table": "submissions",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "cmp": [
+      {
+       "col": "student_id"
+      },
+      "=",
+      {
+       "ctx": "uid"
+      }
+     ]
+    }
+   },
+   {
+    "id": "P13",
+    "description": "a teacher reads every submission of their courses",
+    "template": "must_allow",
+    "table": "submissions",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "teaches",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "course_id"
+      }
+     }
+    }
    }
   ]
  },
@@ -489,7 +696,14 @@
   "P3": "PROVED",
   "P4": "PROVED",
   "P5": "PROVED",
-  "P6": "PROVED"
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED",
+  "P11": "PROVED",
+  "P12": "PROVED",
+  "P13": "PROVED"
  },
  "start_rules": [
   {
@@ -669,7 +883,14 @@
   "P3": "PROVED",
   "P4": "PROVED",
   "P5": "PROVED",
-  "P6": "PROVED"
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED",
+  "P11": "PROVED",
+  "P12": "PROVED",
+  "P13": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

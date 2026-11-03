@@ -224,6 +224,59 @@
      "rule": "R3"
     }
    ]
+  },
+  {
+   "id": "P6",
+   "template": "must_allow",
+   "description": "a member records an event for their tenant in their own name",
+   "table": "events",
+   "role": "authenticated",
+   "command": "insert",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "col": "actor_id"
+       },
+       "=",
+       {
+        "ctx": "uid"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "P7",
+   "template": "must_allow",
+   "description": "an admin reads the events of their tenants",
+   "table": "events",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "admin_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
   }
  ]
 }

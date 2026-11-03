@@ -19,9 +19,9 @@ from mls.props.effective import (
     effective, inclusion_pred, members_in, relations_of, row_constraints, transition_constraints,
 )
 from mls.spec.model import (
-    And, CardinalityRule, CheckRule, ColRef, ColumnImmutable, Custom, InclusionRule,
-    InvariantPreserved, LeastPrivilege, Lit, Member, MemberBody, MonotoneIn, Not, Or, Pred, Property,
-    Spec, TenantIsolation, WriteSubsetRead,
+    And, CardinalityRule, CheckRule, Cmp, ColRef, ColumnImmutable, Custom, InclusionRule,
+    InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MemberBody, MonotoneIn, MustAllow, NewRef,
+    Not, OldRef, Or, Pred, Property, Spec, TenantIsolation, WriteSubsetRead,
 )
 from mls.logic.term import IntVal, add
 
@@ -44,6 +44,8 @@ class Obligation:
     propositional: bool = False
     verdict: str | None = None
     message: str = ""
+    # a witness obligation holds when its assumptions are *satisfiable*; the model is an example
+    witness: bool = False
 
     def opaque_deps(self) -> set[str]:
         out: set[str] = set()
@@ -99,6 +101,43 @@ def update_assumptions(enc: Encoder, spec: Spec, table: str, role: str) -> list[
 def delete_assumptions(enc: Encoder, spec: Spec, table: str, role: str, row: str = "old") -> list[Term]:
     return [*relation_axioms(spec, enc), _T(enc, row_constraints(spec, table), row, table),
             _T(enc, effective(spec, table, role, "delete", "using"), row, table)]
+
+
+def unwritable_unchanged(spec: Spec, table: str, role: str) -> Pred:
+    """Column privileges as a transition predicate: an update by `role` leaves every column it
+    may not write unchanged (NULL-safe), so a column rule and a transition rule that pin the same
+    column are the same behaviour."""
+    allowed = privileges(spec).get((role, table), {}).get("update")
+    if allowed is None or allowed == "*":
+        return Lit(lit=True)
+    parts: list[Pred] = []
+    for c in spec.tables[table].columns:
+        if c in allowed:
+            continue
+        same: Pred = Cmp(cmp=(NewRef(new=c), "=", OldRef(old=c)))
+        if spec.tables[table].columns[c].nullable:
+            same = Or.model_construct(or_=[
+                And.model_construct(and_=[IsNull(is_null=OldRef(old=c)), IsNull(is_null=NewRef(new=c))]), same])
+        parts.append(same)
+    return And.model_construct(and_=parts) if len(parts) > 1 else (parts[0] if parts else Lit(lit=True))
+
+
+def net_terms(spec: Spec, table: str, role: str, cmd: str, enc: Encoder) -> tuple[list[Pred], Term]:
+    """What `role` can do with `cmd` on `table`, all layers together: the policies, and for a
+    write the stored-row constraints on the written image, the transition rules and the column
+    privileges.  The one meaning of "admitted" shared by the behaviour diff and must_allow."""
+    if cmd == "select":
+        parts = [(effective(spec, table, role, "select", "using"), "r")]
+    elif cmd == "delete":
+        parts = [(effective(spec, table, role, "delete", "using"), "old")]
+    elif cmd == "insert":
+        parts = [(effective(spec, table, role, "insert", "check"), "new"), (row_constraints(spec, table), "new")]
+    else:
+        parts = [(effective(spec, table, role, "update", "using"), "old"),
+                 (effective(spec, table, role, "update", "check"), "new"),
+                 (row_constraints(spec, table), "new"), (transition_constraints(spec, table), "new"),
+                 (unwritable_unchanged(spec, table, role), "new")]
+    return [q for q, _ in parts], and_(*[enc.T(q, img, table) for q, img in parts])
 
 
 def _rows_for(cmd: str, table: str) -> dict[str, str]:
@@ -248,6 +287,26 @@ def custom(spec: Spec, p: Custom) -> list[Obligation]:
                        assumptions, goal, _rows_for(p.command, p.table),
                        _all_relations(spec, p.table, p.role, p.command) + _relations_of(spec, p.goal),
                        [enc]).finish()]
+
+
+def must_allow(spec: Spec, p: MustAllow) -> list[Obligation]:
+    """Lower bound: constraints(existing images) ∧ when → admitted, where admitted is the net
+    effect of the command (net_terms).  Plus a witness obligation: the assumptions are satisfiable
+    (a condition no row meets would make the property vacuous)."""
+    enc = Encoder(spec)
+    preds, admitted = net_terms(spec, p.table, p.role, p.command, enc)
+    rows = _rows_for(p.command, p.table)
+    assumptions: list[Term] = [*relation_axioms(spec, enc)]
+    for row in rows:
+        if row != "new":  # existing rows are stored, so they satisfy the constraints; the written image must be proved
+            assumptions.append(_T(enc, row_constraints(spec, p.table), row, p.table))
+    assumptions.append(_T(enc, p.when, _image(p.command, "new"), p.table))
+    rels = _all_relations(spec, p.table, p.role, p.command) + _relations_of(spec, p.when)
+    witness = Obligation(p.id, f"{p.command} as {p.role}: some row meets the condition",
+                         list(assumptions), FALSE, dict(rows), rels, [enc], witness=True).finish()
+    main = Obligation(p.id, f"{p.command} as {p.role}: every row meeting the condition is admitted",
+                      assumptions, admitted, dict(rows), rels, [enc]).finish()
+    return [witness, main]
 
 
 # ----------------------------------------------------------------------------- induction
@@ -468,4 +527,6 @@ def obligations_for(spec: Spec, prop: Property) -> list[Obligation]:
         return invariant_preserved(spec, prop)
     if isinstance(prop, Custom):
         return custom(spec, prop)
+    if isinstance(prop, MustAllow):
+        return must_allow(spec, prop)
     raise TypeError(prop)

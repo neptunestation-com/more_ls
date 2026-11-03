@@ -353,6 +353,206 @@
           ]
         }
       }
+    },
+    {
+      "id": "P7",
+      "template": "must_allow",
+      "description": "a member reads the unarchived documents of their tenants",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "select",
+      "when": {
+        "and": [
+          {
+            "member": {
+              "relation": "member_of",
+              "key": {
+                "ctx": "uid"
+              },
+              "value": {
+                "col": "tenant_id"
+              }
+            }
+          },
+          {
+            "and": [
+              {
+                "not": {
+                  "is_null": {
+                    "col": "archived"
+                  }
+                }
+              },
+              {
+                "cmp": [
+                  {
+                    "col": "archived"
+                  },
+                  "<>",
+                  {
+                    "const": 1
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "P8",
+      "template": "must_allow",
+      "description": "a member creates an unarchived document in their tenant",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "insert",
+      "when": {
+        "and": [
+          {
+            "member": {
+              "relation": "member_of",
+              "key": {
+                "ctx": "uid"
+              },
+              "value": {
+                "col": "tenant_id"
+              }
+            }
+          },
+          {
+            "cmp": [
+              {
+                "col": "level"
+              },
+              ">=",
+              {
+                "const": 0
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "col": "level"
+              },
+              "<=",
+              {
+                "const": 3
+              }
+            ]
+          },
+          {
+            "is_null": {
+              "col": "owner_id"
+            }
+          },
+          {
+            "cmp": [
+              {
+                "col": "archived"
+              },
+              "=",
+              {
+                "const": 0
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "P9",
+      "template": "must_allow",
+      "description": "a member updates an unarchived document of their tenant, keeping its tenant",
+      "table": "docs",
+      "role": "authenticated",
+      "command": "update",
+      "when": {
+        "and": [
+          {
+            "member": {
+              "relation": "member_of",
+              "key": {
+                "ctx": "uid"
+              },
+              "value": {
+                "old": "tenant_id"
+              }
+            }
+          },
+          {
+            "cmp": [
+              {
+                "old": "archived"
+              },
+              "=",
+              {
+                "const": 0
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "new": "archived"
+              },
+              "=",
+              {
+                "const": 0
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "new": "tenant_id"
+              },
+              "=",
+              {
+                "old": "tenant_id"
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "new": "id"
+              },
+              "=",
+              {
+                "old": "id"
+              }
+            ]
+          },
+          {
+            "is_null": {
+              "new": "owner_id"
+            }
+          },
+          {
+            "cmp": [
+              {
+                "new": "level"
+              },
+              ">=",
+              {
+                "const": 0
+              }
+            ]
+          },
+          {
+            "cmp": [
+              {
+                "new": "level"
+              },
+              "<=",
+              {
+                "const": 3
+              }
+            ]
+          }
+        ]
+      }
     }
   ]
 }

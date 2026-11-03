@@ -7,7 +7,10 @@
   "A deleted note is never visible.",
   "A deleted note is never modified.",
   "Leaving a tenant never grants access.",
-  "There is no hard delete."
+  "There is no hard delete.",
+  "A member can read the live notes of their tenants.",
+  "A member can create a live note in their tenant.",
+  "A member can soft-delete a live note of their tenant."
  ],
  "reference_spec": "specs/sd_good.mls.json",
  "expected_verdicts": {
@@ -15,7 +18,10 @@
   "P2": "PROVED",
   "P3": "PROVED",
   "P4": "PROVED",
-  "P5": "PROVED"
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

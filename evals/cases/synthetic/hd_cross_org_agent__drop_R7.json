@@ -12,7 +12,11 @@
   "An agent never moves a ticket to another organization.",
   "Removing an agent from an organization never grants access.",
   "Whatever is written can be read back.",
-  "The application role may only select/insert/update tickets and select agents."
+  "The application role may only select/insert/update tickets and select agents.",
+  "A customer can read their own tickets.",
+  "A customer can open a ticket in their own name.",
+  "An agent can read the tickets of their organizations.",
+  "An agent of the ticket's organization can close an open ticket."
  ],
  "reference_spec": {
   "$comment": "help desk where agent updates are not checked on the new row",
@@ -413,6 +417,185 @@
       ]
      }
     }
+   },
+   {
+    "id": "P9",
+    "description": "a customer reads their own tickets",
+    "template": "must_allow",
+    "table": "tickets",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "cmp": [
+      {
+       "col": "customer_id"
+      },
+      "=",
+      {
+       "ctx": "uid"
+      }
+     ]
+    }
+   },
+   {
+    "id": "P10",
+    "description": "a customer opens a ticket in their own name",
+    "template": "must_allow",
+    "table": "tickets",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "cmp": [
+        {
+         "col": "customer_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "col": "status"
+        },
+        "=",
+        {
+         "const": "open"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   {
+    "id": "P11",
+    "description": "an agent reads the tickets of their organizations",
+    "template": "must_allow",
+    "table": "tickets",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "agent_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "org_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P12",
+    "description": "an agent of the ticket's organization closes an open ticket",
+    "template": "must_allow",
+    "table": "tickets",
+    "role": "authenticated",
+    "command": "update",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "agent_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "old": "org_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "old": "status"
+        },
+        "=",
+        {
+         "const": "open"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "status"
+        },
+        "=",
+        {
+         "const": "closed"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "id"
+        },
+        "=",
+        {
+         "old": "id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "org_id"
+        },
+        "=",
+        {
+         "old": "org_id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "customer_id"
+        },
+        "=",
+        {
+         "old": "customer_id"
+        }
+       ]
+      },
+      {
+       "or": [
+        {
+         "and": [
+          {
+           "is_null": {
+            "old": "assignee_id"
+           }
+          },
+          {
+           "is_null": {
+            "new": "assignee_id"
+           }
+          }
+         ]
+        },
+        {
+         "cmp": [
+          {
+           "new": "assignee_id"
+          },
+          "=",
+          {
+           "old": "assignee_id"
+          }
+         ]
+        }
+       ]
+      }
+     ]
+    }
    }
   ]
  },
@@ -424,7 +607,11 @@
   "P5": "REFUTED",
   "P6": "PROVED",
   "P7": "REFUTED",
-  "P8": "PROVED"
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED",
+  "P11": "PROVED",
+  "P12": "PROVED"
  },
  "start_rules": [
   {
@@ -594,7 +781,11 @@
   "P5": "REFUTED",
   "P6": "PROVED",
   "P7": "REFUTED",
-  "P8": "PROVED"
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED",
+  "P11": "PROVED",
+  "P12": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

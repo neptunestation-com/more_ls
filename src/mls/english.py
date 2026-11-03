@@ -10,7 +10,7 @@ from typing import Any
 
 from mls.spec.model import (
     CONTEXT_NOW, And, CardinalityRule, CheckRule, ColRef, ColumnImmutable, ColumnRule, Cmp, Const, CtxRef, Custom,
-    InclusionRule, InGroup, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MonotoneIn, NewRef, Not,
+    InclusionRule, InGroup, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
     NowBetween, OldRef, OpaqueRef, Or, PolicyRule, Pred, Property, Rule, Spec, TenantIsolation,
     TransitionRule, WriteSubsetRead,
 )
@@ -151,6 +151,11 @@ def prop(spec: Spec, p: Property) -> str:
         img = "the new row" if p.command in ("insert", "update") and p.which == "new" else "the row"
         return (f"Whenever {p.role} can {VERB[p.command]} a row of {p.table}, "
                 f"{pred(spec, p.goal, img)}.")
+    if isinstance(p, MustAllow):
+        if p.command == "update":
+            return f"{p.role} can change a row of {p.table} whenever {pred(spec, p.when, 'the new row')}."
+        img = "the new row" if p.command == "insert" else "the row"
+        return f"{p.role} can {VERB[p.command]} every row of {p.table} where {pred(spec, p.when, img)}."
     raise TypeError(p)
 
 

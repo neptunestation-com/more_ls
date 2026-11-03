@@ -9,7 +9,13 @@
   "An order is visible only to its buyer.",
   "Only the seller changes a listing.",
   "Whatever is written can be read back.",
-  "The application role may only select/insert/update listings and select/insert orders."
+  "The application role may only select/insert/update listings and select/insert orders.",
+  "Every signed-in user can read active listings.",
+  "A seller can read their own listings.",
+  "A seller can create a listing with a non-negative price.",
+  "A seller can reprice their listing.",
+  "A buyer can place an order in their own name.",
+  "A buyer can read their own orders."
  ],
  "reference_spec": "specs/mk_price_unchecked.mls.json",
  "expected_verdicts": {
@@ -19,7 +25,13 @@
   "P4": "PROVED",
   "P5": "PROVED",
   "P6": "PROVED",
-  "P7": "PROVED"
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED",
+  "P11": "PROVED",
+  "P12": "PROVED",
+  "P13": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

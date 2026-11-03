@@ -9,7 +9,10 @@
   "A deleted note is never visible.",
   "A deleted note is never modified.",
   "Leaving a tenant never grants access.",
-  "There is no hard delete."
+  "There is no hard delete.",
+  "A member can read the live notes of their tenants.",
+  "A member can create a live note in their tenant.",
+  "A member can soft-delete a live note of their tenant."
  ],
  "reference_spec": {
   "$comment": "soft deletion",
@@ -289,6 +292,130 @@
       ]
      }
     }
+   },
+   {
+    "id": "P6",
+    "description": "a member reads the live notes of their tenants",
+    "template": "must_allow",
+    "table": "notes",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "is_null": {
+        "col": "deleted_at"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "P7",
+    "description": "a member creates a live note in their tenant",
+    "template": "must_allow",
+    "table": "notes",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "is_null": {
+        "col": "deleted_at"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "P8",
+    "description": "a member soft-deletes a live note of their tenant",
+    "template": "must_allow",
+    "table": "notes",
+    "role": "authenticated",
+    "command": "update",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "old": "tenant_id"
+        }
+       }
+      },
+      {
+       "is_null": {
+        "old": "deleted_at"
+       }
+      },
+      {
+       "not": {
+        "is_null": {
+         "new": "deleted_at"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "new": "id"
+        },
+        "=",
+        {
+         "old": "id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "tenant_id"
+        },
+        "=",
+        {
+         "old": "tenant_id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "body"
+        },
+        "=",
+        {
+         "old": "body"
+        }
+       ]
+      }
+     ]
+    }
    }
   ]
  },
@@ -297,7 +424,10 @@
   "P2": "PROVED",
   "P3": "PROVED",
   "P4": "PROVED",
-  "P5": "PROVED"
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
  },
  "start_rules": [
   {
@@ -439,7 +569,10 @@
   "P2": "PROVED",
   "P3": "REFUTED",
   "P4": "PROVED",
-  "P5": "PROVED"
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

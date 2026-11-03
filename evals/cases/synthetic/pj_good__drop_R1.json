@@ -10,7 +10,10 @@
   "Leaving a project never grants access.",
   "An assignee is always a member of the task's project.",
   "Whatever is written can be read back.",
-  "The application role may only select/insert/update tasks and select project_members."
+  "The application role may only select/insert/update tasks and select project_members.",
+  "A member can read the tasks of their projects.",
+  "A member can add an unassigned task to their project.",
+  "An assignee can mark their task done."
  ],
  "reference_spec": {
   "$comment": "projects, members, assignees",
@@ -274,6 +277,131 @@
       ]
      }
     }
+   },
+   {
+    "id": "P7",
+    "description": "a member reads the tasks of their projects",
+    "template": "must_allow",
+    "table": "tasks",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "project_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P8",
+    "description": "a member adds an unassigned task to their project",
+    "template": "must_allow",
+    "table": "tasks",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "project_id"
+        }
+       }
+      },
+      {
+       "is_null": {
+        "col": "assignee_id"
+       }
+      }
+     ]
+    }
+   },
+   {
+    "id": "P9",
+    "description": "an assignee marks their task done",
+    "template": "must_allow",
+    "table": "tasks",
+    "role": "authenticated",
+    "command": "update",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "old": "project_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "old": "assignee_id"
+        },
+        "=",
+        {
+         "ctx": "uid"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "assignee_id"
+        },
+        "=",
+        {
+         "old": "assignee_id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "id"
+        },
+        "=",
+        {
+         "old": "id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "project_id"
+        },
+        "=",
+        {
+         "old": "project_id"
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "done"
+        },
+        "=",
+        {
+         "const": true
+        }
+       ]
+      }
+     ]
+    }
    }
   ]
  },
@@ -283,7 +411,10 @@
   "P3": "PROVED",
   "P4": "PROVED",
   "P5": "PROVED",
-  "P6": "PROVED"
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED"
  },
  "start_rules": [
   {
@@ -374,7 +505,10 @@
   "P3": "PROVED",
   "P4": "PROVED",
   "P5": "REFUTED",
-  "P6": "PROVED"
+  "P6": "PROVED",
+  "P7": "REFUTED",
+  "P8": "PROVED",
+  "P9": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

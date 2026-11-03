@@ -7,7 +7,10 @@
   "The log is append-only: no update or delete on events.",
   "Losing a membership never grants access.",
   "An event is recorded in the actor's own name.",
-  "Admins are members."
+  "Admins are members.",
+  "A member can record an event for their tenant in their own name.",
+  "An admin can read the events of their tenants.",
+  "An admin can correct the kind of an event of their tenant."
  ],
  "reference_spec": "specs/au_update_allowed.mls.json",
  "expected_verdicts": {
@@ -15,7 +18,10 @@
   "P2": "REFUTED",
   "P3": "PROVED",
   "P4": "PROVED",
-  "P5": "PROVED"
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

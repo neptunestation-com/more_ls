@@ -354,9 +354,22 @@ class Custom(PropBase):
     goal: Pred
 
 
+class MustAllow(PropBase):
+    """The lower bound (liveness, D40): every row that satisfies `when` and the stored-row
+    constraints is admitted to `role`'s `command` on `table`, all layers together (policies, and
+    for a write the constraints on the written image, the transition rules and the column
+    privileges).  For update `when` ranges over {"old": c} / {"new": c}; a bare {"col": c} is the
+    new image.  A `when` no row can satisfy refutes the property (it would require nothing)."""
+    template: Literal["must_allow"]
+    table: str
+    role: str
+    command: Literal["select", "insert", "update", "delete"]
+    when: Pred
+
+
 Property = Annotated[
     Union[TenantIsolation, ColumnImmutable, MonotoneIn, WriteSubsetRead, LeastPrivilege,
-          InvariantPreserved, Custom],
+          InvariantPreserved, Custom, MustAllow],
     Field(discriminator="template"),
 ]
 

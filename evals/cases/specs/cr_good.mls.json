@@ -283,6 +283,141 @@
    "template": "monotone_in",
    "description": "leaving a tenant never grants access",
    "relation": "member_of"
+  },
+  {
+   "id": "P5",
+   "template": "must_allow",
+   "description": "staff read the employee records of their tenants",
+   "table": "employees",
+   "role": "staff",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P6",
+   "template": "must_allow",
+   "description": "HR read the employee records of their tenants",
+   "table": "employees",
+   "role": "hr",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P7",
+   "template": "must_allow",
+   "description": "HR set a non-negative salary on an employee of their tenants",
+   "table": "employees",
+   "role": "hr",
+   "command": "update",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "old": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "new": "id"
+       },
+       "=",
+       {
+        "old": "id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "tenant_id"
+       },
+       "=",
+       {
+        "old": "tenant_id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "user_id"
+       },
+       "=",
+       {
+        "old": "user_id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "title"
+       },
+       "=",
+       {
+        "old": "title"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "salary"
+       },
+       ">=",
+       {
+        "const": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "P8",
+   "template": "must_allow",
+   "description": "a user reads their own memberships",
+   "table": "memberships",
+   "role": "staff",
+   "command": "select",
+   "when": {
+    "cmp": [
+     {
+      "col": "user_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
   }
  ]
 }

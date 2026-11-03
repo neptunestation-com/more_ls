@@ -8,7 +8,14 @@
   "A submission is visible only to its student and the course's teachers.",
   "Dropping a course never grants access.",
   "Every submitter is enrolled in the course.",
-  "The application role may only select/insert/update assignments, select/insert submissions, and select enrollments and teaching."
+  "The application role may only select/insert/update assignments, select/insert submissions, and select enrollments and teaching.",
+  "A teacher can read the assignments of their courses.",
+  "An enrolled student can read the published assignments of their courses.",
+  "A teacher can create an assignment in their course.",
+  "A teacher can publish an assignment of their course.",
+  "An enrolled student can submit work in their own name.",
+  "A student can read their own submissions.",
+  "A teacher can read every submission of their courses."
  ],
  "reference_spec": "specs/cl_submit_for_other.mls.json",
  "expected_verdicts": {
@@ -17,7 +24,14 @@
   "P3": "PROVED",
   "P4": "PROVED",
   "P5": "PROVED",
-  "P6": "PROVED"
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED",
+  "P11": "PROVED",
+  "P12": "PROVED",
+  "P13": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

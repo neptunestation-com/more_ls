@@ -8,7 +8,10 @@
   "Leaving a project never grants access.",
   "An assignee is always a member of the task's project.",
   "Whatever is written can be read back.",
-  "The application role may only select/insert/update tasks and select project_members."
+  "The application role may only select/insert/update tasks and select project_members.",
+  "A member can read the tasks of their projects.",
+  "A member can add an unassigned task to their project.",
+  "An assignee can mark their task done."
  ],
  "reference_spec": "specs/pj_good.mls.json",
  "expected_verdicts": {
@@ -17,7 +20,10 @@
   "P3": "PROVED",
   "P4": "PROVED",
   "P5": "PROVED",
-  "P6": "PROVED"
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

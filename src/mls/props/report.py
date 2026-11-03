@@ -99,6 +99,9 @@ def to_markdown(spec: Spec, results: list[PropertyResult]) -> str:
             if o.scenario:
                 lines.append("  counterexample:")
                 lines += ["  " + ln for ln in o.scenario.to_markdown().splitlines()]
+            if o.example:
+                lines.append("  example:")
+                lines += ["  " + ln for ln in o.example.to_markdown().splitlines()]
         lines.append("")
     return "\n".join(lines)
 

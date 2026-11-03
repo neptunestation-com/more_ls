@@ -51,7 +51,8 @@ policies. (Drift detection still reports foreign objects on MLS-owned tables.)
 
 **D9. Properties: template library + custom.** Templates: tenant isolation, monotonicity in
 membership, write ⊆ read, column immutability, least privilege (no role sees more than declared),
-invariant preservation (inductive). Custom properties use the MLS predicate language.
+invariant preservation (inductive). Custom properties use the MLS predicate language.  (D40 adds
+`must_allow`, the lower bound; everything else here is an upper bound.)
 
 **D10. Humans approve properties + scenarios.** The approval artifact is the plain-English property
 list plus generated scenarios: allowed and denied examples, every counterexample, every access-diff
@@ -274,10 +275,31 @@ invariant a property names is detected rather than silently removed from the pro
 case is a repair benchmark: it keeps its base case's requirements, reference and verdicts, carries
 the mutant rules as `start_rules`, and `mls eval --llm --repair` starts the loop from them; the
 loop must end `proved` and net-equivalent to the base reference.  Without `--repair` synthetic
-cases are skipped (they would repeat their base case).  Current corpus: 38 % (100/260) — the
-templates are safety properties (upper bounds on access), so removing a grant is rarely caught; a
-liveness template ("some member can read") is future work.  Measured live over all 100 cases:
-99 proved and net-equivalent after 1.02 repair rounds on average, none escalated (LLM.md).
+cases are skipped (they would repeat their base case).  Current corpus: 75 % (194/260) with
+`must_allow` properties in every reference (D40); 38 % before them, when the templates were all
+safety properties (upper bounds on access) and removing a grant was rarely caught.  Measured live
+over the 100 cases that existed before D40: 99 proved and net-equivalent after 1.02 repair rounds
+on average, none escalated (LLM.md).
+
+**D40. `must_allow`: the lower bound on access (liveness).** Every other template is a safety
+property, an upper bound on what a role can do, so a rule set that denies too much proves
+everything: a dropped grant, or the help-desk reference whose restrictive "closed tickets are
+frozen" policy lacked WITH CHECK and so made closing a ticket impossible (found only by diffing
+against the model's output).  `must_allow {table, role, command, when}` states that every row —
+for update, every pair of images — that satisfies `when` and the stored-row constraints is admitted
+to the command, all layers together: the net-effect predicate the behaviour diff compares (D38), so
+a policy, a transition rule and a column rule that forbid the same change refute it the same way.
+It is universal, hence decidable in the same fragment as `custom` (same encoding, implication
+reversed).  The existential part — that `when` is satisfiable — is a witness obligation whose model
+is reported as an example (the "allowed" scenarios D10 asks for come from here); a condition no row
+can meet refutes the property, because a liveness property that requires nothing is a mistake
+(usually a NULL-unsafe condition).  `when` on update ranges over `old`/`new`, a bare column is the
+new image, and the author states the whole change (what changes, what stays).  The properties
+prompt asks for one `must_allow` per grant the requirements state.  Mutation score of the seed
+corpus: 38 % → 75 % (194/260).  What stays undetected is now mostly a mutation that does not change
+behaviour (a rule redundant with another policy, with the implicit relation grant of D21 or with an
+FK), a cardinality rule reference (not re-based by `portable`), or a grant the author's property
+set does not state.
 
 **D33. English rendering is a fixed function of the spec (D10, D15).** `mls explain` and the diff
 and proof reports use `mls/english.py`; the same construct always reads the same way, so a
