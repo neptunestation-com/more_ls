@@ -69,6 +69,23 @@ theorem or_assoc (a b c : TV) : TV.or (TV.or a b) c = TV.or a (TV.or b c) := by
 theorem not_not (a : TV) : TV.not (TV.not a) = a := by
   cases a <;> rfl
 
+/-- TRUE is the unit of AND, FALSE the unit of OR. -/
+theorem tt_and (a : TV) : TV.and tt a = a := by
+  cases a <;> rfl
+
+theorem and_tt (a : TV) : TV.and a tt = a := by
+  cases a <;> rfl
+
+theorem ff_or (a : TV) : TV.or ff a = a := by
+  cases a <;> rfl
+
+theorem or_ff (a : TV) : TV.or a ff = a := by
+  cases a <;> rfl
+
+theorem andList_cons (v : TV) (vs : List TV) : andList (v :: vs) = TV.and v (andList vs) := rfl
+
+theorem orList_cons (v : TV) (vs : List TV) : orList (v :: vs) = TV.or v (orList vs) := rfl
+
 /-- De Morgan holds in three-valued logic. -/
 theorem not_and (a b : TV) : TV.not (TV.and a b) = TV.or (TV.not a) (TV.not b) := by
   cases a <;> cases b <;> rfl
@@ -103,6 +120,15 @@ theorem isTrue_and (a b : TV) : isTrue (TV.and a b) = (isTrue a && isTrue b) := 
 
 theorem isTrue_or (a b : TV) : isTrue (TV.or a b) = (isTrue a || isTrue b) := by
   cases a <;> cases b <;> rfl
+
+/-- A conjunction is admitted iff every conjunct is; a disjunction iff some disjunct is. -/
+theorem isTrue_andList : ∀ vs : List TV, isTrue (andList vs) = vs.all isTrue
+  | [] => rfl
+  | v :: vs => by rw [andList_cons, isTrue_and, isTrue_andList vs, List.all_cons]
+
+theorem isTrue_orList : ∀ vs : List TV, isTrue (orList vs) = vs.any isTrue
+  | [] => rfl
+  | v :: vs => by rw [orList_cons, isTrue_or, isTrue_orList vs, List.any_cons]
 
 /-- `NOT p` is admitted iff `p` is FALSE, not iff `p` is not admitted. -/
 theorem isTrue_not (a : TV) : isTrue (TV.not a) = isFalse a := by

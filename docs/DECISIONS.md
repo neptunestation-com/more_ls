@@ -311,7 +311,12 @@ flag of a non-nullable column, `(ok ∧ core, ok ∧ ¬core)` for comparisons, t
 meaning of SEMANTICS §1–2 (`Pred.eval`) under exactly the assumptions the toolchain makes: the
 schema (a non-nullable column holds no NULL) and the opaque side condition (`¬(T ∧ F)`).  That
 theorem is the universal form of `tests/logic/test_tvl.py`, which samples the same statement
-against the concrete evaluator.  The Lean and the Python are two artifacts with no mechanical link;
+against the concrete evaluator.  `lean/MLS/Policy.lean` does the same for `props/effective.py`
+(policy combination), for the statement outcomes of `pg/model.py` and for the assumption
+builders of `props/obligations.py`: the outcome model is transcribed, and the theorems say that
+every executed statement satisfies the proof assumptions and that, without column reads,
+"executed" is "admitted by the net-effect predicate" (D38).  The Lean and the Python are two
+artifacts with no mechanical link;
 a change to the encoder is carried to the transcription by hand, or the gap is recorded in the
 ROADMAP.  What the track cannot do: say anything about Postgres itself — the "small model of
 Postgres" of the later steps is our own axiomatization, and the differential tests remain the only

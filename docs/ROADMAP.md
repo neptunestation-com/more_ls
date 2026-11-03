@@ -78,12 +78,31 @@ encoding with `encode`/`decode`, soundness of the pair connectives and of the n-
 `Pred.tf_sound`: the encoder of `logic/tvl.py`, transcribed clause for clause, emits the encoding
 of the SQL truth value of every predicate in the verified fragment except `in_group`, under the two
 assumptions the toolchain makes (non-nullable columns hold no NULL; opaque pairs are consistent).
-Also `two_valued_shortcut_wrong`: `NOT` does not commute with admission.  Remaining steps, in
-order: (2) policy combination and the admission rule per command (USING / WITH CHECK split);
-(3) the NULL normalization lemma of SEMANTICS §4; (4) the CHECK and FK templates against a
-relational model (constraint timing, FK actions); `in_group`'s depth-bounded unrolling can join
-step 2.  The Lean sources mirror the Python structure by hand; nothing checks that mechanically,
-so a change to `tvl.py` must be carried to `lean/MLS/Pred.lean` (CLAUDE.md).
+Also `two_valued_shortcut_wrong`: `NOT` does not commute with admission.
+
+Step 2 done: (a) `in_group` joins the encoder theorem (`lean/MLS/Hierarchy.lean`): the encoder's
+unrolling over the uninterpreted `has_parent`/`parent` equals the evaluator's walk when the
+functions describe the forest and the hierarchy FKs hold, and with the depth column bounded by
+`max_depth` a longer walk finds nothing more, so the unrolling is exact (SEMANTICS §3.1); the
+encoder theorem now covers every construct of the verified fragment, over named row images
+(`r`/`old`/`new`).  (b) Policy combination (`lean/MLS/Policy.lean`, transcribed from
+`props/effective.py`): `effective_admits` — a row is admitted iff some permissive policy is TRUE
+on it and every restrictive policy is TRUE on it — with its corollaries: no permissive policy
+denies, a restrictive policy that is FALSE or UNKNOWN denies, a permissive policy that is UNKNOWN
+does not grant, adding a permissive policy only grants and adding a restrictive one only denies.
+(c) The statement outcomes of SEMANTICS §5 (filtered / ok / error, transcribed from
+`pg/model.py`) in the logic layer, and their link to the proofs: every executed statement
+satisfies the obligation's assumptions (`update_ok_assumptions` etc., so a property proved under
+them holds of every executed statement), an update that hides the row from its author is never
+ok, and for a statement that reads no columns "executed" is exactly "admitted by the net-effect
+predicate" of D38/D40 (`update_ok_iff_net` etc.).  Not modelled: column privileges (the
+`unwritable_unchanged` conjunct of `net_terms`), grants, uniqueness, FK existence, cardinality.
+Remaining steps: (3) the NULL normalization lemma of SEMANTICS §4 — `CHECK ((p) IS TRUE)` and
+`IF NOT ((p) IS TRUE)` admit exactly the rows `admits` does, against a model of CHECK and trigger
+evaluation; (4) the CHECK and FK templates against a relational model (constraint timing, FK
+actions).  The Lean sources mirror the Python structure by hand; nothing checks that
+mechanically, so a change to `tvl.py`, `effective.py`, `pg/model.py` or the assumption builders
+in `obligations.py` must be carried to `lean/MLS` (CLAUDE.md).
 
 ## Open details (decide during implementation, record in DECISIONS.md)
 

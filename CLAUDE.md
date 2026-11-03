@@ -81,8 +81,11 @@ Read before writing code, in this order:
 - Lean track (D11, D41): `lean/` is a Lake project (core Lean 4, no Mathlib; pinned in
   `lean/lean-toolchain`). `cd lean && lake build` checks it; CI does, and `uv run pytest -m lean`
   does when `lake` is on PATH (skipped otherwise). `lean/MLS/Pred.lean` is `logic/tvl.py`
-  transcribed clause for clause and proved sound against the SQL meaning: when you change the
-  encoder, change the transcription and re-prove, or record the gap in ROADMAP.
+  transcribed clause for clause and proved sound against the SQL meaning; `lean/MLS/Policy.lean`
+  transcribes `props/effective.py`, the statement outcomes of `pg/model.py` and the assumption
+  builders of `props/obligations.py`. When you change any of them, change the transcription and
+  re-prove, or record the gap in ROADMAP. No local toolchain is needed: a throwaway container
+  works (`docs/ROADMAP.md`, CI uses `leanprover/lean-action`).
 
 ## Suggested layout
 
