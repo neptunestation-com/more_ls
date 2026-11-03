@@ -67,6 +67,7 @@ reporting) and 4 (the LLM loop with bounded repair and human escalation, the eva
 solver-graded mutants; `docs/LLM.md`) are implemented.  Measured live with `claude-opus-5-5`
 on the 30 generation cases of the seed corpus: every case ends proved, net-equivalent to its
 reference and with the reference properties' expected verdicts (3 cases needed one repair round,
-none was escalated).  The seed cases are the author's rendering of common patterns, and that
+none was escalated); on the 100 synthetic repair benchmarks (the loop starts from mutated rules)
+99 end proved and net-equivalent after about one repair round.  The seed cases are the author's rendering of common patterns, and that
 number is as much a statement about their requirement texts as about the model: see
 `docs/FINDINGS.md` for what the first run found and `docs/LLM.md` for how grading works.

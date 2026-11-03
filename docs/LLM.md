@@ -77,7 +77,8 @@ check (`expected_check_errors`) are checker cases and are skipped by `--llm`.
 
 The corpus: 31 seed cases in 11 schema families (`evals/make_cases.py`; 30 are generation cases,
 one is a checker case) and the solver-graded mutants of every seed case (`evals/cases/synthetic`,
-116 cases, mutation score 45 %).
+100 cases, mutation score 38 %; a mutant counts as detected when a property the base proves no
+longer proves).
 
 ## Measured (2026-11-02, `claude-opus-5-5`, effort high, max 3 repairs)
 
@@ -91,12 +92,26 @@ one is a checker case) and the solver-graded mutants of every seed case (`evals/
 | mean_repair_rounds | 0.1 (three cases needed one round) |
 | human_escalation_rate | 0.0 |
 
-Repair benchmark (`--repair`, a sample of 8 synthetic cases, one per mutation kind and family):
-8/8 ended proved and net-equivalent to the base reference, each after exactly one repair round
-(the mutant rules refute the model's properties; the counterexample in English is enough).
+Repair benchmark (`--repair`, all 100 synthetic cases, same model and settings):
 
-63 API calls, about 158k output tokens and 87k input tokens (most of them cache reads).  This is
-the third run: the first two found a schema-decoding problem (D37), ambiguous requirement
+| Metric | Synthetic corpus (100 cases) |
+|---|---|
+| outcome_match_rate | 1.0 |
+| spec_correctness_rate | 0.99 |
+| net_equivalence_rate | 0.99 |
+| reference_properties_hold_rate | 1.0 |
+| mean_repair_rounds | 1.02 (98 cases one round, 2 cases two) |
+| human_escalation_rate | 0.0 |
+
+The mutant rules refute the model's properties and the counterexample in English is enough for
+the repair.  The one failure is a judgement call the net diff makes visible: the model's property
+set pinned the listing id and its repair enforced it, while the reference leaves the key writable
+because the text says nothing about it (FINDINGS).  202 API calls, about 529k output tokens,
+218k input tokens plus 1.2M cache reads.  The run also removed 16 synthetic cases whose mutation had
+only dropped a planted leak (nothing to repair; see D39).
+
+Seed run: 63 API calls, about 158k output tokens and 87k input tokens (most of them cache reads).
+This is the third run: the first two found a schema-decoding problem (D37), ambiguous requirement
 sentences and three reference bugs, which were fixed in the corpus, not by tuning to the model
 (FINDINGS).  A run over the same cases is not a free re-measurement: the model's choices vary
 between runs on sentences that admit two readings, so a failing case should be read, and its

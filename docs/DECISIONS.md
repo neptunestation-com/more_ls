@@ -265,17 +265,19 @@ made precise before a mismatch counts against the model.
 
 **D39. Synthetic mutations are solver-graded and double as a coverage score.** Each rule of a
 reference spec is dropped, loosened (one conjunct removed), made permissive or given a higher
-limit; a mutant the checker rejects is discarded; a mutant whose verdicts differ from the base is
-a new case (expected outcome: escalated, also usable as a repair benchmark with `--repair`); the
-rest are reported as undetected.  The share detected is a mutation score of the property set.
+limit; a mutant the checker rejects is discarded; a mutant on which a property the base proves no
+longer proves is a new case (a weakening the property set detects); the rest — including a
+mutant that only makes a refuted property prove, i.e. drops a planted leak, which leaves nothing
+to repair — are reported as undetected.  The share detected is a mutation score of the property set.
 Properties are re-based on predicates before mutating (as in D38), so dropping a CHECK or FK whose
 invariant a property names is detected rather than silently removed from the property.  A synthetic
 case is a repair benchmark: it keeps its base case's requirements, reference and verdicts, carries
 the mutant rules as `start_rules`, and `mls eval --llm --repair` starts the loop from them; the
 loop must end `proved` and net-equivalent to the base reference.  Without `--repair` synthetic
-cases are skipped (they would repeat their base case).  Current corpus: 45 % (116/260) — the
+cases are skipped (they would repeat their base case).  Current corpus: 38 % (100/260) — the
 templates are safety properties (upper bounds on access), so removing a grant is rarely caught; a
-liveness template ("some member can read") is future work.
+liveness template ("some member can read") is future work.  Measured live over all 100 cases:
+99 proved and net-equivalent after 1.02 repair rounds on average, none escalated (LLM.md).
 
 **D33. English rendering is a fixed function of the spec (D10, D15).** `mls explain` and the diff
 and proof reports use `mls/english.py`; the same construct always reads the same way, so a

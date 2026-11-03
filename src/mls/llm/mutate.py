@@ -84,6 +84,11 @@ def grade_mutants(data: dict, base_verdicts: dict[str, str], timeout_ms: int = 2
         except (SpecError, ValueError):
             continue  # a mutant the checker rejects is not a candidate (an LLM could not emit it)
         m.verdicts = {r.id: r.verdict for r in run_all(spec, timeout_ms)}
-        m.detected = any(m.verdicts.get(k) != v for k, v in base_verdicts.items() if k in m.verdicts)
+        # detected = a property the base proves no longer proves (the mutant weakened something).
+        # A mutant that makes a refuted property prove (dropping a planted leak) is a strengthening:
+        # there is nothing to repair, so it is not a case; whether a lost grant is caught is the
+        # liveness gap (D39).
+        m.detected = any(v == "PROVED" and m.verdicts.get(k) != "PROVED"
+                         for k, v in base_verdicts.items() if k in m.verdicts)
         out.append(m)
     return out

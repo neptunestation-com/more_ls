@@ -56,8 +56,10 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
 - Removing the seller-immutability transition of the marketplace case does **not** refute
   `column_immutable(seller_id)`: the update policy pins `seller_id` to the user on both row images,
   so the solver proves immutability from the policies alone.  Only a hand-over rule breaks it.
-- Mutation score of the property templates over the seed corpus: 45 % (116 of 260 mutants; 32 % before
-  properties were re-based on predicates, which lost the FK and CHECK invariants of dropped rules).  Almost
+- Mutation score of the property templates over the seed corpus: 38 % (100 of 260 mutants; 32 % before
+  properties were re-based on predicates, which lost the FK and CHECK invariants of dropped rules;
+  45 % while a mutant that merely *fixed* a planted leak — a refuted property turning proved — was
+  miscounted as detected).  Almost
   every undetected mutant *removes* a grant: the templates are safety properties (upper bounds), so
   a spec that denies too much is not caught by them (only by write ⊆ read when a write survives).
 - cvc5 `finite-model-find` answers `unknown` on the cardinality induction (∀ over Int with
@@ -104,3 +106,14 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
 - After those corrections all 30 generation cases pass; the four reruns passed at the first
   attempt.  The remaining variance is in the model's reading of sentences that admit two
   interpretations, and it shows up as a net-effect difference, never as a false proof.
+- The full repair benchmark (every synthetic case, `--repair`) first exposed a counting bug in the
+  corpus generator: 16 "detected" mutants of bad-reference cases had merely dropped the planted
+  leak (a refuted property turned proved), so the loop had nothing to repair, ended proved in 0
+  rounds, and was graded not net-equivalent to the leaky reference.  Detection now means a proved
+  property stops proving.  Over the 100 remaining cases: 99 ended proved and net-equivalent to the
+  base reference (98 after one repair round, 2 after two), none escalated.  The one failure is a
+  judgement call, not a wrong proof: the model's own property set said "a listing's id never
+  changes" and its repair added that transition rule; the marketplace reference lets a seller
+  rewrite the primary key because the requirement text says nothing about it.  The net diff reports
+  exactly that (updates the reference allows, the repaired rules deny).  Left as is: making every
+  reference pin its keys would be tuning the corpus to one run's choice.
