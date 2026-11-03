@@ -97,6 +97,9 @@ def pg_roles_spec() -> Spec:
         for k in ("using", "check"):
             if k in r:
                 r[k] = strip(r[k])
+    for p in d["properties"]:  # must_allow conditions mention the claim too
+        if "when" in p:
+            p["when"] = strip(p["when"])
     return make(d)
 
 
