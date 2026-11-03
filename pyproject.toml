@@ -38,6 +38,7 @@ markers = [
     "pg: needs a PostgreSQL server (Docker)",
     "slow: large-scale checks (EXPLAIN at 1M rows)",
     "cvc5: needs the cvc5 solver",
+    "lean: needs the Lean 4 toolchain (elan) to build lean/",
 ]
 addopts = "-ra"
 

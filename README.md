@@ -73,3 +73,6 @@ the safety templates say what a role may never do, `must_allow` says what it mus
 (D40), and the solver-graded mutation score of the corpus's property sets is 75 %.  The seed cases are the author's rendering of common patterns, and that
 number is as much a statement about their requirement texts as about the model: see
 `docs/FINDINGS.md` for what the first run found and `docs/LLM.md` for how grading works.
+The Lean 4 track (`lean/`, no Mathlib) has its first step: the three-valued logic and the pair
+encoding are formalized, and the predicate encoder is proved sound against the SQL meaning of
+every construct of the verified fragment except `in_group`.

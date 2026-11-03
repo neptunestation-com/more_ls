@@ -7,3 +7,6 @@ dist/
 build/
 *.egg-info/
 .mls_out/
+
+# Lean build artifacts
+lean/.lake/

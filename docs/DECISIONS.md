@@ -301,6 +301,23 @@ behaviour (a rule redundant with another policy, with the implicit relation gran
 FK), a cardinality rule reference (not re-based by `portable`), or a grant the author's property
 set does not state.
 
+**D41. The Lean track lives in `lean/` and mirrors the Python by hand.** A Lake project in this
+repository (core Lean 4 pinned in `lean/lean-toolchain`, no Mathlib: the objects are finite truth
+tables, booleans, integers and an inductive syntax, and the proofs are case analysis), built by
+its own CI job.  Keeping it next to the code is what makes the structural match enforceable:
+`lean/MLS/Pred.lean` defines the encoder clause for clause after `logic/tvl.py` (the `FALSE` null
+flag of a non-nullable column, `(ok ∧ core, ok ∧ ¬core)` for comparisons, the two-valued
+`now_between`, the `(T, F)` pair of an opaque block) and proves it sound against the reference
+meaning of SEMANTICS §1–2 (`Pred.eval`) under exactly the assumptions the toolchain makes: the
+schema (a non-nullable column holds no NULL) and the opaque side condition (`¬(T ∧ F)`).  That
+theorem is the universal form of `tests/logic/test_tvl.py`, which samples the same statement
+against the concrete evaluator.  The Lean and the Python are two artifacts with no mechanical link;
+a change to the encoder is carried to the transcription by hand, or the gap is recorded in the
+ROADMAP.  What the track cannot do: say anything about Postgres itself — the "small model of
+Postgres" of the later steps is our own axiomatization, and the differential tests remain the only
+link to the real thing (D11).  Out of scope on purpose: cardinality limits and hierarchies, whose
+correctness rests on the concurrency test and the cvc5 cross-check.
+
 **D33. English rendering is a fixed function of the spec (D10, D15).** `mls explain` and the diff
 and proof reports use `mls/english.py`; the same construct always reads the same way, so a
 reviewer can compare the rendering with the requirement text, and the Milestone 4 loop can check

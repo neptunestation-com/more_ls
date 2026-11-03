@@ -1,0 +1,5 @@
+name = "mls"
+defaultTargets = ["MLS"]
+
+[[lean_lib]]
+name = "MLS"

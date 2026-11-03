@@ -78,6 +78,11 @@ Read before writing code, in this order:
   on every PG version — add the kind and its mode when you add a migration statement.
 - `tests/templates/test_migrate.py` is the migration acceptance test: deploy v1 + data, migrate,
   `drift` against v2 must be clean, then the v2 differential test on the migrated database.
+- Lean track (D11, D41): `lean/` is a Lake project (core Lean 4, no Mathlib; pinned in
+  `lean/lean-toolchain`). `cd lean && lake build` checks it; CI does, and `uv run pytest -m lean`
+  does when `lake` is on PATH (skipped otherwise). `lean/MLS/Pred.lean` is `logic/tvl.py`
+  transcribed clause for clause and proved sound against the SQL meaning: when you change the
+  encoder, change the transcription and re-prove, or record the gap in ROADMAP.
 
 ## Suggested layout
 
@@ -93,6 +98,7 @@ src/mls/
 tests/
   templates/   per-template differential + mutation tests (parametrized over PG versions)
   props/       proof tests with expected PROVED / REFUTED + counterexample shape
+lean/          Lean 4 formalization of the core semantics (parallel track, D11)
 examples/
 docs/
 ```

@@ -73,6 +73,18 @@ reading transcripts and diffs — not a new input format, D15 stands).
 Formalize: 3VL, predicate semantics, policy combination, NULL normalization lemma, and correctness
 of the CHECK and FK templates against a small model of Postgres. No milestone depends on it.
 
+Step 1 done (`lean/`, D41): the three-valued connectives and their truth tables, the (T, F) pair
+encoding with `encode`/`decode`, soundness of the pair connectives and of the n-ary folds, and
+`Pred.tf_sound`: the encoder of `logic/tvl.py`, transcribed clause for clause, emits the encoding
+of the SQL truth value of every predicate in the verified fragment except `in_group`, under the two
+assumptions the toolchain makes (non-nullable columns hold no NULL; opaque pairs are consistent).
+Also `two_valued_shortcut_wrong`: `NOT` does not commute with admission.  Remaining steps, in
+order: (2) policy combination and the admission rule per command (USING / WITH CHECK split);
+(3) the NULL normalization lemma of SEMANTICS §4; (4) the CHECK and FK templates against a
+relational model (constraint timing, FK actions); `in_group`'s depth-bounded unrolling can join
+step 2.  The Lean sources mirror the Python structure by hand; nothing checks that mechanically,
+so a change to `tvl.py` must be carried to `lean/MLS/Pred.lean` (CLAUDE.md).
+
 ## Open details (decide during implementation, record in DECISIONS.md)
 
 - Exact JSON shape (keep it explicit: no defaults for permissive/restrictive, command, NULL handling).
