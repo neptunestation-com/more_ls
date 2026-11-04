@@ -12,7 +12,9 @@ The spec declares an identity provider. v1 ships two adapters:
   clients reach the database only through Supabase's API layer, which verifies the JWT before
   setting the request claims; direct database connections by untrusted clients are out of scope.
 - `pg_roles`: identity is `current_user` / role membership. No external trust assumption.
-Rejected: raw `current_setting('app.*')` as identity (any client can `SET` it).
+Rejected: raw `current_setting('app.*')` as identity (any client can `SET` it). *Amended (D47):* a third
+adapter, `session_setting`, with its trust assumption stated in every report; the rejection
+stands for a direct connection.
 
 **D2. v1 scope adds four constructs** to the existing fragment (comparisons, membership,
 and/or/not, CHECK, inclusion/FK, row transitions):
@@ -45,7 +47,9 @@ Built in Milestone 4, but the case format is defined in Milestone 1 (see ROADMAP
 drift detection against the live catalog.
 
 **D8. Greenfield only in v1.** MLS owns the schemas it creates. No import of existing hand-written
-policies. (Drift detection still reports foreign objects on MLS-owned tables.)
+policies. (Drift detection still reports foreign objects on MLS-owned tables.) *Amended (D45):* greenfield
+is the `owned` mode; `adopted` and `observed` exist, and a policy MLS did not write is lifted
+(D46) or an opaque block.
 
 ## Intent and trust
 
@@ -70,14 +74,17 @@ change. Humans never need to read MLS or DDL.
 **D13. Bypass paths: emit hardening and verify it.** The compiler emits: app roles are not table
 owners, no `BYPASSRLS`, `ALTER TABLE ... FORCE ROW LEVEL SECURITY`, `REVOKE TRUNCATE`, no grant of
 `SET` on `session_replication_role`. Drift detection verifies these. Proof reports list the remaining
-trusted roles (owner, superuser) explicitly.
+trusted roles (owner, superuser) explicitly. *Amended (D45):* on `adopted` tables hardening is
+verified or assumed, never silently emitted.
 
 **D14. Performance is checked three ways:** generated indexes for every membership/comparison atom;
 EXPLAIN checks in CI asserting each policy atom appears as an index condition at realistic scale;
 a leakproof lint for operators commonly used against protected tables.
 
 **D15. IR: JSON + JSON Schema** (generated from the pydantic models), enabling constrained decoding.
-A generated English rendering is the human view.
+A generated English rendering is the human view. *Amended (D50):* the JSON Schema
+constrains the canonical serialization, not the only input; terse is a second concrete syntax
+of the same model.
 
 **D16. LLM loop (Milestone 4): separate passes + bounded repair.** Pass 1 requirements → properties.
 Pass 2 requirements → rules, without seeing pass 1. The solver checks rules against properties;
@@ -418,9 +425,207 @@ transcript can be read without expanding the JSON.  It is rendering only: nothin
 JSON stays the only input (D15) and the English stays the approval artifact (D10).  Why one
 more rendering: the English is written for a product owner and deliberately verbose; a reviewer
 reading a diff or a transcript wants the predicate at a glance, and the JSON is three lines per
-atom.  The golden test (`tests/test_terse.py`) pins every construct of the verified fragment.
+atom.  The golden test (`tests/test_terse.py`) pins every construct of the verified fragment. *Amended
+(D50):* terse is a concrete syntax as well as a rendering; the JSON stays canonical.
 
 **D33. English rendering is a fixed function of the spec (D10, D15).** `mls explain` and the diff
 and proof reports use `mls/english.py`; the same construct always reads the same way, so a
 reviewer can compare the rendering with the requirement text, and the Milestone 4 loop can check
 an LLM's property statements against it.
+
+## Milestone 5 — brownfield (2026-11-04)
+
+**D45. Ownership is per table; D8 is split (amends D8).** D8 bundled two claims: MLS owns the
+schema it creates, and MLS imports no hand-written policies. The first is what makes the
+compiler sound (constraints created validated, FKs RESTRICT, owner not an app role,
+`mls_internal` present) and stays, scoped to the tables it is true of. The second is dropped
+through D3: a policy MLS did not write is an opaque block, which the proofs were built to
+tolerate. Each table declares `"mode": "owned" | "adopted" | "observed"` (default `owned`, so
+every existing spec is unchanged):
+- `owned` — as today. Foreign objects are drift; hardening is emitted and verified.
+- `adopted` — the table exists. `columns`, `primary_key`, `unique` and inclusion FKs are read
+  from the catalog by `mls import` and checked against the catalog by `drift` (a column the
+  spec declares that the table lacks is an error at `check --dsn` and drift otherwise). MLS adds
+  rules to it; every policy, trigger, CHECK and FK already on it is either lifted (D46), declared
+  as an opaque block with its catalog signature, or listed as *foreign and unmodelled* in the
+  proof report's assumptions. Hardening the compiler cannot establish without changing something
+  it does not own — the owner is an app role, a role has `BYPASSRLS`, RLS is not forced — is not
+  emitted; it is recorded in the spec as `"assume": [...]` on the table, repeated in every proof
+  report as a trusted-role assumption (D13's list grows by it), and reported by `drift` under a
+  new kind `assumed`, so that a hardening fix later shows up as the assumption going away.
+  Refused: a table-level `assume` that the proofs cannot state (there is no assumption under
+  which a policy on a table without RLS enabled means anything; `adopted` without RLS enabled
+  is `observed`).
+- `observed` — in the schema, mentioned so that coverage (D49) and `status` can speak about it.
+  No rules may name it.
+`mls import --dsn DSN [--schema public]` writes a spec in which every table is `adopted`, the
+identity adapter is guessed from the policies (`auth.uid()` → `supabase`, `current_user` →
+`pg_roles`, `current_setting('app.*')` → `session_setting`, D47) and reported when ambiguous,
+relations are proposed for every table whose policies read it as `(key, value)`, and every policy
+is first lifted (D46) and otherwise an opaque block. The import is a starting point the human
+or the loop edits; the spec, not the catalog, remains the source of truth from then on (D15),
+and `drift` is what says whether they still agree. Rejected: a third mode "managed by MLS but
+not owned" (every example collapsed to `adopted` plus an assumption); importing into the
+compiler's object model instead of the spec (the LLM loop and the English need the spec).
+
+**D46. The lifter: catalog expressions → the verified fragment, else opaque.** `pg/lift.py`
+parses the `pg_get_expr` text of a policy's `using`/`with check` (and of a CHECK's
+`pg_get_constraintdef`) into a predicate when the expression is built from the shapes the
+compiler emits — `col op (select <ctx>)`, `col = any ((select …)::t[])`, `col = any (array
+(select value from rel where key = (select <ctx>)))`, `col is null`, `(p) is true`, `and`/`or`/
+`not` of these — and from a fixed list of hand-written idioms: a bare `auth.uid()` or
+`current_setting('…')` without the InitPlan wrapper (lifted, and a lint says the index-friendly
+form is `(select …)`), `col in (c1, c2, …)`, `col = any (array[…])`, `exists (select 1 from rel
+where rel.key = <ctx> and rel.value = t.col)` (the correlated form, lifted to `member` and
+flagged by the EXPLAIN lint as the 332 ms shape), `col like 'const%'`. The lifter is total: an
+expression it cannot read becomes an opaque block whose signature is the set of columns and
+context sources the expression references (read from the catalog's dependency information and a
+conservative scan of the text), so a lifted spec always `check`s. Evidence it must carry: a
+round-trip test per template (`tests/templates/test_lift.py`): compile a fixture, deploy,
+import, lift; the lifted rules and the source rules must be net-equivalent per
+`props/diff.py:behaviour_diff`, and `mls drift` of the lifted spec against the deployment must
+be clean, on PG 15–18; plus one fixture per hand-written idiom with the expected lifted
+predicate pinned in a golden test. Deparsing differs across versions (D30), so the parser works
+on the deparsed text of each version in the matrix and the golden files are per-shape, not
+per-string. Why lift at all, given D3: a proof conditional on an opaque block says nothing a
+reviewer can act on; a lifted policy is proved, diffed and explained like one MLS wrote, which is
+the whole value of adopting. Limits: a policy that calls a user function stays opaque even when
+the function is a one-line SQL wrapper — the lifter reads `pg_proc` only to build the signature,
+never to inline (a SECURITY DEFINER body is exactly the object D34 says must be visible, not
+trusted). Rejected: lifting through `pg_node_tree` (`polqual`) instead of the deparsed text —
+version-specific and undocumented; a `--lift-functions` option — reopens D3.
+
+**D47. `session_setting` identity adapter (amends D1).** `current_setting('app.<name>', true)`
+as a context source, typed by the spec, wrapped `(select … ::t)` for InitPlan evaluation, NULL
+or missing setting → every comparison UNKNOWN → denied (3VL does the right thing without a
+special case; the English says "no context set: denied"). D1 rejected this as identity because
+any client can `SET` it; the rejection stands for a direct connection and the adapter states the
+trust assumption D1 already accepts for Supabase, in its own words: *clients cannot execute `SET`
+on `app.*`; the setting is established by a trusted path (a pooler, a `SET LOCAL` inside a
+SECURITY DEFINER entry point, or the application's connection layer) that no untrusted client
+reaches.* Hardening (D13) adds, for this adapter only, a drift check that no app role has
+`EXECUTE` on a function that sets the namespace and that `app.*` has no `ALTER ROLE … SET`
+default for an app role. The harness sets the value with `set local` inside the transaction, as
+the `pg_roles` harness sets the role. Why now: every pre-Supabase schema `mls import` meets uses
+it, and without the adapter every such policy is opaque and brownfield is a listing exercise.
+Rejected: treating `current_setting` as an opaque context value with no adapter — the proofs
+need to know it is constant within a statement and typed.
+
+**D48. Selectors are checker-time expansion (`applies_to`), not a construct (D15 stands).**
+A rule may carry `"applies_to": {"has_column": [name] | [name, type], "in_schema": s,
+"named": [t, …], "tagged": tag, "all": true, "and": […], "or": […]}` in place of `"table"`.
+`spec/check.py` expands it, before typechecking, into one rule per matching table (`owned` or
+`adopted`; `observed` tables are matched for coverage, D49, but no rule is generated), with ids
+`R1.docs`, `R1.files`, and a `"from": "R1"` back-reference; everything downstream — the solver,
+every template, `diff`, `migrate`, `drift`, `english.py`, `terse.py`, `lean/` — sees only
+concrete rules, so nothing in them changes and the Lean track is untouched by construction.
+Tables gain `"tags": [...]` (strings, no semantics) for `tagged`. A selector that matches no
+table is an error at `check` ("R1 applies to no table"), because a silent empty expansion is
+how a renamed column disables a tenant policy. Late binding, the property `pg_more_ls` wanted
+from selectors (a new table with `tenant_id` is covered without a new policy), becomes: re-run
+`mls import` (or `check --dsn`, which refreshes `adopted` tables), the expansion picks the table
+up, and `mls lint` names any `observed` table the selector would have matched. `explain` renders
+the selector once and the expansion as a list; `diff` reports changes per concrete rule. The
+LLM loop may emit selectors (the schema allows it); the eval corpus gains cases where the
+reference uses one and the generated rules may use either form, since grading is by net effect
+(D38). Rejected: selectors as a solver-visible quantifier over tables (the fragment would need a
+sort of tables; nothing is gained, since the set of tables is finite and declared); selectors
+resolved against the catalog at compile time rather than against the spec (the compiled DDL
+would depend on something the spec does not say; D15).
+
+**D49. Policy-set hygiene is lint, not proof.** `pg_more_ls` had nine proofs; four already exist
+here as templates or as `diff` (tenant isolation, write ⊆ read, policy equivalence, role
+separation as `custom`), and the remaining four are facts about the shape of a policy set that
+do not change what any role can do. They are `mls lint` findings, each with a positive and a
+negative fixture:
+- *coverage* — an `owned`/`adopted` table and command with no permissive policy for a role that
+  has a grant, and an `observed` table a selector would match (D48), or that has a column
+  another table's `tenant_isolation` property names;
+- *contradiction* — a policy whose `using` (or `check`) is unsatisfiable under the stored-row
+  constraints, i.e. the witness obligation of D40 applied to every policy; the English says
+  "this policy never admits a row";
+- *subsumption* — permissive `p1`, `p2` on the same (table, role, command) with
+  `T(p2) → T(p1)` valid over the (T, F) encoding; the two-valued check `pg_more_ls` ran
+  (`p2 ∧ ¬p1` UNSAT) is wrong where `p1` is UNKNOWN on a row `p2` admits — `tests/logic` keeps
+  such a case;
+- *redundancy* — a policy whose removal leaves the effective predicate (`props/effective.py`)
+  equivalent for every (table, role, command, side); an opaque block in either policy makes the
+  finding conditional, as proofs are.
+`role_separation {table, roles: [a, b], command}` joins the templates as the English form of
+the `custom` property it already was (no row admitted for both). None of these enters the
+proof report's verdicts or the eval grading (D38 grades net effect, which they do not change);
+the LLM loop sees them as hints in the repair prompt, never as refutations. Why lint: a
+redundant policy is not a defect of the spec's meaning, and `pg_more_ls` conflating hygiene with
+safety made its exit code mean two things.
+
+## Syntax (2026-11-04)
+
+**D50. The terse rendering becomes a concrete syntax; JSON stays canonical (amends D44, D15
+stands).** D44 made `mls/terse.py` a rendering only, because D15 wanted one input and JSON Schema
+was to constrain the LLM's decoding. D37 then recorded that constrained decoding is impossible
+(recursive schema), so today the schema is pasted into the prompt, the answer is free text,
+parsed tolerantly and validated locally — the pipeline a text syntax would use, with a longer
+grammar in the prompt. Meanwhile D44 exists because the JSON was unreadable in diffs and
+transcripts, and every construct of the fragment already has a terse form pinned by a golden
+test. The remaining distance is a parser. So:
+
+- **Two concrete syntaxes, one model.** The pydantic model (`spec/model.py`) is the language;
+  `SEMANTICS.md` gives it meaning; JSON and terse are both views of it. `mls` reads either by
+  extension (`.mls.json`, `.mls`) and `mls fmt` converts between them. JSON remains the
+  canonical serialization: `mls schema`, the eval cases, the synthetic mutator, the Lean vectors
+  generator and every program that manipulates a spec keep working on the model or its JSON and
+  need no change. The terse grammar is not the definition of the language; a construct exists
+  when the model has it, and the same change adds it to both syntaxes (CLAUDE.md's rule for
+  GUIDE and REFERENCE applies).
+- **The grammar** is D44's, completed to the whole spec. A file is a sequence of sections:
+  `identity supabase { uid: auth.uid uuid; org: jwt.claims.org_id int }`, `roles authenticated,
+  staff`, `table docs owned { id uuid not null, tenant_id int not null, …; primary_key (id);
+  unique (tenant_id, slug); tags (pii) }` (D45's mode and tags, `assume` as a list of quoted
+  strings), `relation member_of = memberships(user_id, tenant_id)`, `hierarchy org_tree = orgs
+  id id parent parent_id depth depth max_depth 6 members member_of`, `opaque legacy_flag on docs
+  (archived, @uid) relations () sql $$ archived = 0 $$` (dollar-quoted raw SQL, as Postgres
+  does), then `rules` and `properties` blocks with D44's one-line forms, `applies_to
+  has_column(tenant_id uuid)` in place of a table name for D48, and `# comments`. Terms,
+  atoms, precedence and parenthesization are D44's; `in (c1, c2)` is the Milestone 5 sugar.
+  Keywords are reserved; a column or table named like one is written `"quoted"`. Every item is
+  one line unless it holds a parenthesized list, so `git diff` shows one changed rule as one
+  changed line.
+- **Round trip is the correctness evidence.** `parse(render(spec)) == spec` for every example,
+  every eval case (seed and synthetic) and hypothesis-generated specs (`tests/test_terse.py`
+  grows the parse direction; `tests/spec/test_syntax.py` the generator); `render(parse(text))`
+  is idempotent on the committed `.mls` examples (the formatter is the renderer). A construct
+  with no terse form fails the fast suite, as a construct with no golden line does today.
+- **Errors keep invariant 7.** The parser records a source span per node; the checker's errors
+  carry the JSON path as today *and*, when the input was terse, `file:line:col` and the
+  offending line, so the LLM and the human see where in the text they wrote. Internally the
+  JSON path is the key; the span is looked up from it.
+- **The LLM loop gets a syntax flag, and the corpus decides the default.** `mls generate
+  --syntax json|terse` and `mls eval --llm --syntax …` choose what the rules pass and the
+  properties pass emit (the prompt carries the grammar and three examples instead of the JSON
+  Schema; the skeleton is rendered in the same syntax; repair feedback is unchanged — English
+  and scenarios, D10/D37). The answer is parsed with the same tolerance (a fenced block, or the
+  first section keyword in prose). Acceptance for changing the default: the full corpus (30 seed
+  cases, 194 repair benchmarks) run with both syntaxes on the same model, reporting proved rate,
+  net-equivalence, repair rounds, escalations and prompt/completion tokens, written into
+  `docs/LLM.md`. The default becomes terse only if proved and net-equivalent rates are not worse
+  by more than the run-to-run spread already recorded there; token reduction alone does not
+  decide. Transcripts keep `spec_terse` either way.
+- **What does not change.** D10: the English is the approval artifact; nobody is asked to read
+  terse to approve anything. D15: the JSON Schema is still exported and still what tools
+  constrain against. D33/D44: the renderers are fixed functions of the model. The Lean track
+  sees neither syntax.
+
+Why not JSON alone: the schema in the prompt is several times the grammar; a spec is three
+lines per atom, resent on every repair round; structural slips in nested single-key objects
+are repair rounds spent on brackets; and `git diff` of a JSON spec does not show a reviewer
+which rule changed. Why not terse alone: the eval cases, the mutator, the vectors and the
+schema export are programs over the model, and a serialization with a schema is what programs
+want; a parser is a second thing to keep sound, and the round trip is what keeps it so. Why not
+`pg_more_ls`'s ordering (grammar first, AST after): the grammar would become the language, the
+model its shadow, and every proof in `lean/` and every template test would be about the shadow.
+Rejected: YAML (indentation-significant, every quoting rule a surprise, no gain over terse);
+an s-expression form (one syntax for machines and humans, but no better in a diff than terse
+and worse to read); making terse the only input and generating JSON from it (reopens D15 for
+the tools for no reader's benefit). Cost: a recursive-descent parser over about twenty
+productions with spans, a formatter that is the renderer, and the two-syntax discipline on
+every construct — paid once, checked by the round trip forever.

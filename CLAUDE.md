@@ -64,7 +64,7 @@ code or a generated object name, update them in the same change.
   checks every one without Docker, so an example edit that breaks a fixture fails in the fast
   suite, not only in the Postgres jobs.
 - Implementation defaults decided during M1 are D21–D27, during M2 D28–D33, during M3 D34–D36,
-  after M4 D40–D44, in `docs/DECISIONS.md`.  D42: row-dependent column visibility is normalization
+  after M4 D40–D44, during M5 (brownfield) D45–D49, syntax D50, in `docs/DECISIONS.md`.  D42: row-dependent column visibility is normalization
   (the column is its own table with its own policies); there is no masking construct.
 - M4: `uv run mls generate` / `mls eval --llm` (src/mls/llm, docs/LLM.md, D37–D39). Tests never call the
   API: `MLS_LLM_SCRIPT=<json>` or `ScriptedClient` replays answers. `evals/make_cases.py` regenerates
@@ -85,8 +85,9 @@ code or a generated object name, update them in the same change.
   example too (integer-quantified obligations need cvc5 without finite-model-find).
 - `uv run mls explain|diff|migrate|preflight|drift ...` (M2). `mls explain --terse`, the diff's
   `before`/`after` lines and the transcripts' `spec_terse` use `mls/terse.py` (D44): a one-line
-  rendering of the JSON syntax for reading, never an input; the English (`english.py`, D33) stays
-  the approval artifact. Migrations are phased; every statement
+  rendering of the spec. D50 makes it a second concrete syntax (`.mls` by extension, `mls fmt`,
+  round trip `parse(render(spec)) == spec` as the evidence); the JSON stays canonical (D15) and
+  the English (`english.py`, D33) stays the approval artifact. Migrations are phased; every statement
   kind has a lock mode in `compile/migrate.py:LOCKS` that `tests/templates/test_locks.py` observes
   on every PG version — add the kind and its mode when you add a migration statement.
 - `tests/templates/test_migrate.py` is the migration acceptance test: deploy v1 + data, migrate,

@@ -70,6 +70,94 @@ transcript) is done: D44, `mls/terse.py`; not a new input format, D15 stands.  T
 first roadmap — security-invoker views for row-filtered column masking (D24) — is settled by D42:
 no construct; the column is its own table with its own policies (`cr_own_salary` in the corpus).
 
+## Milestone 5 — brownfield (the `pg_more_ls` graft)
+
+`pg_more_ls` (Feb–May 2026, Kotlin, archived) was the governance tool this project grew out of:
+a human-authored DSL, nine proofs, introspection of live policies, drift against them, and
+late-binding selectors (`has_column('tenant_id')`). Its fragment compiled to the slow shape
+(correlated EXISTS; FINDINGS), its NULL handling was a per-column flag over two-valued logic,
+and its identity was `current_setting('app.*')`. Everything it did right is re-expressed here on
+the 3VL encoding, the fixed templates and the differential harness; nothing from it is ported as
+code. D8 is split: MLS still owns what it creates, and may now adopt what it did not.
+
+Scope:
+- **Ownership mode per table** (D45): `owned` (today), `adopted` (exists; columns, PK, uniques
+  and FKs come from the catalog; MLS adds rules), `observed` (in the schema, not governed).
+  `mls import --dsn` writes a spec from a live schema: every table `adopted`, every existing
+  policy an `opaque` block with its signature read from the catalog, hardening state recorded
+  as assumptions.
+- **The lifter** (D46): `pg_get_expr` output → verified fragment for the shapes MLS itself emits
+  and for a short list of common hand-written idioms; everything else stays opaque. Round-trip
+  test: compile → deploy → import → lift must be net-equivalent (`behaviour_diff`) to the source
+  spec on PG 15–18.
+- **Governance status** per table (`mls status`): `ungoverned` (no RLS), `opaque` (RLS, proofs
+  conditional on an opaque block), `proved`. The red/yellow/green of the old schema overlay, as
+  data.
+- **`session_setting` identity adapter** (D47, amends D1): `current_setting('app.<name>')` with
+  the trust assumption stated in every report. Needed to adopt any pre-Supabase schema without
+  making every policy opaque.
+- **Selectors** (D48): an `applies_to` clause on a rule, expanded by the checker into per-table
+  rules before the solver, compiler, diff, drift, English, terse or Lean see anything.
+- **Lint pack** (D49): coverage, contradiction, subsumption, redundancy, and a `role_separation`
+  property template. Hygiene, not safety: findings in `mls lint`, not verdicts in `mls prove`.
+- **Fragment**: `in` with a constant list (sugar for a disjunction of `=`); `like` accepted by
+  the lifter only, reported by the leakproof lint, never authored.
+- **Documents**: the undecidability theorem and the DSL survey from `pg_more_ls` under
+  `docs/BACKGROUND.md` (cited, not rewritten); the May 2026 performance notes link to FINDINGS,
+  which supersedes them.
+
+Acceptance:
+- `mls import` of the database `mls compile examples/tenant_docs.mls.json` deploys yields a spec
+  on which `mls drift` is clean, every lifted policy is in the fragment (0 opaque blocks), and
+  `behaviour_diff` against the source spec is empty, on all four PG versions.
+- `mls import` of a hand-written Supabase-style schema (fixture: `tests/brownfield/`) yields a
+  spec that `check`s, with every unrecognized policy as an opaque block whose signature names
+  the columns and context the SQL reads, and whose `prove` report lists every conditional proof.
+- A spec with an `adopted` table owned by an app role proves with "assumed: owner `x` is
+  trusted" in the report, and `drift` reports it as an assumption, not as hardening drift;
+  the same spec with `owned` is refused at `check` with the JSON path and the fix.
+- An `applies_to` rule and its manual expansion are byte-identical after `mls explain --terse`;
+  adding a table with the selected column to an imported spec and re-running `check` adds the
+  rule to it, and `mls lint` names a new table with the column and no rule.
+- Each lint has a positive and a negative fixture; subsumption and redundancy are computed on
+  the (T, F) encoding and `tests/logic` has a case a two-valued check gets wrong.
+- The Lean track is untouched (no new construct reaches `Pred`); `in` is expanded before encoding.
+
+Not in scope: reparenting (still v2), importing triggers or CHECKs into anything but opaque
+assumptions (an existing CHECK is adopted as a stored-row assumption only if the lifter can read
+it; otherwise it is listed and not assumed), a UI.
+
+## Syntax — terse as an input (D50)
+
+The terse rendering of D44 becomes a second concrete syntax of the same pydantic model; JSON
+stays the canonical serialization (D15 stands). `mls` reads either by extension (`.mls.json`,
+`.mls`), `mls fmt` converts between them, and the formatter is the renderer.
+
+Scope:
+- The grammar completed from D44's rules, properties and scenarios to the whole spec: identity,
+  roles, tables (mode, tags, `assume`, D45), relations, hierarchies, opaque blocks with
+  dollar-quoted SQL, `applies_to` (D48), `in` (Milestone 5), `# comments`, `"quoted"` names.
+  One item per line unless it holds a parenthesized list, so a diff shows one changed rule as one
+  changed line.
+- A recursive-descent parser with a source span per node; `spec/check.py` errors carry the JSON
+  path as today and, when the input was terse, `file:line:col` and the offending line.
+- `mls generate --syntax json|terse` and `mls eval --llm --syntax …`: the prompt carries the
+  grammar and three examples instead of the JSON Schema; the answer is parsed with the same
+  tolerance; repair feedback stays English and scenarios (D10, D37).
+
+Acceptance:
+- `parse(render(spec)) == spec` for every example, every eval case (seed and synthetic) and
+  hypothesis-generated specs; `render(parse(text))` is idempotent on the committed `.mls`
+  examples. A construct with no terse form fails the fast suite.
+- A spec error from a `.mls` input names the file, line and column and the offending line, and
+  the same JSON path the `.mls.json` input gets.
+- The full corpus (seed cases and repair benchmarks) run with both syntaxes on the same model,
+  with proved rate, net-equivalence, repair rounds, escalations and tokens in `docs/LLM.md`; the
+  default becomes terse only if proved and net-equivalent rates are within the recorded
+  run-to-run spread. Token reduction alone does not decide.
+- `mls schema`, the eval cases, the mutator, the Lean vectors generator and the Lean track are
+  unchanged.
+
 ## Parallel track — Lean 4
 
 Formalize: 3VL, predicate semantics, policy combination, NULL normalization lemma, and correctness
