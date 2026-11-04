@@ -677,6 +677,73 @@ case("cr_staff_update", CR_REQ.replace("HR may update salaries and titles; nobod
                       column_rule("R10", "employees", "staff", ["title"], "write")], CR_PROPS, roles=("staff", "hr")),
      {**CR_OK, "P2": "REFUTED"})
 
+# Row-dependent column visibility ("staff see their own salary, only the titles of their colleagues")
+# is not a column rule: a column rule is per role, not per row (D24).  It is modelled as D42 says, by
+# normalization: the salary is its own table with its own row policies, and every existing layer
+# (proofs, net-effect diff, must_allow, drift, migration) covers it without a new construct.
+CRS_TABLES = {"memberships": pairs(),
+              "employees": T({"id": ("int", False), "tenant_id": ("int", False), "user_id": ("uuid", False),
+                              "title": ("text", False)}, ["id"]),
+              "salaries": T({"employee_id": ("int", False), "tenant_id": ("int", False), "user_id": ("uuid", False),
+                             "amount": ("int", False)}, ["employee_id"])}
+own = eq(col("user_id"), ctx("uid"))
+CRS_RULES = [
+    policy("R1", "staff_read", "employees", "select", using=mem, role="staff", req="staff see the directory"),
+    policy("R2", "hr_read", "employees", "select", using=mem, role="hr", req="HR sees the directory"),
+    policy("R3", "hr_update", "employees", "update", using=mem, check=mem, role="hr", req="HR changes titles"),
+    column_rule("R4", "employees", "hr", ["title"], "write"),
+    policy("R5", "staff_own_salary", "salaries", "select", using=own, role="staff", req="staff see their own salary only"),
+    policy("R6", "hr_salaries", "salaries", "select", using=mem, role="hr", req="HR sees the salaries of their tenants"),
+    policy("R7", "hr_set_salary", "salaries", "update", using=mem, check=mem, role="hr", req="HR sets amounts"),
+    column_rule("R8", "salaries", "hr", ["amount"], "write"),
+    check("R9", "amount_non_negative", "salaries", cmp(col("amount"), ">=", const(0)), req="salaries are never negative"),
+    inclusion("R10", "holder_is_member", "salaries", ["user_id", "tenant_id"], "member_of", req="a salary's holder belongs to its tenant"),
+    policy("R11", "staff_members", "memberships", "select", using=own, role="staff", req="own memberships"),
+    policy("R12", "hr_members", "memberships", "select", using=own, role="hr", req="own memberships"),
+]
+CRS_PROPS = [
+    isolation("P1", "the directory is only seen and changed within the user's tenants", "employees", "tenant_id", "member_of", ["select", "update"]),
+    isolation("P2", "salaries are only seen and changed within the user's tenants", "salaries", "tenant_id", "member_of", ["select", "update"]),
+    custom("P3", "staff see no salary but their own", "salaries", "staff", "select", own),
+    least_privilege("P4", "staff only read; HR reads and updates the directory and the salaries",
+                    {"staff": {"employees": ["select"], "salaries": ["select"], "memberships": ["select"]},
+                     "hr": {"employees": ["select", "update"], "salaries": ["select", "update"], "memberships": ["select"]}}),
+    invariants("P5", "salaries are never negative", "R9"),
+    monotone("P6", "leaving a tenant never grants access", "member_of"),
+    must_allow("P7", "staff read their own salary", "salaries", "staff", "select", own),
+    must_allow("P8", "HR read the salaries of their tenants", "salaries", "hr", "select", mem),
+    must_allow("P9", "HR set a non-negative amount on a salary of their tenants", "salaries", "hr", "update",
+               and_(member_old("member_of", "tenant_id"), *same("employee_id", "tenant_id", "user_id"), cmp(new("amount"), ">=", const(0)))),
+    must_allow("P10", "staff read the directory of their tenants", "employees", "staff", "select", mem),
+    must_allow("P11", "a user reads their own memberships", "memberships", "staff", "select", own),
+    must_allow("P12", "HR read the directory of their tenants", "employees", "hr", "select", mem),
+    must_allow("P13", "HR change the title of an employee of their tenants", "employees", "hr", "update",
+               and_(member_old("member_of", "tenant_id"), *same("id", "tenant_id", "user_id"))),
+    must_allow("P14", "HR read their own memberships", "memberships", "hr", "select", own),
+]
+CRS_REQ = ("Two application roles: staff and hr. Both see the employee directory (id, tenant, user, title) of the tenants "
+           "they belong to. Every salary is a separate record (employee, tenant, user, amount) whose holder belongs to that "
+           "tenant. Staff see their own salary record and nobody else's; HR see the salary records of their tenants and set "
+           "their amounts, and HR may change titles in the directory. Nothing else changes, and nothing is inserted or deleted "
+           "through the application. Salaries are never negative. Users see their own memberships.")
+CRS_ENG = ["The directory is only seen and changed within the user's tenants.",
+           "Salaries are only seen and changed within the user's tenants.", "Staff see no salary but their own.",
+           "Staff only read; HR reads and updates the directory and the salaries.", "Salaries are never negative.",
+           "Leaving a tenant never grants access.", "Staff can read their own salary.",
+           "HR can read the salaries of their tenants.", "HR can set a non-negative amount on a salary of their tenants.",
+           "Staff can read the directory of their tenants.", "A user can read their own memberships.",
+           "HR can read the directory of their tenants.", "HR can change the title of an employee of their tenants.",
+           "HR can read their own memberships."]
+CRS_OK = {f"P{i}": "PROVED" for i in range(1, 15)}
+case("cr_own_salary", CRS_REQ, CRS_ENG,
+     spec("own salary: row-dependent column visibility by normalization (D42)", CRS_TABLES, CR_REL, CRS_RULES, CRS_PROPS, roles=("staff", "hr")),
+     CRS_OK)
+case("cr_salary_leak", CRS_REQ.replace("Staff see their own salary record and nobody else's", "Staff see the salary records of their tenants"), CRS_ENG,
+     spec("own salary where staff see every salary of their tenants: the own-salary property fails", CRS_TABLES, CR_REL,
+          [x if x["id"] != "R5" else policy("R5", "staff_salaries", "salaries", "select", using=mem, role="staff", req="staff see salaries") for x in CRS_RULES],
+          CRS_PROPS, roles=("staff", "hr")),
+     {**CRS_OK, "P3": "REFUTED"})
+
 
 # ----------------------------------------------------------------------------- write and verify
 def main() -> int:

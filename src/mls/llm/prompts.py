@@ -42,6 +42,8 @@ triggers, grants).  You never write SQL.
 - cardinality: {"kind": "cardinality", "group": col, "parent": table, "max": N}  at most N rows per group value
 - column_rule: {"kind": "column_rule", "role", "columns": [...], "access": read|write}  the role may read or
   write only these columns of the table (without a column rule the role's policies cover all columns)
+  A column rule is per role, not per row: a column some users may see only on some rows (their own
+  salary) is its own table, one row per parent row, with its own policies; there is no masking construct.
 A role has a privilege on a table only through its policies; a command with no policy is denied.
 One implicit privilege: a role whose policy uses a relation R (member / in_group) can thereby read
 the key and value columns of R's table (the membership lookup runs as the user), and nothing else.

@@ -1,0 +1,41 @@
+{
+ "id": "cr_own_salary",
+ "origin": "seed",
+ "requirements": "Two application roles: staff and hr. Both see the employee directory (id, tenant, user, title) of the tenants they belong to. Every salary is a separate record (employee, tenant, user, amount) whose holder belongs to that tenant. Staff see their own salary record and nobody else's; HR see the salary records of their tenants and set their amounts, and HR may change titles in the directory. Nothing else changes, and nothing is inserted or deleted through the application. Salaries are never negative. Users see their own memberships.",
+ "expected_properties": [
+  "The directory is only seen and changed within the user's tenants.",
+  "Salaries are only seen and changed within the user's tenants.",
+  "Staff see no salary but their own.",
+  "Staff only read; HR reads and updates the directory and the salaries.",
+  "Salaries are never negative.",
+  "Leaving a tenant never grants access.",
+  "Staff can read their own salary.",
+  "HR can read the salaries of their tenants.",
+  "HR can set a non-negative amount on a salary of their tenants.",
+  "Staff can read the directory of their tenants.",
+  "A user can read their own memberships.",
+  "HR can read the directory of their tenants.",
+  "HR can change the title of an employee of their tenants.",
+  "HR can read their own memberships."
+ ],
+ "reference_spec": "specs/cr_own_salary.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED",
+  "P11": "PROVED",
+  "P12": "PROVED",
+  "P13": "PROVED",
+  "P14": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

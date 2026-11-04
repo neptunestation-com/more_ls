@@ -48,7 +48,9 @@ Compiled as `(select now())`.
 | `hierarchy` (group table, parent col, max depth d) | unrolled to depth d | depth column + `CHECK (depth <= d)`, immutable parent (transition), recursive-CTE InitPlan in policies |
 | `opaque` (name, inputs, sql) | uninterpreted predicate | raw SQL, wrapped and named |
 
-Column rules in v1 are per Postgres role, not per row. Row-dependent column masking is v2.
+Column rules are per Postgres role, not per row.  Row-dependent column visibility (a user sees
+their own salary, only the titles of others) is modelled by normalization (D42): the column is its
+own table, one row per parent row, with its own row policies.  MLS has no masking construct.
 
 ### 3.1 Hierarchies (D5, D35)
 

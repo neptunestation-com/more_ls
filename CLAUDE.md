@@ -59,8 +59,9 @@ Read before writing code, in this order:
   fixtures (`tests/templates/specs.py`) derive from the example specs; `test_specs.py` builds and
   checks every one without Docker, so an example edit that breaks a fixture fails in the fast
   suite, not only in the Postgres jobs.
-- Implementation defaults decided during M1 are D21–D27, during M2 D28–D33, during M3 D34–D36, in
-  `docs/DECISIONS.md`.
+- Implementation defaults decided during M1 are D21–D27, during M2 D28–D33, during M3 D34–D36,
+  after M4 D40–D42, in `docs/DECISIONS.md`.  D42: row-dependent column visibility is normalization
+  (the column is its own table with its own policies); there is no masking construct.
 - M4: `uv run mls generate` / `mls eval --llm` (src/mls/llm, docs/LLM.md, D37–D39). Tests never call the
   API: `MLS_LLM_SCRIPT=<json>` or `ScriptedClient` replays answers. `evals/make_cases.py` regenerates
   the seed corpus (the solver must confirm every intended verdict); `mls eval evals/cases --mutate

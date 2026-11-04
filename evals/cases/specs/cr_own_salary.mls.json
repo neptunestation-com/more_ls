@@ -1,0 +1,669 @@
+{
+ "$comment": "own salary: row-dependent column visibility by normalization (D42)",
+ "mls_version": "0.1",
+ "identity": {
+  "adapter": "supabase",
+  "context": {
+   "uid": {
+    "source": "auth.uid",
+    "type": "uuid"
+   }
+  }
+ },
+ "roles": [
+  "staff",
+  "hr"
+ ],
+ "tables": {
+  "memberships": {
+   "columns": {
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "user_id",
+    "tenant_id"
+   ]
+  },
+  "employees": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "title": {
+     "type": "text",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  },
+  "salaries": {
+   "columns": {
+    "employee_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "amount": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "employee_id"
+   ]
+  }
+ },
+ "relations": {
+  "member_of": {
+   "table": "memberships",
+   "key": "user_id",
+   "value": "tenant_id"
+  }
+ },
+ "rules": [
+  {
+   "id": "R1",
+   "kind": "policy",
+   "name": "staff_read",
+   "table": "employees",
+   "role": "staff",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "requirement": "staff see the directory"
+  },
+  {
+   "id": "R2",
+   "kind": "policy",
+   "name": "hr_read",
+   "table": "employees",
+   "role": "hr",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "requirement": "HR sees the directory"
+  },
+  {
+   "id": "R3",
+   "kind": "policy",
+   "name": "hr_update",
+   "table": "employees",
+   "role": "hr",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "check": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "requirement": "HR changes titles"
+  },
+  {
+   "id": "R4",
+   "kind": "column_rule",
+   "name": "hr_write_employees",
+   "table": "employees",
+   "role": "hr",
+   "columns": [
+    "title"
+   ],
+   "access": "write"
+  },
+  {
+   "id": "R5",
+   "kind": "policy",
+   "name": "staff_own_salary",
+   "table": "salaries",
+   "role": "staff",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "user_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   },
+   "requirement": "staff see their own salary only"
+  },
+  {
+   "id": "R6",
+   "kind": "policy",
+   "name": "hr_salaries",
+   "table": "salaries",
+   "role": "hr",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "requirement": "HR sees the salaries of their tenants"
+  },
+  {
+   "id": "R7",
+   "kind": "policy",
+   "name": "hr_set_salary",
+   "table": "salaries",
+   "role": "hr",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "check": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "requirement": "HR sets amounts"
+  },
+  {
+   "id": "R8",
+   "kind": "column_rule",
+   "name": "hr_write_salaries",
+   "table": "salaries",
+   "role": "hr",
+   "columns": [
+    "amount"
+   ],
+   "access": "write"
+  },
+  {
+   "id": "R9",
+   "kind": "check",
+   "name": "amount_non_negative",
+   "table": "salaries",
+   "predicate": {
+    "cmp": [
+     {
+      "col": "amount"
+     },
+     ">=",
+     {
+      "const": 0
+     }
+    ]
+   },
+   "requirement": "salaries are never negative"
+  },
+  {
+   "id": "R10",
+   "kind": "inclusion",
+   "name": "holder_is_member",
+   "table": "salaries",
+   "columns": [
+    "user_id",
+    "tenant_id"
+   ],
+   "relation": "member_of",
+   "on_delete": "restrict",
+   "requirement": "a salary's holder belongs to its tenant"
+  },
+  {
+   "id": "R11",
+   "kind": "policy",
+   "name": "staff_members",
+   "table": "memberships",
+   "role": "staff",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "user_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   },
+   "requirement": "own memberships"
+  },
+  {
+   "id": "R12",
+   "kind": "policy",
+   "name": "hr_members",
+   "table": "memberships",
+   "role": "hr",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "user_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   },
+   "requirement": "own memberships"
+  }
+ ],
+ "properties": [
+  {
+   "id": "P1",
+   "template": "tenant_isolation",
+   "description": "the directory is only seen and changed within the user's tenants",
+   "table": "employees",
+   "column": "tenant_id",
+   "relation": "member_of",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select",
+    "update"
+   ]
+  },
+  {
+   "id": "P2",
+   "template": "tenant_isolation",
+   "description": "salaries are only seen and changed within the user's tenants",
+   "table": "salaries",
+   "column": "tenant_id",
+   "relation": "member_of",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select",
+    "update"
+   ]
+  },
+  {
+   "id": "P3",
+   "template": "custom",
+   "description": "staff see no salary but their own",
+   "table": "salaries",
+   "role": "staff",
+   "command": "select",
+   "which": "new",
+   "goal": {
+    "cmp": [
+     {
+      "col": "user_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P4",
+   "template": "least_privilege",
+   "description": "staff only read; HR reads and updates the directory and the salaries",
+   "allowed": {
+    "staff": {
+     "employees": [
+      "select"
+     ],
+     "salaries": [
+      "select"
+     ],
+     "memberships": [
+      "select"
+     ]
+    },
+    "hr": {
+     "employees": [
+      "select",
+      "update"
+     ],
+     "salaries": [
+      "select",
+      "update"
+     ],
+     "memberships": [
+      "select"
+     ]
+    }
+   }
+  },
+  {
+   "id": "P5",
+   "template": "invariant_preserved",
+   "description": "salaries are never negative",
+   "invariants": [
+    {
+     "rule": "R9"
+    }
+   ]
+  },
+  {
+   "id": "P6",
+   "template": "monotone_in",
+   "description": "leaving a tenant never grants access",
+   "relation": "member_of"
+  },
+  {
+   "id": "P7",
+   "template": "must_allow",
+   "description": "staff read their own salary",
+   "table": "salaries",
+   "role": "staff",
+   "command": "select",
+   "when": {
+    "cmp": [
+     {
+      "col": "user_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P8",
+   "template": "must_allow",
+   "description": "HR read the salaries of their tenants",
+   "table": "salaries",
+   "role": "hr",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P9",
+   "template": "must_allow",
+   "description": "HR set a non-negative amount on a salary of their tenants",
+   "table": "salaries",
+   "role": "hr",
+   "command": "update",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "old": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "new": "employee_id"
+       },
+       "=",
+       {
+        "old": "employee_id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "tenant_id"
+       },
+       "=",
+       {
+        "old": "tenant_id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "user_id"
+       },
+       "=",
+       {
+        "old": "user_id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "amount"
+       },
+       ">=",
+       {
+        "const": 0
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "P10",
+   "template": "must_allow",
+   "description": "staff read the directory of their tenants",
+   "table": "employees",
+   "role": "staff",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P11",
+   "template": "must_allow",
+   "description": "a user reads their own memberships",
+   "table": "memberships",
+   "role": "staff",
+   "command": "select",
+   "when": {
+    "cmp": [
+     {
+      "col": "user_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P12",
+   "template": "must_allow",
+   "description": "HR read the directory of their tenants",
+   "table": "employees",
+   "role": "hr",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P13",
+   "template": "must_allow",
+   "description": "HR change the title of an employee of their tenants",
+   "table": "employees",
+   "role": "hr",
+   "command": "update",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "old": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "new": "id"
+       },
+       "=",
+       {
+        "old": "id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "tenant_id"
+       },
+       "=",
+       {
+        "old": "tenant_id"
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "user_id"
+       },
+       "=",
+       {
+        "old": "user_id"
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "id": "P14",
+   "template": "must_allow",
+   "description": "HR read their own memberships",
+   "table": "memberships",
+   "role": "hr",
+   "command": "select",
+   "when": {
+    "cmp": [
+     {
+      "col": "user_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  }
+ ]
+}

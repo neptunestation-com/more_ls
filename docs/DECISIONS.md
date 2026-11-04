@@ -257,7 +257,7 @@ diff finds nothing.  The layer-by-layer access/integrity diff of Milestone 2 is 
 not decide: enforcing "closed tickets are never modified" as a transition rule instead of a
 restrictive policy is not a mistake (the first live run showed the model doing this routinely),
 although filtered-vs-error outcomes differ.  Other metrics: repair rounds, human escalation rate.
-The 31 seed cases (`evals/make_cases.py`, 11 schema families) are the author's rendering of common
+The 33 seed cases (`evals/make_cases.py`, 11 schema families) are the author's rendering of common
 field patterns, not David's anonymized corpus yet; every intended verdict is confirmed by the
 solver when the generator runs, and a test reproduces the committed files.  The first live run
 showed that this grading measures the requirement text as much as the model: every sentence that
@@ -275,7 +275,7 @@ invariant a property names is detected rather than silently removed from the pro
 case is a repair benchmark: it keeps its base case's requirements, reference and verdicts, carries
 the mutant rules as `start_rules`, and `mls eval --llm --repair` starts the loop from them; the
 loop must end `proved` and net-equivalent to the base reference.  Without `--repair` synthetic
-cases are skipped (they would repeat their base case).  Current corpus: 75 % (197/263) with
+cases are skipped (they would repeat their base case).  Current corpus: 75 % (213/283) with
 `must_allow` properties in every reference (D40); 38 % before them, when the templates were all
 safety properties (upper bounds on access) and removing a grant was rarely caught.  Measured live
 over the 100 cases that existed before D40: 99 proved and net-equivalent after 1.02 repair rounds
@@ -304,7 +304,7 @@ can meet refutes the property, because a liveness property that requires nothing
 (usually a NULL-unsafe condition).  `when` on update ranges over `old`/`new`, a bare column is the
 new image, and the author states the whole change (what changes, what stays).  The properties
 prompt asks for one `must_allow` per grant the requirements state.  Mutation score of the seed
-corpus: 38 % → 75 % (197/263).  What stays undetected is now mostly a mutation that does not change
+corpus: 38 % → 75 % (213/283).  What stays undetected is now mostly a mutation that does not change
 behaviour (a rule redundant with another policy, with the implicit relation grant of D21 or with an
 FK), a cardinality rule reference (not re-based by `portable`), or a grant the author's property
 set does not state.
@@ -336,6 +336,39 @@ ROADMAP.  What the track cannot do: say anything about Postgres itself — the "
 Postgres" of the later steps is our own axiomatization, and the differential tests remain the only
 link to the real thing (D11).  Out of scope on purpose: cardinality limits and hierarchies, whose
 correctness rests on the concurrency test and the cvc5 cross-check.
+
+**D42. Row-dependent column visibility is modelled by normalization; there is no masking
+construct (settles the v2 question of D24, GitHub issue #3).** A column rule is per (role, table);
+"staff see their own salary but only the titles of their colleagues" is per row.  MLS adds no
+construct for it: a column whose visibility depends on the row is its own table — one row per
+parent row, the parent's key as primary key, the columns the row predicate needs (`user_id`,
+`tenant_id`) and, when a property needs the link, an inclusion rule onto the parent's relation —
+with its own row policies; the parent table keeps the columns everyone may see.  Every existing
+layer then covers it with its one meaning: the row predicate is a policy `using`, a column rule on
+the child says who may write it, `custom` and `tenant_isolation` are the upper bound ("staff see no
+salary but their own"), `must_allow` the lower bound, and the net-effect diff, drift and migration
+need nothing new.  Evidence: `cr_own_salary` and `cr_salary_leak` in the eval corpus (every verdict
+confirmed by the solver, the leak refuted with a counterexample, the compiled spec at 0 mismatches
+in the differential test on PG 16); the rules prompt states the modelling rule.
+Rejected: a `security_invoker` view per (role, table) with `CASE WHEN (p) IS TRUE THEN col END`,
+and its filtered variant (`WHERE (p) IS TRUE ... WITH CHECK OPTION`).  Each reason is a conflict
+with a settled decision, not a cost: (1) a masked value is a NULL in a NOT NULL column, and "a
+non-nullable column holds no NULL" is an assumption of the encoder (D41: the FALSE null flag),
+of the Lean soundness theorem, of the differential oracle's value domain and of every proof;
+reads through the view would need a second value domain ("masked") in every predicate a client
+evaluates, and `write_subset_read` / `must_allow` a second meaning of "can read" (invariants 1
+and 2 demand one).  (2) Two relations per table for one role: the role must lose SELECT on the
+base column (or the view is bypassed), so reads go to the view and writes to the table (a CASE
+column is not updatable; an INSERT or UPDATE through the view that assigns it errors), and the
+spec's `tables` would no longer be what the application addresses — grants, drift, migration lock
+modes, `explain` and the harness would all acquire "the relation a role reads", a change to the
+meaning of a table (D15), not a template.  (3) Decidability is not the obstacle (the row
+predicate is a policy predicate); soundness of the filter reading is: Postgres cannot deny a
+column per row, so "no SELECT on the column unless p" has no target but two relations, which is
+the normalization again.  Cost of the decision: the schema is designed for it (D8: MLS owns the
+schema; the language reference tells the model) and a client reads the salary with a join.  If a
+later version needs masking for a schema MLS does not own, it is a new kind of relation ("the view
+a role reads"), to be decided against D15 and D26, not an option on a column rule.
 
 **D33. English rendering is a fixed function of the spec (D10, D15).** `mls explain` and the diff
 and proof reports use `mls/english.py`; the same construct always reads the same way, so a

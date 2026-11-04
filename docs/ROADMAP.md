@@ -66,7 +66,9 @@ score 38 % → 75 %, 194 synthetic repair benchmarks, measured with the `must_al
 187/194 (the 100 that existed before scored 99/100; both in `docs/LLM.md`), and the seed corpus
 at 28/30 (FINDINGS).  Nice to have: a terse human-readable rendering of the JSON syntax
 (`mls explain` renders English; this would be a concrete syntax for predicates and rules, for
-reading transcripts and diffs — not a new input format, D15 stands).
+reading transcripts and diffs — not a new input format, D15 stands).  The last open detail of the
+first roadmap — security-invoker views for row-filtered column masking (D24) — is settled by D42:
+no construct; the column is its own table with its own policies (`cr_own_salary` in the corpus).
 
 ## Parallel track — Lean 4
 
@@ -125,11 +127,3 @@ and the cvc5 cross-check.  The Lean sources mirror the Python structure by hand;
 that mechanically, so a change to `tvl.py`, `effective.py`, `pg/model.py`, the assumption
 builders in `obligations.py` or the CHECK/FK/transition templates must be carried to
 `lean/MLS` (CLAUDE.md).
-
-## Open details
-
-Of the four questions this section once listed, three are settled: the JSON shape (D23), lock
-levels observed per statement on PG 15–18 (D29), and direct database connections by untrusted
-clients, which are out of scope under the trust model of D1.  One remains, deferred to v2 by D24:
-whether column rules need security-invoker views for roles that also need row filtering
-(row-filtered column masking) — GitHub issue #3.

@@ -56,7 +56,7 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
 - Removing the seller-immutability transition of the marketplace case does **not** refute
   `column_immutable(seller_id)`: the update policy pins `seller_id` to the user on both row images,
   so the solver proves immutability from the policies alone.  Only a hand-over rule breaks it.
-- Mutation score of the property templates over the seed corpus: 75 % (197 of 263 mutants) once every
+- Mutation score of the property templates over the seed corpus: 75 % (213 of 283 mutants) once every
   reference carries `must_allow` properties (D40); 38 % with safety templates only (32 % before
   properties were re-based on predicates, which lost the FK and CHECK invariants of dropped rules;
   45 % while a mutant that merely *fixed* a planted leak — a refuted property turning proved — was

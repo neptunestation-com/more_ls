@@ -76,9 +76,9 @@ check (`expected_check_errors`) are checker cases and are skipped by `--llm`.
 | mean_repair_rounds | repair requests per case |
 | human_escalation_rate | cases ending with at least one escalation |
 
-The corpus: 31 seed cases in 11 schema families (`evals/make_cases.py`; 30 are generation cases,
+The corpus: 33 seed cases in 11 schema families (`evals/make_cases.py`; 32 are generation cases,
 one is a checker case) and the solver-graded mutants of every seed case (`evals/cases/synthetic`,
-197 cases, mutation score 75 %; a mutant counts as detected when a property the base proves no
+213 cases, mutation score 75 %; a mutant counts as detected when a property the base proves no
 longer proves — the lower-bound template `must_allow` (D40) is what makes a dropped grant count).
 
 ## Measured (`claude-opus-5-5`, effort high, max 3 repairs)
