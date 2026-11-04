@@ -126,9 +126,10 @@ that mechanically, so a change to `tvl.py`, `effective.py`, `pg/model.py`, the a
 builders in `obligations.py` or the CHECK/FK/transition templates must be carried to
 `lean/MLS` (CLAUDE.md).
 
-## Open details (decide during implementation, record in DECISIONS.md)
+## Open details
 
-- Exact JSON shape (keep it explicit: no defaults for permissive/restrictive, command, NULL handling).
-- How the Supabase adapter detects or documents direct-connection exposure.
-- Whether column rules need security-invoker views for roles that also need row filtering.
-- Lock levels of each DDL statement on PG 15–18 (test, don't assume).
+Of the four questions this section once listed, three are settled: the JSON shape (D23), lock
+levels observed per statement on PG 15–18 (D29), and direct database connections by untrusted
+clients, which are out of scope under the trust model of D1.  One remains, deferred to v2 by D24:
+whether column rules need security-invoker views for roles that also need row filtering
+(row-filtered column masking) — GitHub issue #3.
