@@ -6,7 +6,8 @@ how well it does that on the corpus in `evals/cases`.
 ## What happens
 
 1. **Pass 1 — properties.** The model gets the language reference, the fixed skeleton (identity,
-   roles, tables, relations, hierarchies, opaques) and the JSON Schema of `{"properties": [...],
+   roles, tables, relations, hierarchies, opaques; the spec's `$comment` is an author's note and is
+   not shown) and the JSON Schema of `{"properties": [...],
    "notes": ""}`, then the requirements.  It answers with properties and their plain-English
    descriptions: the approval artifact (D10).
 2. **Pass 2 — rules.** Same material, the schema of `{"rules": [...], "notes": ""}`, the same
@@ -99,23 +100,35 @@ failures: the marketplace hand-over case, where the model pins the listing id by
 so, and the case passes when rerun on its own (0 repair rounds).  Both were visible only as net-effect differences, with the reference properties
 holding.
 
-Repair benchmark (`--repair`, all 100 synthetic cases, same model and settings):
+Repair benchmark (`--repair`, every synthetic case, same model and settings):
 
-| Metric | Synthetic corpus (100 cases) |
-|---|---|
-| outcome_match_rate | 1.0 |
-| spec_correctness_rate | 0.99 |
-| net_equivalence_rate | 0.99 |
-| reference_properties_hold_rate | 1.0 |
-| mean_repair_rounds | 1.02 (98 cases one round, 2 cases two) |
-| human_escalation_rate | 0.0 |
+| Metric | 2026-11-02, 100 cases, before `must_allow` | 2026-11-03, 194 cases, with `must_allow` (D40 as amended) |
+|---|---|---|
+| outcome_match_rate | 1.0 | 1.0 |
+| spec_correctness_rate | 0.99 | 0.96 (187/194) |
+| net_equivalence_rate | 0.99 | 0.96 |
+| reference_properties_hold_rate | 1.0 | 0.98 |
+| mean_repair_rounds | 1.02 (98 cases one round, 2 cases two) | 1.07 (181 one round, 12 two, 1 three) |
+| human_escalation_rate | 0.0 | 0.0 |
 
 The mutant rules refute the model's properties and the counterexample in English is enough for
-the repair.  The one failure is a judgement call the net diff makes visible: the model's property
-set pinned the listing id and its repair enforced it, while the reference leaves the key writable
-because the text says nothing about it (FINDINGS).  202 API calls, about 529k output tokens,
-218k input tokens plus 1.2M cache reads.  The run also removed 16 synthetic cases whose mutation had
-only dropped a planted leak (nothing to repair; see D39).
+the repair.  The 2026-11-02 run (202 API calls, about 529k output tokens, 218k input tokens plus
+1.2M cache reads) had one failure, a judgement call the net diff makes visible: the model's
+property set pinned the listing id and its repair enforced it, while the reference leaves the key
+writable because the text says nothing about it (FINDINGS).  The run also removed 16 synthetic
+cases whose mutation had only dropped a planted leak (nothing to repair; see D39).
+
+The 2026-11-03 run (402 API calls, about 1.24M output tokens) had seven failures, none a wrong
+proof or an escalation: two are the listing-id judgement call again (both marketplace hand-over
+mutants); one was a corpus leak — the skeleton carried the spec's `$comment`, which for a
+bad-reference case names the planted defect ("classroom where students see unpublished
+assignments"), and the model duly fixed the leak instead of reproducing it (the comment is no
+longer shown); four were sentences that admit two readings, which the model's notes named
+exactly: whether an invite may be created already expired (twice: write ⊆ read says no, the
+reference said nothing), whether an assignee may hand a task over, and whether "see which groups
+they belong to" is about the groups table or the membership rows.  The texts now say (FINDINGS),
+and the five mutants plus the six seed cases of those families were rerun on their own: all
+eleven pass (the mutants in one round, the seeds in none; 22 API calls).
 
 After these runs the properties prompt gained `must_allow` (D40).  The first re-measurement
 (2026-11-03, same model and settings) scored 24/30: outcome match 0.87, spec correctness 0.80,
@@ -124,8 +137,7 @@ defect in D40's first semantics — the written image's CHECKs were part of the 
 bound that did not restate them was refuted by a CHECK and the rules pass escalated or dropped
 the CHECK (FINDINGS) — one was the primary-key judgement call of the repair benchmark, and one a
 reading of "may move it to any project".  D40 was amended (the written row is assumed valid) and
-the corpus re-measured: the table above.  The repair benchmark (below) has not been re-run with
-the `must_allow` prompt.
+the corpus re-measured: the table above; then the repair benchmark, also above.
 
 Seed run: 63 API calls, about 158k output tokens and 87k input tokens (most of them cache reads).
 This is the third run: the first two found a schema-decoding problem (D37), ambiguous requirement

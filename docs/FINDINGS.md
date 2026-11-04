@@ -136,3 +136,21 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
   immutability transition changes nothing because the update policy pins the seller on both images.
   The rest are cardinality rule references (not re-based) and grants the author's property sets
   do not state (own-group reads in the org tree, the admin read of the pg_roles example).
+- The full repair benchmark with the `must_allow` prompt (194 mutants, 2026-11-03): 187 ended
+  proved and net-equivalent to the base reference, none escalated, 1.07 repair rounds on average.
+  The seven failures (none a wrong proof): the listing-id judgement call twice; one corpus leak —
+  the skeleton the model is given carried the spec's `$comment`, which for every bad-reference
+  case names the planted defect ("classroom where students see unpublished assignments"), and the
+  model's notes cite the "schema comment" as its reason for restricting students to published
+  assignments, i.e. for fixing the leak the case exists to keep.  The comment is no longer part of
+  the prompt.  The other four were sentences the model's notes flagged as read one way where the
+  reference meant the other: "may carry an expiry time" (may an invite be created already
+  expired? the model's write ⊆ read property said no, the reference allowed it — the text now says
+  the expiry must still lie ahead at creation and the reference requires it), "only the assignee
+  may update a task" (may they hand it over or unassign it? the reference says yes, the text now
+  says so) and "users may see which groups they belong to" (the groups table, as the reference
+  reads it, or the membership rows, as the model read it in this run; the text now names the
+  groups).  Rerun on the corrected corpus, the five mutants and the six seed cases of those
+  families all pass (one repair round for the mutants, none for the seeds).  Same lesson as the
+  seed corpus: a run's failures are read before they are counted, and the fix goes into the text,
+  not the model.

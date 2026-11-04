@@ -60,11 +60,11 @@ Acceptance:
 Implemented (D37–D39, `docs/LLM.md`) and measured live: 30/30 seed generation cases correct
 after the first run's findings were fixed in the corpus (`docs/LLM.md`, FINDINGS).  Open: replace
 the author's seed cases with David's anonymized corpus (the measured number is bounded by the
-quality of the author's requirement texts); re-run the repair benchmark with the `must_allow`
-prompt (the seed corpus has been: 28/30, FINDINGS).  Done since the first measurement:
-`must_allow`, the lower-bound template (D40, amended after its first live run), in every reference
-— mutation score 38 % → 75 %, 194 synthetic repair benchmarks (the 100 that existed before:
-99/100, see `docs/LLM.md`).  Nice to have: a terse human-readable rendering of the JSON syntax
+quality of the author's requirement texts).  Done since the first measurement: `must_allow`,
+the lower-bound template (D40, amended after its first live run), in every reference — mutation
+score 38 % → 75 %, 194 synthetic repair benchmarks, measured with the `must_allow` prompt at
+187/194 (the 100 that existed before scored 99/100; both in `docs/LLM.md`), and the seed corpus
+at 28/30 (FINDINGS).  Nice to have: a terse human-readable rendering of the JSON syntax
 (`mls explain` renders English; this would be a concrete syntax for predicates and rules, for
 reading transcripts and diffs — not a new input format, D15 stands).
 

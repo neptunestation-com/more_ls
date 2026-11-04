@@ -3,7 +3,7 @@
  "origin": "synthetic",
  "base_case": "pj_owner_closes",
  "mutation": "loosen_using:R3",
- "requirements": "Projects have members (project_members). Members see the tasks of their projects and may add tasks to them. A task may be assigned to a user, who must be a member of the task's project; only the assignee may update a task, and it stays in a project the assignee belongs to. Nobody deletes tasks. Additionally a project owner (owners are recorded in task_owners and must be members of the project) may delete tasks of their project.",
+ "requirements": "Projects have members (project_members). Members see the tasks of their projects and may add tasks to them. A task may be assigned to a user, who must be a member of the task's project; only the assignee may update a task (including handing it to another member or unassigning it), and it stays in a project the updating assignee belongs to. Nobody deletes tasks. Additionally a project owner (owners are recorded in task_owners and must be members of the project) may delete tasks of their project.",
  "expected_properties": [
   "Tasks are only seen, added and changed by members of their project.",
   "Only the assignee updates a task.",

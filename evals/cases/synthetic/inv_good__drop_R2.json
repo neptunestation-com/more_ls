@@ -3,7 +3,7 @@
  "origin": "synthetic",
  "base_case": "inv_good",
  "mutation": "drop:R2",
- "requirements": "Members of a tenant may invite others: an invite belongs to the tenant, records who created it and may carry an expiry time. Members see the invites of their tenants, but never an expired one. Only the inviter, while still a member of the tenant, may revoke (delete) an invite. Invites are never edited.",
+ "requirements": "Members of a tenant may invite others: an invite belongs to the tenant, records who created it and may carry an expiry time, which must still lie ahead when the invite is created. Members see the invites of their tenants, but never an expired one. Only the inviter, while still a member of the tenant, may revoke (delete) an invite. Invites are never edited.",
  "expected_properties": [
   "Invites are only seen, created and revoked within the member's tenants.",
   "An expired invite is never visible.",
@@ -11,7 +11,7 @@
   "Leaving a tenant never grants access.",
   "The application role may only select/insert/delete invites and select memberships.",
   "A member can read the unexpired invites of their tenants.",
-  "A member can create an invite in their own name.",
+  "A member can create an unexpired invite in their own name.",
   "The inviter, while a member, can revoke their invite."
  ],
  "reference_spec": {
@@ -118,7 +118,7 @@
     "id": "R2",
     "name": "member_invite",
     "table": "invites",
-    "requirement": "members invite",
+    "requirement": "members invite, never an already expired one",
     "kind": "policy",
     "role": "authenticated",
     "command": "insert",
@@ -146,6 +146,13 @@
          "ctx": "uid"
         }
        ]
+      },
+      {
+       "now_between": {
+        "until": {
+         "col": "expires_at"
+        }
+       }
       }
      ]
     }
@@ -295,7 +302,7 @@
    },
    {
     "id": "P7",
-    "description": "a member creates an invite in their own name",
+    "description": "a member creates an unexpired invite in their own name",
     "template": "must_allow",
     "table": "invites",
     "role": "authenticated",
@@ -323,6 +330,13 @@
          "ctx": "uid"
         }
        ]
+      },
+      {
+       "now_between": {
+        "until": {
+         "col": "expires_at"
+        }
+       }
       }
      ]
     }

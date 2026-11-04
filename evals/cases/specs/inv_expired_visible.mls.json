@@ -113,10 +113,18 @@
         "ctx": "uid"
        }
       ]
+     },
+     {
+      "now_between": {
+       "from": null,
+       "until": {
+        "col": "expires_at"
+       }
+      }
      }
     ]
    },
-   "requirement": "members invite"
+   "requirement": "members invite, never an already expired one"
   },
   {
    "id": "R3",
@@ -266,7 +274,7 @@
   {
    "id": "P7",
    "template": "must_allow",
-   "description": "a member creates an invite in their own name",
+   "description": "a member creates an unexpired invite in their own name",
    "table": "invites",
    "role": "authenticated",
    "command": "insert",
@@ -293,6 +301,14 @@
         "ctx": "uid"
        }
       ]
+     },
+     {
+      "now_between": {
+       "from": null,
+       "until": {
+        "col": "expires_at"
+       }
+      }
      }
     ]
    }

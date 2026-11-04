@@ -3,7 +3,7 @@
  "origin": "synthetic",
  "base_case": "org_good",
  "mutation": "drop:R1",
- "requirements": "Users belong to groups; groups form a tree at most 3 levels deep (a group has at most one parent, which never changes). A user may read, create and update the files of the groups they belong to and of every group below those. Users may see which groups they belong to (directly or below). A tenant holds at most 5 files. File sizes are never negative.",
+ "requirements": "Users belong to groups; groups form a tree at most 3 levels deep (a group has at most one parent, which never changes). A user may read, create and update the files of the groups they belong to and of every group below those. Users may see the groups they belong to and every group below those. A tenant holds at most 5 files. File sizes are never negative.",
  "expected_properties": [
   "A user only reads files of groups they belong to or that lie below them.",
   "Leaving a group never grants access.",

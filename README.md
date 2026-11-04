@@ -65,14 +65,16 @@ Milestones 1 (core loop, no LLM), 2 (`diff | migrate | preflight | drift`, Engli
 3 (group hierarchies with `in_group`, cardinality limits with a parent-row lock, full opaque-block
 reporting) and 4 (the LLM loop with bounded repair and human escalation, the evaluation corpus with
 solver-graded mutants; `docs/LLM.md`) are implemented.  Measured live with `claude-opus-5-5`
-on the 30 generation cases of the seed corpus: every case ends proved, net-equivalent to its
-reference and with the reference properties' expected verdicts (3 cases needed one repair round,
-none was escalated); on the 100 synthetic repair benchmarks (the loop starts from mutated rules)
-99 end proved and net-equivalent after about one repair round.  Properties state both bounds:
+on the 30 generation cases of the seed corpus: 28 end proved, net-equivalent to their
+reference and with the reference properties' expected verdicts (4 cases needed one repair round,
+none was escalated); on the 194 synthetic repair benchmarks (the loop starts from mutated rules)
+187 end proved and net-equivalent after about one repair round.  Properties state both bounds:
 the safety templates say what a role may never do, `must_allow` says what it must be able to do
-(D40), and the solver-graded mutation score of the corpus's property sets is 75 %.  The seed cases are the author's rendering of common patterns, and that
-number is as much a statement about their requirement texts as about the model: see
-`docs/FINDINGS.md` for what the first run found and `docs/LLM.md` for how grading works.
+(D40), and the solver-graded mutation score of the corpus's property sets is 75 %.  The seed
+cases are the author's rendering of common patterns, and those numbers are as much a statement
+about their requirement texts as about the model (every failure so far was read before it was
+counted, and most were a sentence with two readings or a defect in the author's reference): see
+`docs/FINDINGS.md` for what the runs found and `docs/LLM.md` for how grading works.
 The Lean 4 track (`lean/`, no Mathlib) covers the three-valued logic, the pair encoding, the
 predicate encoder (proved sound against the SQL meaning of every construct of the verified
 fragment, `in_group` included), Postgres policy combination (a row is admitted iff some

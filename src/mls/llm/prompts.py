@@ -90,7 +90,10 @@ doubt about the requirements in "notes".  Answer with JSON only, matching the ou
 def system_prompt(role: str, skeleton: dict, schema: dict) -> str:
     return "\n\n".join([
         role, LANGUAGE,
-        "# The schema (tables, relations, hierarchies, identity, roles) is fixed:\n" + json.dumps(skeleton, indent=1),
+        "# The schema (tables, relations, hierarchies, identity, roles) is fixed:\n"
+        # `$comment` is the author's note on the spec, not part of the schema: in the eval corpus it
+        # names the case (and, for a bad reference, the planted defect), so the model never sees it.
+        + json.dumps({k: v for k, v in skeleton.items() if k != "$comment"}, indent=1),
         "# Output JSON Schema:\n" + json.dumps(schema, separators=(",", ":")),
     ])
 

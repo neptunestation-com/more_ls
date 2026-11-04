@@ -199,7 +199,7 @@ case("td_tenant_move",
 ORG = json.loads((ROOT / "examples" / "org_tree.mls.json").read_text())
 ORG_REQ = ("Users belong to groups; groups form a tree at most 3 levels deep (a group has at most one parent, "
            "which never changes). A user may read, create and update the files of the groups they belong to "
-           "and of every group below those. Users may see which groups they belong to (directly or below). "
+           "and of every group below those. Users may see the groups they belong to and every group below those. "
            "A tenant holds at most 5 files. File sizes are never negative.")
 ORG_PROPS = ["A user only reads files of groups they belong to or that lie below them.",
              "Leaving a group never grants access.",
@@ -230,7 +230,7 @@ d["properties"][0] = custom("P1", "a user only reads files of groups they are a 
 d["properties"][4]["allowed"]["authenticated"]["group_members"] = ["select"]
 case("org_direct_only",
      ORG_REQ.replace("of the groups they belong to and of every group below those", "of exactly the groups they belong to")
-     .replace("Users may see which groups they belong to (directly or below).", "Users may see the groups they belong to."),
+     .replace("Users may see the groups they belong to and every group below those.", "Users may see the groups they belong to."),
      ["A user only reads files of groups they are a direct member of."] + ORG_PROPS[1:],
      d, {f"P{i}": "PROVED" for i in range(1, 8)})
 
@@ -333,7 +333,8 @@ PJ_PROPS = [
 ]
 PJ_REQ = ("Projects have members (project_members). Members see the tasks of their projects and may add tasks to them. "
           "A task may be assigned to a user, who must be a member of the task's project; only the assignee may update "
-          "a task, and it stays in a project the assignee belongs to. Nobody deletes tasks.")
+          "a task (including handing it to another member or unassigning it), and it stays in a project the "
+          "updating assignee belongs to. Nobody deletes tasks.")
 PJ_ENG = ["Tasks are only seen, added and changed by members of their project.", "Only the assignee updates a task.",
           "Leaving a project never grants access.", "An assignee is always a member of the task's project.",
           "Whatever is written can be read back.", "The application role may only select/insert/update tasks and select project_members.",
@@ -343,7 +344,8 @@ PJ_OK = {f"P{i}": "PROVED" for i in range(1, 10)}
 case("pj_good", PJ_REQ, PJ_ENG, spec("projects, members, assignees", PJ_TABLES, PJ_REL, PJ_RULES, PJ_PROPS), PJ_OK)
 case("pj_assignee_outsider",
      PJ_REQ.replace(", who must be a member of the task's project", ", who need not be a member of the project")
-     .replace(", and it stays in a project the assignee belongs to", ", and may move it to any project; the task keeps its assignee"), PJ_ENG,
+     .replace(" (including handing it to another member or unassigning it), and it stays in a project the updating assignee belongs to",
+              ", and may move it to any project; the task keeps its assignee"), PJ_ENG,
      spec("projects where the assignee need not be a member and updates only check the assignee", PJ_TABLES, PJ_REL,
           [policy("R1", "member_read", "tasks", "select", using=pm), policy("R2", "member_insert", "tasks", "insert", check=pm),
            policy("R3", "assignee_update", "tasks", "update", using=assignee, check=assignee)],
@@ -376,7 +378,8 @@ mem = member("member_of", "tenant_id")
 live = now_between(None, col("expires_at"))
 INV_RULES = [
     policy("R1", "member_read_live", "invites", "select", using=and_(mem, live), req="members see unexpired invites"),
-    policy("R2", "member_invite", "invites", "insert", check=and_(mem, eq(col("inviter_id"), ctx("uid"))), req="members invite"),
+    policy("R2", "member_invite", "invites", "insert", check=and_(mem, eq(col("inviter_id"), ctx("uid")), live),
+           req="members invite, never an already expired one"),
     policy("R3", "inviter_revoke", "invites", "delete", using=and_(mem, eq(col("inviter_id"), ctx("uid"))), req="inviters revoke"),
 ]
 INV_PROPS = [
@@ -388,18 +391,19 @@ INV_PROPS = [
     least_privilege("P5", "only select/insert/delete on invites and select on memberships",
                     {"authenticated": {"invites": ["select", "insert", "delete"], "memberships": ["select"]}}),
     must_allow("P6", "a member reads the unexpired invites of their tenants", "invites", "authenticated", "select", and_(mem, live)),
-    must_allow("P7", "a member creates an invite in their own name", "invites", "authenticated", "insert",
-               and_(mem, eq(col("inviter_id"), ctx("uid")))),
+    must_allow("P7", "a member creates an unexpired invite in their own name", "invites", "authenticated", "insert",
+               and_(mem, eq(col("inviter_id"), ctx("uid")), live)),
     must_allow("P8", "the inviter, while a member, revokes their invite", "invites", "authenticated", "delete",
                and_(mem, eq(col("inviter_id"), ctx("uid")))),
 ]
 INV_REQ = ("Members of a tenant may invite others: an invite belongs to the tenant, records who created it and may carry "
-           "an expiry time. Members see the invites of their tenants, but never an expired one. Only the inviter, while "
+           "an expiry time, which must still lie ahead when the invite is created. Members see the invites of their tenants, "
+           "but never an expired one. Only the inviter, while "
            "still a member of the tenant, may revoke (delete) an invite. Invites are never edited.")
 INV_ENG = ["Invites are only seen, created and revoked within the member's tenants.", "An expired invite is never visible.",
            "Only the inviter revokes an invite.", "Leaving a tenant never grants access.",
            "The application role may only select/insert/delete invites and select memberships.",
-           "A member can read the unexpired invites of their tenants.", "A member can create an invite in their own name.",
+           "A member can read the unexpired invites of their tenants.", "A member can create an unexpired invite in their own name.",
            "The inviter, while a member, can revoke their invite."]
 INV_OK = {f"P{i}": "PROVED" for i in range(1, 9)}
 case("inv_good", INV_REQ, INV_ENG, spec("time-bounded invites", INV_TABLES, INV_REL, INV_RULES, INV_PROPS), INV_OK)
