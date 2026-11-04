@@ -67,33 +67,49 @@ Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 
 
 ## Status
 
-Milestones 1 (core loop, no LLM), 2 (`diff | migrate | preflight | drift`, English rendering),
-3 (group hierarchies with `in_group`, cardinality limits with a parent-row lock, full opaque-block
-reporting) and 4 (the LLM loop with bounded repair and human escalation, the evaluation corpus with
-solver-graded mutants; `docs/LLM.md`) are implemented.  Measured live with `claude-opus-5-5`
-on the 30 generation cases of the seed corpus: 28 end proved, net-equivalent to their
-reference and with the reference properties' expected verdicts (4 cases needed one repair round,
-none was escalated); on the 194 synthetic repair benchmarks (the loop starts from mutated rules)
-187 end proved and net-equivalent after about one repair round.  Properties state both bounds:
-the safety templates say what a role may never do, `must_allow` says what it must be able to do
-(D40), and the solver-graded mutation score of the corpus's property sets is 75 %.  The seed
-cases are the author's rendering of common patterns, and those numbers are as much a statement
-about their requirement texts as about the model (every failure so far was read before it was
-counted, and most were a sentence with two readings or a defect in the author's reference): see
-`docs/FINDINGS.md` for what the runs found and `docs/LLM.md` for how grading works.
-The Lean 4 track (`lean/`, no Mathlib) covers the three-valued logic, the pair encoding, the
-predicate encoder (proved sound against the SQL meaning of every construct of the verified
-fragment, `in_group` included), Postgres policy combination (a row is admitted iff some
-permissive policy is TRUE on it and every restrictive one is), and the statement outcomes of the
-semantics: every executed statement satisfies what the proofs assume, and without column reads
-it is executed exactly when the net-effect predicate admits it.  The NULL normalization is a
-theorem too: with `IS TRUE`, RLS, CHECK and triggers admit the same rows, and without it they
-disagree exactly on UNKNOWN.  Against a small relational model, the CHECK, FK and transition
-templates keep their invariants under every statement, the RESTRICT guard the proofs assume is
-the one the FK enforces, and the induction step the solver discharges for the written row is
-enough for the state.  The compiled hierarchy helper computes `in_group` (descending from the
-user's groups meets the walk up from the row's group), and the cardinality trigger keeps its
-bound over a bag of rows when the writers of a group are serialized — which is what the
-parent-row lock is assumed to provide.  The transcription is checked against the Python by
-generated test vectors: the evaluator, the encoder and the oracle on the same data, as
-`#guard`s in the Lean build.
+Alpha (0.1).  All four milestones of `docs/ROADMAP.md` are implemented:
+
+1. the core loop: check, prove, compile, differential test, with no LLM;
+2. evolution: `diff`, `migrate`, `preflight`, `drift`, and the English rendering;
+3. the harder constructs: group hierarchies with `in_group`, cardinality limits with a
+   parent-row lock, full opaque-block reporting;
+4. the LLM loop with bounded repair and human escalation, and the evaluation corpus with
+   solver-graded mutants (`docs/LLM.md`).
+
+### Measured with `claude-opus-5-5`
+
+- **Seed corpus, 30 generation cases:** 28 end proved, net-equivalent to their reference and with
+  the reference properties' expected verdicts.  4 cases needed one repair round; none was
+  escalated.
+- **Repair benchmark, 194 synthetic cases** (the loop starts from mutated rules): 187 end proved
+  and net-equivalent after about one repair round.
+- **Mutation score of the corpus's property sets: 75 %.**  Properties state both bounds: the
+  safety templates say what a role may never do, `must_allow` says what it must be able to do
+  (D40).
+
+The seed cases are the author's rendering of common patterns, so these numbers are as much a
+statement about their requirement texts as about the model.  Every failure so far was read
+before it was counted, and most were a sentence with two readings or a defect in the author's
+reference.  `docs/FINDINGS.md` records what the runs found; `docs/LLM.md` explains the grading.
+
+### The Lean 4 track
+
+`lean/` (core Lean, no Mathlib) formalizes the semantics and proves, among other things:
+
+- the three-valued logic, the pair encoding and the predicate encoder are sound against the SQL
+  meaning of every construct of the verified fragment, `in_group` included;
+- Postgres policy combination: a row is admitted iff some permissive policy is TRUE on it and
+  every restrictive one is;
+- the statement outcomes: every executed statement satisfies what the proofs assume, and
+  without column reads it is executed exactly when the net-effect predicate admits it;
+- the NULL normalization: with `IS TRUE`, RLS, CHECK and triggers admit the same rows, and
+  without it they disagree exactly on UNKNOWN;
+- against a small relational model, the CHECK, FK and transition templates keep their invariants
+  under every statement, the RESTRICT guard the proofs assume is the one the FK enforces, and
+  the induction step the solver discharges for the written row is enough for the state;
+- the compiled hierarchy helper computes `in_group` (descending from the user's groups meets the
+  walk up from the row's group), and the cardinality trigger keeps its bound over a bag of rows
+  when the writers of a group are serialized, which is what the parent-row lock provides.
+
+The transcription is checked against the Python by generated test vectors: the evaluator, the
+encoder and the oracle on the same data, as `#guard`s in the Lean build.
