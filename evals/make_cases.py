@@ -442,6 +442,7 @@ MK_RULES = [
     check("R6", "price_non_negative", "listings", cmp(col("price"), ">=", const(0)), req="prices"),
     policy("R7", "buyer_read", "orders", "select", using=buyer, req="buyers see their orders"),
     policy("R8", "buyer_order", "orders", "insert", check=buyer, req="buyers order"),
+    immutable("R9", "id_immutable", "listings", "id"),
 ]
 price_ok = cmp(col("price"), ">=", const(0))
 MK_PROPS = [
@@ -460,17 +461,18 @@ MK_PROPS = [
                and_(eq(old("seller_id"), ctx("uid")), *same("id", "seller_id", "status"), cmp(new("price"), ">=", const(0)))),
     must_allow("P12", "a buyer places an order in their own name", "orders", "authenticated", "insert", buyer),
     must_allow("P13", "a buyer reads their own orders", "orders", "authenticated", "select", buyer),
+    col_immutable("P14", "a listing's id never changes", "listings", "id"),
 ]
 MK_REQ = ("Sellers create listings with a status and a price; a listing's seller never changes and prices are never "
           "negative. Every signed-in user sees active listings; sellers also see and edit their own listings whatever "
-          "the status. Buyers place orders on listings and see only their own orders. Nothing is deleted.")
+          "the status, but a listing keeps its id. Buyers place orders on listings and see only their own orders. Nothing is deleted.")
 MK_ENG = ["A listing is visible only when active or to its seller.", "A listing's seller never changes.",
           "Prices are never negative.", "An order is visible only to its buyer.", "Only the seller changes a listing.",
           "Whatever is written can be read back.", "The application role may only select/insert/update listings and select/insert orders.",
           "Every signed-in user can read active listings.", "A seller can read their own listings.",
           "A seller can create a listing with a non-negative price.", "A seller can reprice their listing.",
-          "A buyer can place an order in their own name.", "A buyer can read their own orders."]
-MK_OK = {f"P{i}": "PROVED" for i in range(1, 14)}
+          "A buyer can place an order in their own name.", "A buyer can read their own orders.", "A listing's id never changes."]
+MK_OK = {f"P{i}": "PROVED" for i in range(1, 15)}
 case("mk_good", MK_REQ, MK_ENG, spec("marketplace", MK_TABLES, {}, MK_RULES, MK_PROPS), MK_OK)
 case("mk_price_unchecked", MK_REQ.replace(" and prices are never negative", ""), MK_ENG,
      spec("marketplace without the price check", MK_TABLES, {}, [x for x in MK_RULES if x["id"] != "R6"], MK_PROPS),

@@ -78,7 +78,7 @@ check (`expected_check_errors`) are checker cases and are skipped by `--llm`.
 
 The corpus: 31 seed cases in 11 schema families (`evals/make_cases.py`; 30 are generation cases,
 one is a checker case) and the solver-graded mutants of every seed case (`evals/cases/synthetic`,
-194 cases, mutation score 75 %; a mutant counts as detected when a property the base proves no
+197 cases, mutation score 75 %; a mutant counts as detected when a property the base proves no
 longer proves — the lower-bound template `must_allow` (D40) is what makes a dropped grant count).
 
 ## Measured (`claude-opus-5-5`, effort high, max 3 repairs)
@@ -128,7 +128,14 @@ exactly: whether an invite may be created already expired (twice: write ⊆ read
 reference said nothing), whether an assignee may hand a task over, and whether "see which groups
 they belong to" is about the groups table or the membership rows.  The texts now say (FINDINGS),
 and the five mutants plus the six seed cases of those families were rerun on their own: all
-eleven pass (the mutants in one round, the seeds in none; 22 API calls).
+eleven pass (the mutants in one round, the seeds in none; 22 API calls).  The listing-id
+judgement call was then settled the same way, after it had recurred in three runs: the text says
+a listing keeps its id and the marketplace references pin it (a transition rule and a
+`column_immutable` property; three new mutants, 197 in all).  The whole family rerun — 3 seeds,
+23 mutants, 55 API calls — scores 25/26: the one failure is a new choice of the model's, named
+in its own notes as such (a transition rule that lets a hand-over change nothing but the seller,
+"drop R11 if combined edit-and-handover in one update must be allowed"); the text does not
+suggest it and was left alone.
 
 After these runs the properties prompt gained `must_allow` (D40).  The first re-measurement
 (2026-11-03, same model and settings) scored 24/30: outcome match 0.87, spec correctness 0.80,

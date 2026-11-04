@@ -56,7 +56,7 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
 - Removing the seller-immutability transition of the marketplace case does **not** refute
   `column_immutable(seller_id)`: the update policy pins `seller_id` to the user on both row images,
   so the solver proves immutability from the policies alone.  Only a hand-over rule breaks it.
-- Mutation score of the property templates over the seed corpus: 75 % (194 of 260 mutants) once every
+- Mutation score of the property templates over the seed corpus: 75 % (197 of 263 mutants) once every
   reference carries `must_allow` properties (D40); 38 % with safety templates only (32 % before
   properties were re-based on predicates, which lost the FK and CHECK invariants of dropped rules;
   45 % while a mutant that merely *fixed* a planted leak — a refuted property turning proved — was
@@ -116,8 +116,12 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
   judgement call, not a wrong proof: the model's own property set said "a listing's id never
   changes" and its repair added that transition rule; the marketplace reference lets a seller
   rewrite the primary key because the requirement text says nothing about it.  The net diff reports
-  exactly that (updates the reference allows, the repaired rules deny).  Left as is: making every
-  reference pin its keys would be tuning the corpus to one run's choice.
+  exactly that (updates the reference allows, the repaired rules deny).  Left as is at first:
+  making every reference pin its keys would have been tuning the corpus to one run's choice.
+  When the same choice recurred in three runs (two seed runs, the 194-case benchmark) it was no
+  longer one run's: the text now says a listing keeps its id, the references pin it, and the
+  family passes 25/26 when rerun — the remaining failure is a different invention of the model's
+  (a hand-over may change nothing but the seller), flagged as optional in its own notes.
 - `must_allow` (D40) sees what the safety templates could not: on the help-desk reference with the
   old bug (restrictive policy without WITH CHECK) "an agent of the ticket's organization closes an
   open ticket" is refuted with the exact scenario, and dropping any grant of a reference is refuted

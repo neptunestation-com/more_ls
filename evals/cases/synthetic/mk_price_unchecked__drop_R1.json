@@ -3,7 +3,7 @@
  "origin": "synthetic",
  "base_case": "mk_price_unchecked",
  "mutation": "drop:R1",
- "requirements": "Sellers create listings with a status and a price; a listing's seller never changes. Every signed-in user sees active listings; sellers also see and edit their own listings whatever the status. Buyers place orders on listings and see only their own orders. Nothing is deleted.",
+ "requirements": "Sellers create listings with a status and a price; a listing's seller never changes. Every signed-in user sees active listings; sellers also see and edit their own listings whatever the status, but a listing keeps its id. Buyers place orders on listings and see only their own orders. Nothing is deleted.",
  "expected_properties": [
   "A listing is visible only when active or to its seller.",
   "A listing's seller never changes.",
@@ -17,7 +17,8 @@
   "A seller can create a listing with a non-negative price.",
   "A seller can reprice their listing.",
   "A buyer can place an order in their own name.",
-  "A buyer can read their own orders."
+  "A buyer can read their own orders.",
+  "A listing's id never changes."
  ],
  "reference_spec": {
   "$comment": "marketplace without the price check",
@@ -252,6 +253,41 @@
       "=",
       {
        "ctx": "uid"
+      }
+     ]
+    }
+   },
+   {
+    "id": "R9",
+    "name": "id_immutable",
+    "table": "listings",
+    "kind": "transition",
+    "predicate": {
+     "or": [
+      {
+       "and": [
+        {
+         "is_null": {
+          "old": "id"
+         }
+        },
+        {
+         "is_null": {
+          "new": "id"
+         }
+        }
+       ]
+      },
+      {
+       "cmp": [
+        {
+         "new": "id"
+        },
+        "=",
+        {
+         "old": "id"
+        }
+       ]
       }
      ]
     }
@@ -561,6 +597,13 @@
       }
      ]
     }
+   },
+   {
+    "id": "P14",
+    "description": "a listing's id never changes",
+    "template": "column_immutable",
+    "table": "listings",
+    "column": "id"
    }
   ]
  },
@@ -577,7 +620,8 @@
   "P10": "PROVED",
   "P11": "PROVED",
   "P12": "PROVED",
-  "P13": "PROVED"
+  "P13": "PROVED",
+  "P14": "PROVED"
  },
  "start_rules": [
   {
@@ -730,6 +774,41 @@
      }
     ]
    }
+  },
+  {
+   "id": "R9",
+   "name": "id_immutable",
+   "table": "listings",
+   "kind": "transition",
+   "predicate": {
+    "or": [
+     {
+      "and": [
+       {
+        "is_null": {
+         "old": "id"
+        }
+       },
+       {
+        "is_null": {
+         "new": "id"
+        }
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "id"
+       },
+       "=",
+       {
+        "old": "id"
+       }
+      ]
+     }
+    ]
+   }
   }
  ],
  "mutant_verdicts": {
@@ -745,7 +824,8 @@
   "P10": "PROVED",
   "P11": "PROVED",
   "P12": "PROVED",
-  "P13": "PROVED"
+  "P13": "PROVED",
+  "P14": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

@@ -204,6 +204,41 @@
     ]
    },
    "requirement": "buyers order"
+  },
+  {
+   "id": "R9",
+   "kind": "transition",
+   "name": "id_immutable",
+   "table": "listings",
+   "predicate": {
+    "or": [
+     {
+      "and": [
+       {
+        "is_null": {
+         "old": "id"
+        }
+       },
+       {
+        "is_null": {
+         "new": "id"
+        }
+       }
+      ]
+     },
+     {
+      "cmp": [
+       {
+        "new": "id"
+       },
+       "=",
+       {
+        "old": "id"
+       }
+      ]
+     }
+    ]
+   }
   }
  ],
  "properties": [
@@ -510,6 +545,13 @@
      }
     ]
    }
+  },
+  {
+   "id": "P14",
+   "template": "column_immutable",
+   "description": "a listing's id never changes",
+   "table": "listings",
+   "column": "id"
   }
  ]
 }

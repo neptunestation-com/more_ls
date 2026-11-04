@@ -1,7 +1,7 @@
 {
  "id": "mk_good",
  "origin": "seed",
- "requirements": "Sellers create listings with a status and a price; a listing's seller never changes and prices are never negative. Every signed-in user sees active listings; sellers also see and edit their own listings whatever the status. Buyers place orders on listings and see only their own orders. Nothing is deleted.",
+ "requirements": "Sellers create listings with a status and a price; a listing's seller never changes and prices are never negative. Every signed-in user sees active listings; sellers also see and edit their own listings whatever the status, but a listing keeps its id. Buyers place orders on listings and see only their own orders. Nothing is deleted.",
  "expected_properties": [
   "A listing is visible only when active or to its seller.",
   "A listing's seller never changes.",
@@ -15,7 +15,8 @@
   "A seller can create a listing with a non-negative price.",
   "A seller can reprice their listing.",
   "A buyer can place an order in their own name.",
-  "A buyer can read their own orders."
+  "A buyer can read their own orders.",
+  "A listing's id never changes."
  ],
  "reference_spec": "specs/mk_good.mls.json",
  "expected_verdicts": {
@@ -31,7 +32,8 @@
   "P10": "PROVED",
   "P11": "PROVED",
   "P12": "PROVED",
-  "P13": "PROVED"
+  "P13": "PROVED",
+  "P14": "PROVED"
  },
  "expected_loop": {
   "status": "proved"

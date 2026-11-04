@@ -275,7 +275,7 @@ invariant a property names is detected rather than silently removed from the pro
 case is a repair benchmark: it keeps its base case's requirements, reference and verdicts, carries
 the mutant rules as `start_rules`, and `mls eval --llm --repair` starts the loop from them; the
 loop must end `proved` and net-equivalent to the base reference.  Without `--repair` synthetic
-cases are skipped (they would repeat their base case).  Current corpus: 75 % (194/260) with
+cases are skipped (they would repeat their base case).  Current corpus: 75 % (197/263) with
 `must_allow` properties in every reference (D40); 38 % before them, when the templates were all
 safety properties (upper bounds on access) and removing a grant was rarely caught.  Measured live
 over the 100 cases that existed before D40: 99 proved and net-equivalent after 1.02 repair rounds
@@ -304,7 +304,7 @@ can meet refutes the property, because a liveness property that requires nothing
 (usually a NULL-unsafe condition).  `when` on update ranges over `old`/`new`, a bare column is the
 new image, and the author states the whole change (what changes, what stays).  The properties
 prompt asks for one `must_allow` per grant the requirements state.  Mutation score of the seed
-corpus: 38 % → 75 % (194/260).  What stays undetected is now mostly a mutation that does not change
+corpus: 38 % → 75 % (197/263).  What stays undetected is now mostly a mutation that does not change
 behaviour (a rule redundant with another policy, with the implicit relation grant of D21 or with an
 FK), a cardinality rule reference (not re-based by `portable`), or a grant the author's property
 set does not state.
