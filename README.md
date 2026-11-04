@@ -9,7 +9,7 @@ privileges, indexes, grants, hardening), and differential-tests the result again
 **Start with `docs/GUIDE.md`** (the user guide: install, a walkthrough, deploying, evolving a
 spec, the LLM loop) and `docs/REFERENCE.md` (every construct, property template, CLI flag and
 error).  For the design: `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.md`,
-`docs/ROADMAP.md`, `docs/FINDINGS.md`.
+`docs/ROADMAP.md`, `docs/FINDINGS.md`, and `docs/BACKGROUND.md` for what the project grew out of.
 
 ## Install
 
@@ -63,7 +63,7 @@ Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 
                       org_tree (hierarchy with in_group policies and a cardinality limit)
     prototype/        the throwaway Python + Z3 prototype this grew from
     docs/             GUIDE (user guide), REFERENCE (language and CLI), SEMANTICS, DECISIONS,
-                      ROADMAP, FINDINGS, MIGRATION, LLM
+                      ROADMAP, FINDINGS, BACKGROUND (what pg_more_ls established), MIGRATION, LLM
 
 ## Status
 

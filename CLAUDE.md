@@ -14,8 +14,10 @@ Read before writing code, in this order:
 2. `docs/SEMANTICS.md` — the meaning of every construct. This is the source of truth.
 3. `docs/ROADMAP.md` — milestones and acceptance criteria. **Start with Milestone 1.**
 4. `docs/FINDINGS.md` — what experiments on real Postgres already established.
-5. `prototype/` — a working throwaway prototype (Python + Z3). Reuse ideas, not code structure.
-6. `examples/tenant_docs.mls.json` — an illustrative spec. The real schema is defined in M1.
+5. `docs/BACKGROUND.md` — what `pg_more_ls` established before this project: the undecidability
+   theorem and the survey of authorization languages, cited, not restated.
+6. `prototype/` — a working throwaway prototype (Python + Z3). Reuse ideas, not code structure.
+7. `examples/tenant_docs.mls.json` — an illustrative spec. The real schema is defined in M1.
 
 User-facing documentation is `docs/GUIDE.md` (user guide) and `docs/REFERENCE.md` (language and
 CLI reference). When you add or change a construct, a property template, a CLI flag, an exit
