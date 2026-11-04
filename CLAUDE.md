@@ -17,6 +17,10 @@ Read before writing code, in this order:
 5. `prototype/` — a working throwaway prototype (Python + Z3). Reuse ideas, not code structure.
 6. `examples/tenant_docs.mls.json` — an illustrative spec. The real schema is defined in M1.
 
+User-facing documentation is `docs/GUIDE.md` (user guide) and `docs/REFERENCE.md` (language and
+CLI reference). When you add or change a construct, a property template, a CLI flag, an exit
+code or a generated object name, update them in the same change.
+
 ## Non-negotiable invariants
 
 1. **Three-valued logic everywhere.** Every predicate has SQL semantics (TRUE / FALSE / UNKNOWN).
