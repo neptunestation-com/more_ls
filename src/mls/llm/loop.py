@@ -170,7 +170,7 @@ class Loop:
         except ValidationError as e:
             return None, pydantic_errors_to_mls(e)
         try:
-            check_spec(spec)
+            spec = check_spec(spec)
         except SpecError as e:
             return spec, e.errors
         from mls.compile.plan import soundness_errors

@@ -51,6 +51,18 @@ def test_hierarchy_policies_are_index_driven_at_scale(pg_dsn, org_spec):
     assert not bad, bad
 
 
+def test_in_list_is_index_driven_at_scale(pg_dsn):
+    """An `in` compiles to one IN list and the planner keeps it as an index condition (D14)."""
+    from tests.templates import specs
+
+    spec = specs.in_spec()
+    results = _run(pg_dsn, spec, set())
+    assert any(("in", "level") in index_atoms(effective(spec, r.table, r.role, "select", "using"), [])
+               for r in results), "no in-list policy was checked"
+    bad = [f"{r.table}/{r.role}: {r.problems}" for r in results if not r.ok]
+    assert not bad, bad
+
+
 def test_missing_indexes_are_detected(pg_dsn, example_spec):
     results = _run(pg_dsn, example_spec, {Mutation.INDEX_NONE})
     assert any(not r.ok for r in results)

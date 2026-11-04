@@ -205,7 +205,7 @@ def test_same_requirement_at_another_layer_is_net_equivalent(example_spec):
                 "role": "authenticated", "command": "delete", "mode": "restrictive",
                 "using": {"not": {"cmp": [{"col": "archived"}, "=", {"const": 1}]}}})
     gen = Spec.model_validate({**sk, "rules": alt, "properties": []})
-    check_spec(gen)
+    gen = check_spec(gen)
     d = diff(example_spec, gen)
     assert d.any_change and d.integrity_changes  # the transition rule shows layer by layer
     assert all(a.verdict == "PROVED" for a in behaviour_diff(example_spec, gen) if a.table == "docs"), [

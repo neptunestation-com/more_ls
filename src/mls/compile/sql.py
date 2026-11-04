@@ -4,6 +4,7 @@ from __future__ import annotations
 from mls.compile.mutations import Mutation
 from mls.compile.opaque import opaque_sql
 from mls.compile.time import now_between_sql
+from mls.spec.expand import as_in_list
 from mls.identity.base import SQL_TYPE, Adapter
 from mls.spec.model import (
     And, ColRef, ColType, Const, CtxRef, Cmp, InGroup, IsNull, Lit, Member, NewRef, Not, NowBetween,
@@ -63,6 +64,15 @@ class SqlCompiler:
         if isinstance(p, And):
             return "(" + " and ".join(self.pred(a, table) for a in p.and_) + ")"
         if isinstance(p, Or):
+            lst = as_in_list(p)
+            if lst is not None:
+                # an expanded `in` (or a hand-written disjunction of the same shape): one IN list,
+                # which the planner turns into a single `= ANY` index condition on every version
+                t, consts = lst
+                ty = self.term_type(t, table)
+                if Mutation.IN_DROP_LAST in self.mutations:
+                    consts = consts[:-1]
+                return f"({self.term(t, table)} in ({', '.join(self.term(c, table, ty) for c in consts)}))"
             return "(" + " or ".join(self.pred(a, table) for a in p.or_) + ")"
         if isinstance(p, Not):
             return f"(not {self.pred(p.not_, table)})"

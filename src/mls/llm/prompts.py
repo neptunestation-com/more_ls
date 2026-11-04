@@ -23,6 +23,7 @@ triggers, grants).  You never write SQL.
 
 ## Predicates
 - {"cmp": [term, op, term]}  op in = <> < <= > >=; the right-hand side is a context value or a constant
+- {"in": [term, [{"const": c1}, {"const": c2}, ...]]}  term equals one of the constants (sugar for an "or" of "=")
 - {"member": {"relation": R, "key": {"ctx": c}, "value": {"col": v}}}   (ctx, col) is a pair of relation R
 - {"in_group": {"hierarchy": H, "key": {"ctx": c}, "value": {"col": v}}}  col is one of the user's groups in
   hierarchy H or lies below one (policies only)

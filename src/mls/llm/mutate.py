@@ -80,7 +80,7 @@ def grade_mutants(data: dict, base_verdicts: dict[str, str], timeout_ms: int = 2
     for m in mutants(portable(data)):
         try:
             spec = Spec.model_validate(m.data)
-            check_spec(spec)
+            spec = check_spec(spec)
         except (SpecError, ValueError):
             continue  # a mutant the checker rejects is not a candidate (an LLM could not emit it)
         m.verdicts = {r.id: r.verdict for r in run_all(spec, timeout_ms)}

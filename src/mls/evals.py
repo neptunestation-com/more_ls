@@ -46,7 +46,7 @@ def run_case(path: Path) -> CaseResult:
     spec = Spec.model_validate(data)
     expected_errors = case.get("expected_check_errors")
     try:
-        check_spec(spec)
+        spec = check_spec(spec)
     except SpecError as e:
         if not expected_errors:
             return CaseResult(case["id"], False, "unexpected check errors: " + "; ".join(str(x) for x in e.errors))
@@ -64,7 +64,7 @@ def run_case(path: Path) -> CaseResult:
         # a synthetic case: the mutant rules must give the mutant verdicts under the reference properties
         from mls.llm.mutate import portable
         mutant = Spec.model_validate({**portable(data), "rules": case["start_rules"]})
-        check_spec(mutant)
+        mutant = check_spec(mutant)
         got = {r.id: r.verdict for r in run_all(mutant)}
         bad += [f"mutant {k}: expected {v}, got {got.get(k)}" for k, v in case["mutant_verdicts"].items()
                 if got.get(k) != v]
@@ -106,7 +106,7 @@ def run_llm_case(path: Path, client, max_repairs: int = 3, timeout_ms: int = 200
 
     case = load_case(path)
     ref = reference_spec(case, path)
-    check_spec(ref)
+    ref = check_spec(ref)
     skeleton = case.get("skeleton") or skeleton_of(ref)
     start_rules = None
     if repair_from_reference:

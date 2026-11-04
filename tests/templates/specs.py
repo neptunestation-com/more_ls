@@ -15,12 +15,28 @@ def base() -> dict:
 
 def make(d: dict) -> Spec:
     spec = Spec.model_validate(d)
-    check_spec(spec)
+    spec = check_spec(spec)
     return spec
 
 
 def policy_spec() -> Spec:
     return make(base())
+
+
+def in_spec() -> Spec:
+    """A policy with `in` (expanded to an IN list): members see levels 2 and 3 whatever their
+    clearance.  The mutation drops the last constant, hiding level 3 from low-clearance members.
+    The admin policy (R2) and its lower bound go: in the generated data every member pair is
+    also an admin pair, so with R2 the `in` policy would never decide anything."""
+    d = base()
+    d["rules"] = [r for r in d["rules"] if r["id"] != "R2"]
+    d["properties"] = [p for p in d["properties"] if p["id"] != "P8"]
+    d["rules"].append({"id": "R10", "kind": "policy", "name": "member_read_high", "table": "docs",
+                       "role": "authenticated", "command": "select", "mode": "permissive",
+                       "using": {"and": [{"member": {"relation": "member_of", "key": {"ctx": "uid"},
+                                                     "value": {"col": "tenant_id"}}},
+                                         {"in": [{"col": "level"}, [{"const": 2}, {"const": 3}]]}]}})
+    return make(d)
 
 
 def check_nullable_spec() -> Spec:

@@ -13,7 +13,7 @@ def _load(path: str):
     from mls.spec import check_spec, load_spec
 
     spec = load_spec(path)
-    check_spec(spec)
+    spec = check_spec(spec)
     return spec
 
 

@@ -85,7 +85,7 @@ def grade(case: dict, result: LoopResult, reference: Spec, timeout_ms: int = 200
         data = gen.model_dump(by_alias=True, exclude_none=True)
         data["properties"] = portable_properties(reference)
         probe = Spec.model_validate(data)
-        check_spec(probe)
+        probe = check_spec(probe)
         g.reference_properties = {r.id: r.verdict for r in run_all(probe, timeout_ms)}
         expected = case.get("expected_verdicts", {})
         g.reference_properties_hold = all(g.reference_properties.get(k) == v for k, v in expected.items()

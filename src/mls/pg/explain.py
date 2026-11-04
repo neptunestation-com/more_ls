@@ -12,6 +12,7 @@ from psycopg import sql as psql
 from mls.compile.column import privileges
 from mls.identity import Adapter
 from mls.props.effective import effective
+from mls.spec.expand import as_in_list
 from mls.spec.model import And, ColRef, Cmp, CtxRef, InGroup, Member, Not, Or, Pred, Spec
 
 
@@ -25,7 +26,7 @@ class ExplainResult:
 
 
 def index_atoms(p: Pred, out: list[tuple[str, str]]) -> list[tuple[str, str]]:
-    """(kind, column) for atoms that must be index-driven: member values, ctx comparisons."""
+    """(kind, column) for atoms that must be index-driven: member values, ctx comparisons, IN lists."""
     if isinstance(p, Member) and isinstance(p.member.value, ColRef):
         out.append(("member", p.member.value.col))
     elif isinstance(p, InGroup) and isinstance(p.in_group.value, ColRef):
@@ -36,8 +37,12 @@ def index_atoms(p: Pred, out: list[tuple[str, str]]) -> list[tuple[str, str]]:
         for a in p.and_:
             index_atoms(a, out)
     elif isinstance(p, Or):
-        for a in p.or_:
-            index_atoms(a, out)
+        lst = as_in_list(p)
+        if lst is not None and isinstance(lst[0], ColRef):
+            out.append(("in", lst[0].col))  # compiled as one IN list (compile/sql.py)
+        else:
+            for a in p.or_:
+                index_atoms(a, out)
     return out  # Not / IsNull / now_between / opaque: not required to be index conditions
 
 

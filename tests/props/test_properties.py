@@ -23,7 +23,7 @@ def base() -> dict:
 
 def make(d: dict) -> Spec:
     spec = Spec.model_validate(d)
-    check_spec(spec)
+    spec = check_spec(spec)
     return spec
 
 

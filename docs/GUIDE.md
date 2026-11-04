@@ -118,8 +118,9 @@ good property set has both bounds: the upper bounds catch rules that grant too m
 **Predicates** are small JSON trees over terms.  A term is a column (`{"col": "level"}`), a
 context value of the current user (`{"ctx": "uid"}`), a constant (`{"const": 3}`) or, in
 transitions and update conditions, an image column (`{"old": "tenant_id"}`, `{"new": "tenant_id"}`).
-The predicate forms are `cmp`, `member`, `in_group`, `now_between`, `is_null`, `and`, `or`,
-`not`, `lit` and `opaque`.  Their exact grammar and where each is allowed is in the reference.
+The predicate forms are `cmp`, `in`, `member`, `in_group`, `now_between`, `is_null`, `and`,
+`or`, `not`, `lit` and `opaque`.  Their exact grammar and where each is allowed is in the
+reference.
 
 Two things about predicates matter from the start:
 
@@ -129,8 +130,9 @@ Two things about predicates matter from the start:
   compiled objects so that every target admits a row exactly when the predicate is TRUE, and it
   makes you say what you mean about NULLs.  A nullable `owner_id` that must be a member is
   written `owner_id is null or member_of(owner_id, tenant_id)`, not the bare membership.
-- **The fragment is deliberately small.**  Comparisons are `column op (context | constant)`.
-  Membership is `(context, column) ∈ relation`.  There are no joins, no subqueries, no
+- **The fragment is deliberately small.**  Comparisons are `column op (context | constant)`,
+  and `{"in": [column, [constants]]}` is shorthand for a disjunction of `=` (the checker expands
+  it; the compiler emits one IN list).  Membership is `(context, column) ∈ relation`.  There are no joins, no subqueries, no
   arithmetic, no functions.  This is what makes every property decidable and every policy
   index-driven.  When you need more, you declare an `opaque` block and accept that proofs
   depending on it are conditional.

@@ -94,6 +94,11 @@ code or a generated object name, update them in the same change.
   on every PG version — add the kind and its mode when you add a migration statement.
 - `tests/templates/test_migrate.py` is the migration acceptance test: deploy v1 + data, migrate,
   `drift` against v2 must be clean, then the v2 differential test on the migrated database.
+- M5 (brownfield): `in` with a constant list is sugar. `check_spec` validates it natively (error
+  paths point into the `in`) and returns the spec with it expanded to an `or` of `=`
+  (`spec/expand.py`); every consumer must use the returned spec, and nothing downstream of the
+  checker ever sees an `In` node. `compile/sql.py` renders that `or` shape as one IN list
+  (mutation `IN_DROP_LAST`, fixture `in_spec`), and `pg/explain.py` requires it as an index condition.
 - Lean track (D11, D41): `lean/` is a Lake project (core Lean 4, no Mathlib; pinned in
   `lean/lean-toolchain`). `cd lean && lake build` checks it; CI does, and `uv run pytest -m lean`
   does when `lake` is on PATH (skipped otherwise). `lean/MLS/Pred.lean` is `logic/tvl.py`

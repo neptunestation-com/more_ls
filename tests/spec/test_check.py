@@ -218,3 +218,36 @@ def test_cardinality_shape_errors():
     d = org()
     d["properties"][2]["invariants"] = [{"rule": "R1"}]
     assert any("invariants" in e.message or "cardinality" in e.message for e in errors(d))
+
+
+def test_in_errors_name_the_in_paths():
+    def pol(pred):
+        d = base()
+        d["rules"].append({"id": "X", "kind": "policy", "name": "x", "table": "docs", "role": "authenticated",
+                           "command": "select", "mode": "permissive", "using": pred})
+        return errors(d)
+
+    errs = pol({"in": [{"col": "level"}, []]})
+    e = next(e for e in errs if e.path == "$.rules[9].using.in[1]")
+    assert "at least one constant" in e.message and "lit" in e.fix
+    errs = pol({"in": [{"col": "level"}, [{"const": 1}, {"const": "two"}]]})
+    assert has(errs, "$.rules[9].using.in", "type mismatch: int = text")
+    errs = pol({"in": [{"col": "owner_id"}, [{"const": "00000000-0000-0000-0000-000000000001"}, {"const": "nope"}]]})
+    assert has(errs, "$.rules[9].using.in[1][1]", "not a UUID literal")
+    errs = pol({"in": [{"col": "lvl"}, [{"const": 1}]]})
+    assert has(errs, "$.rules[9].using.in[0]", "unknown column 'lvl'")
+    errs = pol({"in": [{"const": 1}, [{"const": 1}]]})
+    assert has(errs, "$.rules[9].using.in[0]", "not a constant")
+    assert not pol({"in": [{"col": "level"}, [{"const": 1}, {"const": 2}]]})
+
+
+def test_in_is_in_the_schema_and_shape_errors_name_the_path():
+    assert "In" in spec_json_schema()["$defs"]
+    from pydantic import ValidationError
+    from mls.spec.check import pydantic_errors_to_mls
+
+    with pytest.raises(ValidationError) as ei:
+        Spec.model_validate({**base(), "rules": [{"id": "X", "kind": "check", "name": "x", "table": "docs",
+                                                   "predicate": {"in": [{"col": "level"}, {"const": 1}]}}]})
+    errs = pydantic_errors_to_mls(ei.value)
+    assert any(e.path.startswith("$.rules[0].predicate.in") for e in errs), [e.path for e in errs]

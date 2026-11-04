@@ -17,6 +17,7 @@ pytestmark = pytest.mark.pg
 CASES = {
     "policy": (specs.policy_spec, Mutation.POLICY_ALL_RESTRICTIVE, None),
     "policy_restrictive": (specs.policy_spec, Mutation.POLICY_DROP_RESTRICTIVE, None),
+    "in": (specs.in_spec, Mutation.IN_DROP_LAST, None),
     "check": (specs.check_nullable_spec, Mutation.CHECK_NAIVE, None),
     "transition": (specs.transition_nullable_spec, Mutation.TRANSITION_NAIVE, None),
     "fk": (specs.fk_spec, Mutation.FK_MATCH_FULL, None),

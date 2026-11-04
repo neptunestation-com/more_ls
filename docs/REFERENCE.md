@@ -216,6 +216,14 @@ The left operand is a column (or an old/new image column); the right is a contex
 constant, or in transitions and update conditions another image column.  The operand types
 must agree and the operator must be allowed on the type (§2).  Two constants are rejected.
 
+**`{"in": [term, [const, ...]]}`**: `term` equals one of the constants.  Sugar: the checker
+expands it to `{"or": [{"cmp": [term, "=", c1]}, ...]}` (a single constant becomes the bare
+comparison) before anything else reads the spec, so it is allowed exactly where a `=`
+comparison of `term` with each constant is, has that disjunction's meaning (UNKNOWN if `term`
+is NULL) and renders as it in `explain` and `--terse`.  The list must be non-empty.  Compiled as
+`term in (c1, c2, ...)`, one index condition (D14); a hand-written `or` of the same shape
+compiles the same way.
+
 **`{"member": {"relation": R, "key": k, "value": v}}`**: `(k, v)` is a stored pair of relation
 `R`.  `k` is a context value (or, in invariants and goals, a column); `v` is a column of the
 relation's value type and must be NOT NULL when the predicate is a policy atom.  UNKNOWN if `v`
@@ -442,6 +450,7 @@ LLM transcripts use a one-line notation (D44), for reading only; JSON remains th
 
     term   := column | old.column | new.column | @context | 'text' | 123 | true | false
     atom   := term op term | term is null | relation(key, value) | in_group(h, key, value)
+              (an `in` list appears as its expansion: level = 2 or level = 3)
             | now_between(from | -, until | -) | opaque(name) | true | false
     pred   := atom | not pred | pred and pred | pred or pred     (not > and > or; minimal parens)
     rule   := ID kind table: ...        property := ID template [table role command which]: ...
@@ -631,7 +640,8 @@ Classes of error, with the typical message:
 - **names**: unknown table, column, role, relation, hierarchy, opaque block, rule or context
   value; invalid identifier; duplicate rule id, rule name per table or property id;
 - **types**: `type mismatch: int = text`; `operator < is not allowed on text values`; a uuid
-  constant that is not a UUID; `timestamp constants are not supported in v1`;
+  constant that is not a UUID; `timestamp constants are not supported in v1`; `'in' needs at
+  least one constant`;
 - **fragment**: `context values are not allowed in a check predicate`; `membership is not
   allowed in a check predicate`; `negated membership in a policy is an anti-join and cannot be
   ...`; `in_group is not allowed in a transition predicate`; `comparisons in policies must be

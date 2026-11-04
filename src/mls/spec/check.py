@@ -22,7 +22,7 @@ from pydantic import ValidationError
 
 from mls.errors import ErrorSink, MlsError, SpecError
 from mls.spec.model import (
-    CONTEXT_NOW, And, CardinalityRule, CheckRule, ColRef, ColType, ColumnRule, Cmp, Const, CtxRef,
+    CONTEXT_NOW, And, CardinalityRule, CheckRule, ColRef, ColType, ColumnRule, Cmp, Const, CtxRef, In,
     Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
     NowBetween, OldRef, OpaqueRef, Or, PolicyRule, Spec, TenantIsolation, ColumnImmutable,
     WriteSubsetRead, LeastPrivilege, TransitionRule,
@@ -184,6 +184,41 @@ class Checker:
         return True
 
     # ------------------------------------------------------------------ predicates
+    def _cmp(self, l, op, r, scope: Scope, path: str, lpath: str, rpath: str) -> None:
+        """The checks of a comparison; `path` names the comparison, `lpath`/`rpath` its operands
+        (an expanded `in` reports under the `in` paths)."""
+        lt = self.term_type(l, scope, lpath)
+        rt = self.term_type(r, scope, rpath)
+        if scope.is_policy:
+            # sargable shape: column op (ctx | const), or (ctx|const) op (ctx|const)
+            lhs_ok = isinstance(l, ColRef) or isinstance(l, (CtxRef, Const))
+            rhs_ok = isinstance(r, (CtxRef, Const))
+            if not (lhs_ok and rhs_ok):
+                self.err(path, "comparisons in policies must be  column op (context | "
+                                        "constant)  so they compile to an index condition",
+                         "put the column on the left and a context value or constant on the right")
+        elif scope.name == "check":
+            if isinstance(l, Const) and isinstance(r, Const):
+                self.err(path, "comparing two constants is meaningless", "")
+        if lt is None or rt is None:
+            return
+        if isinstance(r, Const) and not isinstance(l, Const):
+            if not self.const_ok_for(r, lt, rpath):
+                return
+        if isinstance(l, Const) and not isinstance(r, Const):
+            if not self.const_ok_for(l, rt, lpath):
+                return
+        if lt != rt and not ({lt, rt} == {"uuid", "text"} and (isinstance(l, Const) or isinstance(r, Const))):
+            self.err(path, f"type mismatch: {lt} {op} {rt}",
+                     "compare values of the same type")
+            return
+        ty = lt if lt != "text" else rt
+        if op not in ("=", "<>") and ty not in ORDERED_TYPES:
+            self.err(path, f"operator {op} is not allowed on {ty} values "
+                                    f"(v1 compares {ty} for equality only)", "use = or <>")
+        self.const_ok_for(l, ty, lpath)
+        self.const_ok_for(r, ty, rpath)
+
     def pred(self, p, scope: Scope, path: str, negated: bool = False) -> None:
         if isinstance(p, Lit):
             return
@@ -206,37 +241,22 @@ class Checker:
             return
         if isinstance(p, Cmp):
             l, op, r = p.cmp
-            lt = self.term_type(l, scope, f"{path}.cmp[0]")
-            rt = self.term_type(r, scope, f"{path}.cmp[2]")
-            if scope.is_policy:
-                # sargable shape: column op (ctx | const), or (ctx|const) op (ctx|const)
-                lhs_ok = isinstance(l, ColRef) or isinstance(l, (CtxRef, Const))
-                rhs_ok = isinstance(r, (CtxRef, Const))
-                if not (lhs_ok and rhs_ok):
-                    self.err(f"{path}.cmp", "comparisons in policies must be  column op (context | "
-                                            "constant)  so they compile to an index condition",
-                             "put the column on the left and a context value or constant on the right")
-            elif scope.name == "check":
-                if isinstance(l, Const) and isinstance(r, Const):
-                    self.err(f"{path}.cmp", "comparing two constants is meaningless", "")
-            if lt is None or rt is None:
+            self._cmp(l, op, r, scope, f"{path}.cmp", f"{path}.cmp[0]", f"{path}.cmp[2]")
+            return
+        if isinstance(p, In):
+            t, consts = p.in_
+            if isinstance(t, Const):
+                self.err(f"{path}.in[0]", "the left side of 'in' must be a column, a context value or "
+                                          "an image column, not a constant", "use {\"col\": name}")
                 return
-            if isinstance(r, Const) and not isinstance(l, Const):
-                if not self.const_ok_for(r, lt, f"{path}.cmp[2]"):
-                    return
-            if isinstance(l, Const) and not isinstance(r, Const):
-                if not self.const_ok_for(l, rt, f"{path}.cmp[0]"):
-                    return
-            if lt != rt and not ({lt, rt} == {"uuid", "text"} and (isinstance(l, Const) or isinstance(r, Const))):
-                self.err(f"{path}.cmp", f"type mismatch: {lt} {op} {rt}",
-                         "compare values of the same type")
+            if not consts:
+                self.err(f"{path}.in[1]", "'in' needs at least one constant (an empty list is never true)",
+                         "list the allowed values, or use {\"lit\": false}")
                 return
-            ty = lt if lt != "text" else rt
-            if op not in ("=", "<>") and ty not in ORDERED_TYPES:
-                self.err(f"{path}.cmp", f"operator {op} is not allowed on {ty} values "
-                                        f"(v1 compares {ty} for equality only)", "use = or <>")
-            self.const_ok_for(l, ty, f"{path}.cmp[0]")
-            self.const_ok_for(r, ty, f"{path}.cmp[2]")
+            # the expansion is  t = c1 or t = c2 ...  (spec/expand.py); each disjunct is checked
+            # as the comparison it becomes, under the path of the constant it comes from
+            for i, c in enumerate(consts):
+                self._cmp(t, "=", c, scope, f"{path}.in", f"{path}.in[0]", f"{path}.in[1][{i}]")
             return
         if isinstance(p, Member):
             if not scope.member:
@@ -678,7 +698,12 @@ class Checker:
                 self.pred(p.when, must_allow_scope(p.table, p.command), path + ".when")
 
 
-def check_spec(spec: Spec) -> None:
+def check_spec(spec: Spec) -> Spec:
+    """Typecheck and fragment-check `spec`, then return it with its sugar expanded
+    (spec/expand.py).  Every consumer must use the returned spec."""
+    from mls.spec.expand import expand_spec
+
     errors = Checker(spec).run()
     if errors:
         raise SpecError(errors)
+    return expand_spec(spec)

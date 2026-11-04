@@ -105,3 +105,23 @@ def test_diff_report_shows_before_and_after(example_spec):
     md = to_markdown(old, new, res)
     assert "  - before: `false`\n  - after: `owner_id = @uid and not archived = 1`\n" in md
     assert "  - before: `new.tenant_id = old.tenant_id`\n  - after: `new.tenant_id = old.tenant_id`\n" in md
+
+
+def test_in_renders_as_its_expansion():
+    """`in` is sugar the checker expands: the listing of a spec with `in` and of its manual
+    expansion are byte-identical (ROADMAP Milestone 5)."""
+    from mls.spec import check_spec
+    from mls.spec.model import Spec
+
+    def listing(using) -> str:
+        d = base()
+        d["rules"].append({"id": "R10", "kind": "policy", "name": "levels", "table": "docs", "role": "authenticated",
+                           "command": "select", "mode": "permissive", "using": using})
+        return terse.spec_listing(check_spec(Spec.model_validate(d)))
+
+    sugar = listing({"and": [{"is_null": {"col": "owner_id"}}, {"in": [{"col": "level"}, [{"const": 2}, {"const": 3}]]}]})
+    manual = listing({"and": [{"is_null": {"col": "owner_id"}},
+                              {"or": [{"cmp": [{"col": "level"}, "=", {"const": 2}]},
+                                      {"cmp": [{"col": "level"}, "=", {"const": 3}]}]}]})
+    assert sugar == manual
+    assert "R10 policy docs: authenticated select permissive using owner_id is null and (level = 2 or level = 3)" in sugar

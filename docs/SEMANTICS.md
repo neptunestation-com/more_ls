@@ -18,6 +18,7 @@ differential tests, and every compiler template must agree with it.
 | Atom | Meaning | Index-driven when |
 |---|---|---|
 | `cmp(col, op, ctx|const)` | ordinary comparison | `col` indexed |
+| `in(term, [c1, …, cn])` | sugar for `cmp(term, =, c1) ∨ … ∨ cmp(term, =, cn)`, expanded by the checker before encoding; compiled as `term in (c1, …, cn)` | `col` indexed (one `= any` condition) |
 | `member(rel, key=ctx, val=col)` | `(ctx, col) ∈ rel` | compiles to `col = any(array(select ...))` |
 | `now_between(from_col, until_col)` | `from <= now < until`, NULL bound = open | indexed bounds or small row set |
 | `in_group(hierarchy, key=ctx, value=col)` | `∃ g: (ctx, g) ∈ members ∧ g = col ∨ g = parent(col) ∨ … ∨ g = parentᵈ(col)` (the row's group is one of the user's groups or lies below one, within depth d) | array InitPlan from a recursive CTE descending from the user's groups |

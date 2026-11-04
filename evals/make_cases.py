@@ -751,7 +751,7 @@ def main() -> int:
     bad = 0
     for c in CASES:
         spec_obj = Spec.model_validate(c["spec"])
-        check_spec(spec_obj)
+        spec_obj = check_spec(spec_obj)
         verdicts = {r.id: r.verdict for r in run_all(spec_obj)}
         if verdicts != c["verdicts"]:
             print(f"{c['id']}: intended {c['verdicts']} but the solver says {verdicts}")

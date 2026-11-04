@@ -13,7 +13,8 @@ JSON shape (D-open-detail "exact JSON shape": explicit, no silent defaults):
    "properties": [ {"id", "template", ...} ]}
 
 Predicates are single-key objects:  {"and": [...]}, {"or": [...]}, {"not": p}, {"lit": true},
-  {"cmp": [term, op, term]}, {"member": {"relation", "key": term, "value": term}},
+  {"cmp": [term, op, term]}, {"in": [term, [const, ...]]} (sugar: expanded by the checker into
+  an "or" of "=" comparisons, spec/expand.py), {"member": {"relation", "key": term, "value": term}},
   {"in_group": {"hierarchy", "key": term, "value": term}},
   {"now_between": {"from": term|null, "until": term|null}}, {"is_null": term}, {"opaque": name}.
 Terms are single-key objects: {"col": c}, {"ctx": name}, {"const": v}, {"old": c}, {"new": c}.
@@ -63,7 +64,7 @@ def _single_key(v: Any) -> str:
         if len(v) != 1:
             return "?"
         return next(iter(v))
-    for tag in ("col", "ctx", "const", "old", "new", "cmp", "member", "in_group", "now_between",
+    for tag in ("col", "ctx", "const", "old", "new", "cmp", "in", "member", "in_group", "now_between",
                 "is_null", "opaque", "and", "or", "not", "lit"):
         if hasattr(v, tag) or hasattr(v, tag + "_"):
             return tag
@@ -86,6 +87,13 @@ Term = Annotated[
 # ----------------------------------------------------------------------------- predicates
 class Cmp(Strict):
     cmp: tuple[Term, CmpOp, Term]
+
+
+class In(Strict):
+    """`term` equals one of the constants: sugar for `{"or": [{"cmp": [term, "=", c]}, ...]}`.
+    The checker expands it before anything else sees the spec; the compiler renders the
+    expanded shape as an IN list."""
+    in_: tuple[Term, list[Const]] = Field(alias="in")
 
 
 class MemberBody(Strict):
@@ -146,6 +154,7 @@ class Lit(Strict):
 Pred = Annotated[
     Union[
         Annotated[Cmp, Tag("cmp")],
+        Annotated[In, Tag("in")],
         Annotated[Member, Tag("member")],
         Annotated[InGroup, Tag("in_group")],
         Annotated[NowBetween, Tag("now_between")],
@@ -157,7 +166,7 @@ Pred = Annotated[
         Annotated[Lit, Tag("lit")],
     ],
     Discriminator(_single_key, custom_error_type="invalid_predicate",
-                  custom_error_message="a predicate is one of {cmp}, {member}, {in_group}, "
+                  custom_error_message="a predicate is one of {cmp}, {in}, {member}, {in_group}, "
                                        "{now_between}, {is_null}, {opaque}, {and}, {or}, {not}, {lit}"),
 ]
 
