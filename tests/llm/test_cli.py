@@ -19,11 +19,15 @@ def test_generate_and_eval_llm_with_a_script(tmp_path, capsys, monkeypatch):
     assert "status: proved after 0 repair round(s)" in text and "# Properties (for approval)" in text
     assert "P1 (PROVED): " in text and "notes from the rules pass: n" in text
     assert json.loads(out.read_text())["rules"] == d["rules"]
-    assert len(json.loads(tr.read_text())["exchanges"]) == 2
+    t = json.loads(tr.read_text())
+    assert len(t["exchanges"]) == 2
+    assert t["spec_terse"][0] == "# rules" and t["spec_terse"][1].startswith("R1 policy docs: authenticated select")
     assert main(["eval", str(ROOT / "evals" / "cases" / "good_tenant_docs.json"), "--llm", "--json",
                  "--transcripts", str(tmp_path / "tr")]) == 0
     s = capsys.readouterr().out
     assert '"spec_correctness_rate": 1.0' in s and (tmp_path / "tr" / "good_tenant_docs.json").exists()
+    t = json.loads((tmp_path / "tr" / "good_tenant_docs.json").read_text())
+    assert any(line.startswith("P1 tenant_isolation docs:") for line in t["spec_terse"])
 
 
 def test_eval_mutate_writes_synthetic_cases(tmp_path, capsys):

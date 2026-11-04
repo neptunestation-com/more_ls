@@ -398,6 +398,27 @@ cardinality on the harness table); constants are integers (text and uuid values 
 to integers as the encoder does).  A new construct in `Pred` or a new outcome rule gets its
 vectors in the same generator.
 
+**D44. A terse rendering of the JSON syntax, for reading only (issue #2; D10, D15, D33
+stand).** `mls/terse.py` renders predicates, rules, properties and scenarios one line per item:
+`member_of(@uid, tenant_id) and now_between(-, expires_at)`, `R9 transition docs: new.tenant_id =
+old.tenant_id`, `P1 tenant_isolation docs: tenant_id in member_of(@uid) for select, insert,
+update`.  Grammar: a term is `column`, `old.column`, `new.column`, `@context`, a quoted text
+constant or a number; atoms are `term op term` (the JSON operators), `term is null`,
+`relation(key, value)`, `in_group(hierarchy, key, value)`, `now_between(from, until)` with `-`
+for an open bound, `opaque(name)`, `true`/`false`; `not` binds tighter than `and`, `and` than
+`or`, and parentheses appear only where needed.  Rules read `ID kind table: ...` (a policy adds
+role, command, mode and the `using`/`check` clauses it has), properties `ID template [table role
+command which]: ...`, a scenario `@uid = uuid#1; old: docs {tenant_id = 1}; member_of = {(uuid#1,
+1)}`.  Where it is used: `mls explain --terse`; the `before`/`after` lines of every access and
+integrity change in `mls diff` (the effective predicate, the stored-row constraints or the
+transition rules of each version — the English says *that* access changed, the terse lines say
+*what* changed); and `spec_terse` in the transcripts of `mls generate` and `mls eval --llm`, so a
+transcript can be read without expanding the JSON.  It is rendering only: nothing parses it, the
+JSON stays the only input (D15) and the English stays the approval artifact (D10).  Why one
+more rendering: the English is written for a product owner and deliberately verbose; a reviewer
+reading a diff or a transcript wants the predicate at a glance, and the JSON is three lines per
+atom.  The golden test (`tests/test_terse.py`) pins every construct of the verified fragment.
+
 **D33. English rendering is a fixed function of the spec (D10, D15).** `mls explain` and the diff
 and proof reports use `mls/english.py`; the same construct always reads the same way, so a
 reviewer can compare the rendering with the requirement text, and the Milestone 4 loop can check

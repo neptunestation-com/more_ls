@@ -64,9 +64,9 @@ quality of the author's requirement texts).  Done since the first measurement: `
 the lower-bound template (D40, amended after its first live run), in every reference — mutation
 score 38 % → 75 %, 194 synthetic repair benchmarks, measured with the `must_allow` prompt at
 187/194 (the 100 that existed before scored 99/100; both in `docs/LLM.md`), and the seed corpus
-at 28/30 (FINDINGS).  Nice to have: a terse human-readable rendering of the JSON syntax
-(`mls explain` renders English; this would be a concrete syntax for predicates and rules, for
-reading transcripts and diffs — not a new input format, D15 stands).  The last open detail of the
+at 28/30 (FINDINGS).  The terse rendering of the JSON syntax for reading transcripts and diffs
+(`mls explain --terse`, the `before`/`after` lines of `mls diff`, `spec_terse` in every
+transcript) is done: D44, `mls/terse.py`; not a new input format, D15 stands.  The last open detail of the
 first roadmap — security-invoker views for row-filtered column masking (D24) — is settled by D42:
 no construct; the column is its own table with its own policies (`cr_own_salary` in the corpus).
 

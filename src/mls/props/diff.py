@@ -378,6 +378,7 @@ def to_json(old: Spec, new: Spec, d: DiffResult) -> dict:
         "access": [
             {"table": a.table, "role": a.role, "command": a.command, "which": a.which,
              "direction": a.direction, "english": _access_english(view, a),
+             "before": _access_terse(old, new, a)[0], "after": _access_terse(old, new, a)[1],
              "scenario": a.scenario.to_dict() if a.scenario else None,
              "scenario_english": english.scenario(view, a.scenario) if a.scenario else None,
              "conditional_on": a.opaque_deps, "verdict": a.verdict}
@@ -386,6 +387,7 @@ def to_json(old: Spec, new: Spec, d: DiffResult) -> dict:
         "integrity": [
             {"table": i.table, "kind": i.kind, "direction": i.direction,
              "english": _integrity_english(i),
+             "before": _integrity_terse(old, new, i)[0], "after": _integrity_terse(old, new, i)[1],
              "scenario": i.scenario.to_dict() if i.scenario else None,
              "scenario_english": english.scenario(view, i.scenario) if i.scenario else None,
              "conditional_on": i.opaque_deps, "verdict": i.verdict}
@@ -394,6 +396,29 @@ def to_json(old: Spec, new: Spec, d: DiffResult) -> dict:
         "grants": [{"role": g.role, "table": g.table, "command": g.command, "before": g.before,
                     "after": g.after} for g in d.grants],
     }
+
+
+def _access_terse(old: Spec, new: Spec, a: AccessChange) -> tuple[str, str]:
+    """The effective predicate before and after, terse (D44); `false` where the table or role has
+    no policy."""
+    from mls import terse
+
+    def eff(spec: Spec) -> str:
+        if a.table not in spec.tables:
+            return "false"
+        return terse.pred(effective(spec, a.table, a.role, a.command, a.which))
+    return eff(old), eff(new)
+
+
+def _integrity_terse(old: Spec, new: Spec, i: IntegrityChange) -> tuple[str, str]:
+    from mls import terse
+
+    def cons(spec: Spec) -> str:
+        if i.table not in spec.tables:
+            return "-"
+        p = row_constraints(spec, i.table) if i.kind == "stored rows" else transition_constraints(spec, i.table)
+        return terse.pred(p)
+    return cons(old), cons(new)
 
 
 def _access_english(view: Spec, a: AccessChange) -> str:
@@ -433,6 +458,9 @@ def to_markdown(old: Spec, new: Spec, d: DiffResult) -> str:
         tag = " (undecided: solver timeout)" if a.verdict == "UNKNOWN" else ""
         cond = f" — conditional on unverified SQL: {', '.join(a.opaque_deps)}" if a.opaque_deps else ""
         lines.append(f"- {_access_english(view, a)}{tag}{cond}")
+        before, after = _access_terse(old, new, a)
+        lines.append(f"  - before: `{before}`")
+        lines.append(f"  - after: `{after}`")
         if a.scenario:
             lines.append(f"  - for example: {english.scenario(view, a.scenario)}")
     lines += ["", "## Integrity changes", ""]
@@ -443,6 +471,9 @@ def to_markdown(old: Spec, new: Spec, d: DiffResult) -> str:
         tag = " (undecided: solver timeout)" if i.verdict == "UNKNOWN" else ""
         cond = f" — conditional on unverified SQL: {', '.join(i.opaque_deps)}" if i.opaque_deps else ""
         lines.append(f"- {_integrity_english(i)}{tag}{cond}")
+        before, after = _integrity_terse(old, new, i)
+        lines.append(f"  - before: `{before}`")
+        lines.append(f"  - after: `{after}`")
         if i.scenario:
             lines.append(f"  - for example: {english.scenario(view, i.scenario)}")
     lines += ["", "## Privilege changes", ""]

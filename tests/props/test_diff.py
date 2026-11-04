@@ -73,8 +73,10 @@ def test_example_v1_to_v2():
     assert any(g.command == "delete" and g.table == "docs" for g in res.grants)
     md = to_markdown(old, new, res)
     assert "can now delete rows of docs" in md and "for example:" in md
+    assert "  - before: `false`\n  - after: `owner_id = @uid and not archived = 1`" in md
     j = to_json(old, new, res)
     assert j["summary"]["access_changes"] == 2 and all(a["scenario_english"] for a in j["access"])
+    assert all(a["before"] and a["after"] for a in j["access"] + j["integrity"])
     assert "table 'tenant_settings' is new" in res.notes
 
 

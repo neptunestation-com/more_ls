@@ -171,13 +171,14 @@ def _explain(spec, script, dsn: str, label: str, scale: int) -> bool:
 
 def cmd_explain(a) -> int:
     from mls.english import spec_summary
+    from mls.terse import spec_listing
 
     try:
         spec = _load(a.spec)
     except SpecError as e:
         _print_errors(e, False)
         return 1
-    print(spec_summary(spec), end="")
+    print(spec_listing(spec) if a.terse else spec_summary(spec), end="")
     return 0
 
 
@@ -326,6 +327,7 @@ def cmd_eval(a) -> int:
                 d.mkdir(parents=True, exist_ok=True)
                 (d / f"{g.case_id}.json").write_text(json.dumps(
                     {"grade": g.to_dict(), "result": result.to_dict(),
+                     "spec_terse": _terse_lines(result.spec),
                      "exchanges": [{"name": x.request.name, "user": x.request.user, "response": x.response,
                                     "usage": x.usage} for x in getattr(client, "exchanges", [])]},
                     indent=1, default=str))
@@ -342,6 +344,13 @@ def cmd_eval(a) -> int:
     return 0 if bad == 0 else 1
 
 
+def _terse_lines(spec) -> list[str] | None:
+    """The generated spec, one line per rule and property (D44), for reading a transcript."""
+    from mls.terse import spec_listing
+
+    return spec_listing(spec).rstrip("\n").split("\n") if spec is not None else None
+
+
 def cmd_generate(a) -> int:
     from mls import english
     from mls.llm.client import client_from_env
@@ -354,7 +363,7 @@ def cmd_generate(a) -> int:
     result = generate(requirements, skeleton, client, a.max_repairs)
     if a.transcript:
         Path(a.transcript).write_text(json.dumps(
-            {"result": result.to_dict(),
+            {"result": result.to_dict(), "spec_terse": _terse_lines(result.spec),
              "exchanges": [{"name": x.request.name, "system": x.request.system, "user": x.request.user,
                             "response": x.response, "usage": x.usage} for x in getattr(client, "exchanges", [])]},
             indent=1, default=str))
@@ -427,6 +436,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("explain", help="render the rules and properties in plain English")
     p.add_argument("spec")
+    p.add_argument("--terse", action="store_true",
+                   help="the terse one-line-per-item rendering instead of English (for reading, not input)")
     p.set_defaults(fn=cmd_explain)
 
     p = sub.add_parser("diff", help="access diff between two spec versions, with scenarios")

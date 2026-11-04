@@ -29,6 +29,14 @@ def test_prove_and_compile(tmp_path, capsys):
     assert "create policy \"member_read\"" in out and "force row level security" in out
 
 
+def test_explain_terse(capsys):
+    assert main(["explain", str(ORG_TREE), "--terse"]) == 0
+    out = capsys.readouterr().out
+    assert "R1 policy files: authenticated select permissive using in_group(org, @uid, group_id)\n" in out
+    assert main(["explain", str(ORG_TREE)]) == 0
+    assert "# What the rules say" in capsys.readouterr().out
+
+
 def test_schema_and_lint(capsys):
     assert main(["schema"]) == 0
     assert "$defs" in json.loads(capsys.readouterr().out)

@@ -38,6 +38,8 @@ would only repeat the exchange.
     export ANTHROPIC_API_KEY=...            # or `ant auth login`; never commit it
     uv run mls generate requirements.txt --skeleton skeleton.json --out spec.mls.json --transcript t.json
     uv run mls eval evals/cases --llm --transcripts out/   # metrics over the corpus
+                                                           # (each transcript carries the generated spec as
+                                                           # `spec_terse`, one line per rule and property, D44)
     uv run mls eval evals/cases --llm --repair             # start from each case's (mutated) rules
     uv run mls eval evals/cases --mutate evals/cases/synthetic   # regenerate solver-graded mutants
 

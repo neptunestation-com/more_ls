@@ -24,6 +24,7 @@ Read `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.md`, `docs/ROADMAP.m
     uv run mls test    examples/tenant_docs.mls.json --versions 16 --explain   # + EXPLAIN checks at 1M rows
     uv run mls lint    examples/tenant_docs.mls.json        # leakproof lint
     uv run mls explain examples/tenant_docs.mls.json        # the rules and properties in plain English
+    uv run mls explain examples/tenant_docs.mls.json --terse   # one line per rule: member_of(@uid, tenant_id) and ...
     uv run mls diff    examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json     # access diff with scenarios
     uv run mls migrate examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json     # phased DDL with lock levels
     uv run mls preflight examples/tenant_docs_v2.mls.json --old examples/tenant_docs.mls.json --dsn $DSN
