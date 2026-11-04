@@ -124,7 +124,8 @@ be satisfied vacuously). A top-level `$comment` is allowed.
 permissive policy grants its command; a `read` column rule restricts SELECT to a column list, a
 `write` rule restricts INSERT and UPDATE; DELETE is table-level; TRUNCATE is never granted. The
 `least_privilege` property compares the derived grants (including D21's) with a declared allowance.
-Security-invoker views for row-filtered column masking remain a v2 question.
+Security-invoker views for row-filtered column masking were the v2 question of this decision; D42
+settled it: no masking construct, the column is its own table with its own policies.
 
 **D25. Proof assumptions.** Stored rows satisfy every CHECK and FK (constraints are created
 validated). Enforced inclusions between relation tables become EPR axioms (`admin_of ⊆ member_of`).
