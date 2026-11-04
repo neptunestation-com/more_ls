@@ -24,8 +24,11 @@ two identical rows are one row, which changes nothing for these invariants.
   inserts into `u` only add facts (`fk_insert_referenced`), and deletes from and updates of `u`
   are guarded by RESTRICT (`fk_delete_referenced`, `fk_update_referenced`): the guard is the one
   `props/obligations.py:_restrict_guard` gives the solver.  The relation-change axioms the
-  obligations add (`_relation_change`) follow from the model (`rel_after_insert`,
-  `rel_after_delete`).  Self-referencing FKs (`u = t`) are outside these theorems.
+  obligations add (`_relation_change`) follow from the model: the insert axiom outright
+  (`rel_after_insert`), the delete and update axioms under the uniqueness the spec requires of a
+  relation's (key, value) (`State.PairUnique`; `rel_after_delete_iff`, `rel_after_update`) —
+  without it a second row with the same pair would keep the fact alive, which the axioms deny.
+  Self-referencing FKs (`u = t`) are outside these theorems.
 -/
 namespace MLS
 
@@ -86,35 +89,37 @@ def Pred.rowOnly : Pred → Bool
   | .cmp l _ r => l.isRow && r.isRow
   | _ => false
 
-variable {s : Schema} {e e' : Env} {row : String}
+variable {s : Schema} {e e' : Env} {row row' : String}
 
-theorem Term.value_isRow (t : Term) (ht : t.isRow = true) (hcol : e.col row = e'.col row) :
-    t.value e row = t.value e' row := by
+/-- A row-only term reads the same under any two environments and image names that agree on
+the image it reads. -/
+theorem Term.value_isRow (t : Term) (ht : t.isRow = true) (hcol : e.col row = e'.col row') :
+    t.value e row = t.value e' row' := by
   cases t with
-  | col n => show e.col row n = e'.col row n; rw [hcol]
+  | col n => show e.col row n = e'.col row' n; rw [hcol]
   | const v => rfl
   | _ => simp [Term.isRow] at ht
 
-theorem eval_rowOnly (hcol : e.col row = e'.col row) :
-    ∀ p : Pred, p.rowOnly = true → p.eval s e row = p.eval s e' row
+theorem eval_rowOnly (hcol : e.col row = e'.col row') :
+    ∀ p : Pred, p.rowOnly = true → p.eval s e row = p.eval s e' row'
   | .lit _, _ => rfl
   | .and p q, hp => by
     simp only [Pred.rowOnly, Bool.and_eq_true] at hp
-    show TV.and (p.eval s e row) (q.eval s e row) = TV.and (p.eval s e' row) (q.eval s e' row)
+    show TV.and (p.eval s e row) (q.eval s e row) = TV.and (p.eval s e' row') (q.eval s e' row')
     rw [eval_rowOnly hcol p hp.1, eval_rowOnly hcol q hp.2]
   | .or p q, hp => by
     simp only [Pred.rowOnly, Bool.and_eq_true] at hp
-    show TV.or (p.eval s e row) (q.eval s e row) = TV.or (p.eval s e' row) (q.eval s e' row)
+    show TV.or (p.eval s e row) (q.eval s e row) = TV.or (p.eval s e' row') (q.eval s e' row')
     rw [eval_rowOnly hcol p hp.1, eval_rowOnly hcol q hp.2]
   | .not p, hp => by
-    show TV.not (p.eval s e row) = TV.not (p.eval s e' row)
+    show TV.not (p.eval s e row) = TV.not (p.eval s e' row')
     rw [eval_rowOnly hcol p hp]
   | .isNull t, hp => by
-    show ofBool (t.value e row).isNone = ofBool (t.value e' row).isNone
+    show ofBool (t.value e row).isNone = ofBool (t.value e' row').isNone
     rw [Term.value_isRow t hp hcol]
   | .cmp l op r, hp => by
     simp only [Pred.rowOnly, Bool.and_eq_true] at hp
-    show liftCmp op.holds (l.value e row) (r.value e row) = liftCmp op.holds (l.value e' row) (r.value e' row)
+    show liftCmp op.holds (l.value e row) (r.value e row) = liftCmp op.holds (l.value e' row') (r.value e' row')
     rw [Term.value_isRow l hp.1 hcol, Term.value_isRow r hp.2 hcol]
   | .member _ _ _, hp => by simp [Pred.rowOnly] at hp
   | .inGroup _ _ _, hp => by simp [Pred.rowOnly] at hp
@@ -132,7 +137,7 @@ variable {x : Extra} {st st' : State} {t : String} {p : Pred}
 theorem admits_ofRow (hp : p.rowOnly = true) (ρ : Row) :
     admits s (Env.ofRow st' x ρ) "r" p = admits s (Env.ofRow st x ρ) "r" p := by
   unfold admits
-  rw [eval_rowOnly (e := Env.ofRow st' x ρ) (e' := Env.ofRow st x ρ) rfl p hp]
+  rw [eval_rowOnly (e := Env.ofRow st' x ρ) (e' := Env.ofRow st x ρ) (row := "r") (row' := "r") rfl p hp]
 
 /-- INSERT: the new row passed `CHECK ((p) IS TRUE)`. -/
 theorem check_insert (hp : p.rowOnly = true) (hi : Inserted st st' t ρ) (hI : CheckHolds s x st t p)
@@ -201,6 +206,55 @@ theorem rel_after_delete {ρu : Row} (hd : Deleted st st' d.table ρu) (hb : st.
     (hb' : st'.Backed R d) (a b : Int) (h : st'.rel R a b = true) : st.rel R a b = true := by
   obtain ⟨ρ, hρ, hk, hv⟩ := (hb' a b).mp h
   exact (hb a b).mpr ⟨ρ, ((hd d.table ρ).mp hρ).1, hk, hv⟩
+
+/-- The spec requires a relation's (key, value) to be a primary key or unique in its table
+(`spec/check.py`): two stored rows with the same pair are the same row. -/
+def State.PairUnique (st : State) (d : RelDecl) : Prop :=
+  ∀ ρ ρ', st.rows d.table ρ → st.rows d.table ρ' → ρ d.key = ρ' d.key → ρ d.value = ρ' d.value → ρ = ρ'
+
+/-- The deleted row's pair was a fact (`before(old.k, old.v)`). -/
+theorem rel_before_of_stored {ρu : Row} {a b : Int} (hb : st.Backed R d) (hρ : st.rows d.table ρu)
+    (hk : ρu d.key = some a) (hv : ρu d.value = some b) : st.rel R a b = true :=
+  (hb a b).mpr ⟨ρu, hρ, hk, hv⟩
+
+/-- Deleting `ρu` from the backing table, with the pair unique:
+`after(x, y) ⇔ before(x, y) ∧ (x, y) ≠ (old.k, old.v)` — the delete axiom of `_relation_change`. -/
+theorem rel_after_delete_iff {ρu : Row} (hd : Deleted st st' d.table ρu) (hb : st.Backed R d)
+    (hb' : st'.Backed R d) (hu : st.PairUnique d) (hρ : st.rows d.table ρu) (a b : Int) :
+    st'.rel R a b = true ↔ st.rel R a b = true ∧ ¬ (ρu d.key = some a ∧ ρu d.value = some b) := by
+  rw [hb' a b, hb a b]
+  constructor
+  · rintro ⟨ρ, hρ', hk, hv⟩
+    obtain ⟨hρ'', hne⟩ := (hd d.table ρ).mp hρ'
+    refine ⟨⟨ρ, hρ'', hk, hv⟩, ?_⟩
+    rintro ⟨hk', hv'⟩
+    exact hne ⟨rfl, hu ρ ρu hρ'' hρ (hk.trans hk'.symm) (hv.trans hv'.symm)⟩
+  · rintro ⟨⟨ρ, hρ', hk, hv⟩, hne⟩
+    refine ⟨ρ, (hd d.table ρ).mpr ⟨hρ', ?_⟩, hk, hv⟩
+    rintro ⟨_, rfl⟩
+    exact hne ⟨hk, hv⟩
+
+/-- Replacing `ρu` by `ρu'` in the backing table, with the pair unique:
+`after(x, y) ⇔ (before(x, y) ∧ (x, y) ≠ (old.k, old.v)) ∨ (x, y) = (new.k, new.v)` — the update
+axiom of `_relation_change`. -/
+theorem rel_after_update {ρu ρu' : Row} (hup : Updated st st' d.table ρu ρu') (hb : st.Backed R d)
+    (hb' : st'.Backed R d) (hu : st.PairUnique d) (hρ : st.rows d.table ρu) (a b : Int) :
+    st'.rel R a b = true
+      ↔ (st.rel R a b = true ∧ ¬ (ρu d.key = some a ∧ ρu d.value = some b))
+        ∨ (ρu' d.key = some a ∧ ρu' d.value = some b) := by
+  rw [hb' a b, hb a b]
+  constructor
+  · rintro ⟨ρ, hρ', hk, hv⟩
+    rcases (hup d.table ρ).mp hρ' with ⟨hρ'', hne⟩ | ⟨_, rfl⟩
+    · refine Or.inl ⟨⟨ρ, hρ'', hk, hv⟩, ?_⟩
+      rintro ⟨hk', hv'⟩
+      exact hne ⟨rfl, hu ρ ρu hρ'' hρ (hk.trans hk'.symm) (hv.trans hv'.symm)⟩
+    · exact Or.inr ⟨hk, hv⟩
+  · rintro (⟨⟨ρ, hρ', hk, hv⟩, hne⟩ | ⟨hk, hv⟩)
+    · refine ⟨ρ, (hup d.table ρ).mpr (Or.inl ⟨hρ', ?_⟩), hk, hv⟩
+      rintro ⟨_, rfl⟩
+      exact hne ⟨hk, hv⟩
+    · exact ⟨ρu', (hup d.table ρu').mpr (Or.inr ⟨rfl, rfl⟩), hk, hv⟩
 
 /-- A statement on another table leaves the relation unchanged. -/
 theorem rel_unchanged (hb : st.Backed R d) (hb' : st'.Backed R d)

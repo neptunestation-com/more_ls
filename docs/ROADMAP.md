@@ -120,10 +120,35 @@ every statement on either table, with the RESTRICT guard being exactly the one
 `props/obligations.py:_restrict_guard` gives the solver, and the relation-change axioms of
 `_relation_change` following from the model.  Self-referencing FKs are outside the theorems;
 rows are sets, not bags.  With this the track listed in D11 is complete: 3VL, predicate
-semantics, policy combination, NULL normalization, CHECK and FK templates.  Open, not planned:
-the transition trigger as a two-image statement guard is covered by the outcome model of step 2
-rather than by a relational theorem; cardinality and hierarchies stay with the concurrency test
-and the cvc5 cross-check.  The Lean sources mirror the Python structure by hand; nothing checks
-that mechanically, so a change to `tvl.py`, `effective.py`, `pg/model.py`, the assumption
-builders in `obligations.py` or the CHECK/FK/transition templates must be carried to
-`lean/MLS` (CLAUDE.md).
+semantics, policy combination, NULL normalization, CHECK and FK templates.
+Step 5 done (issue #4): the four gaps left open after step 4.  (a) The transition trigger
+relationally (`lean/MLS/Transition.lean`): a transition predicate reads only its two images
+(`eval_twoImage`), so what the trigger decided holds of the replacement in every state
+(`transition_guard`); the induction step the solver discharges for the written row
+(`_induction_step`, case 1) is enough for the state (`invariant_update_step`,
+`invariant_insert_step`); the implicit parent-immutable rule is admitted exactly when the column
+is unchanged and keeps the set of stored values of the column (`immutable_values`).  With it the
+delete and update relation-change axioms of `_relation_change` are derived too, under the
+uniqueness the spec requires of a relation's columns (`State.PairUnique`,
+`rel_after_delete_iff`, `rel_after_update` in `Relational.lean`; the insert axiom needed no
+such hypothesis).  (b) The compiled hierarchy helper (`lean/MLS/Reach.lean`): the recursive
+CTE of `mls_reach_<h>` descending `max_depth` levels from the user's groups returns `g` iff the
+walk up from `g` meets one of them (`Forest.reach_iff_walk`), which is `in_group`
+(`reach_iff_inGroup`); one level less misses a group at the bound (`HIERARCHY_SHALLOW`); the
+depth trigger with the CHECK keeps `Forest.Depths` across an insert (`depths_insert`), without
+the CHECK a node under one at the bound exceeds it.  The `SECURITY DEFINER` side (the helper
+sees every row, D34) is the model's `stored`, stated, not proved.  (c) Cardinality
+(`lean/MLS/Cardinality.lean`) over a bag of rows: the trigger's test keeps the bound across
+insert, update (the skip when the group is unchanged included) and delete, the solver's count
+axioms follow from the bag, `CARDINALITY_OFF_BY_ONE` lets one row too many in, and the lock is
+modelled as what it buys — a serial schedule, in which every attempt counted the bag it extends,
+keeps the bound (`serial_bound`), while two attempts that counted the same bag overshoot
+(`unlocked_overshoot`, the `CARDINALITY_NO_LOCK` mutation).  That `FOR UPDATE` under READ
+COMMITTED yields a serial schedule remains the stated assumption of the proof report.  (d) The
+transcription is checked mechanically by shared test vectors (D43): `tests/lean/vectors.py`
+generates `lean/MLS/Vectors.lean`, 340 `#guard`s comparing `Pred.eval`, `Pred.tf` (the
+hierarchy walk and unrolling included) and the statement outcomes with what the Python
+evaluator, encoder and oracle computed on the same data; the fast suite checks the file is
+current, the Lean build checks the guards.  Still by hand: a change to a Python original must be
+carried to `lean/MLS` (CLAUDE.md) — the vectors catch a divergence in meaning on the sampled
+data, not a missing theorem.

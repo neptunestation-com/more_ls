@@ -330,12 +330,18 @@ on UNKNOWN (the `*_NAIVE` mutations).  `lean/MLS/Relational.lean` is the "small 
 Postgres" D11 asked for: states, backed relations, one-row statements, and the CHECK and FK
 templates proved to keep their invariants under every statement, with the FK RESTRICT guard and
 the relation-change axioms of the invariant-preservation obligations derived from it.  The Lean
-and the Python are two artifacts with no mechanical link;
+and the Python are two artifacts whose only mechanical link is the shared test vectors of D43;
 a change to the encoder is carried to the transcription by hand, or the gap is recorded in the
 ROADMAP.  What the track cannot do: say anything about Postgres itself — the "small model of
 Postgres" of the later steps is our own axiomatization, and the differential tests remain the only
-link to the real thing (D11).  Out of scope on purpose: cardinality limits and hierarchies, whose
-correctness rests on the concurrency test and the cvc5 cross-check.
+link to the real thing (D11).  *Amended (issue #4):* the transition trigger
+(`lean/MLS/Transition.lean`), the compiled hierarchy helper and depth trigger
+(`lean/MLS/Reach.lean`) and the cardinality trigger over a bag of rows
+(`lean/MLS/Cardinality.lean`) are in the track since step 5 (ROADMAP).  What stays outside it,
+by nature: that `FOR UPDATE` under READ COMMITTED serializes the writers of a group (the model
+takes the serial schedule as the assumption the proof report states) and that the
+`SECURITY DEFINER` helper sees every row (D34) — the concurrency test and the Postgres
+differential tests remain their evidence.
 
 **D42. Row-dependent column visibility is modelled by normalization; there is no masking
 construct (settles the v2 question of D24, GitHub issue #3).** A column rule is per (role, table);
@@ -369,6 +375,28 @@ the normalization again.  Cost of the decision: the schema is designed for it (D
 schema; the language reference tells the model) and a client reads the salary with a join.  If a
 later version needs masking for a schema MLS does not own, it is a new kind of relation ("the view
 a role reads"), to be decided against D15 and D26, not an option on a column rule.
+
+**D43. Shared test vectors are the mechanical link between the Lean transcription and the
+Python (amends D41).** `tests/lean/vectors.py` generates `lean/MLS/Vectors.lean` from a fixed
+seed: random predicates over the harness spec of `tests/logic/test_tvl.py`, rows, contexts and
+relation facts; random forests for `in_group`; random policy sets with a check and a transition
+rule for the statement outcomes.  For each vector the generator records what the Python computed
+— the evaluator's truth value (`pg/model.py:eval_pred`), the encoder's pair under the harness
+valuation (`logic/tvl.py:Encoder.tf`, evaluated as the sampling test does), the oracle's outcome
+(`pg/model.py:Oracle`) — and emits a `#guard` on the Lean transcription (`Pred.eval`, `Pred.tf`,
+`Rules.visible/insert/update/delete`).  The generator asserts, while generating, that evaluator
+and encoder agree (the universal form of that agreement is `Pred.tf_sound`); the fast suite
+asserts the committed file is what the generator produces; the Lean build asserts the guards.
+Why vectors and not a generated Lean term per spec: the theorems of the track are about the
+*definitions* (`Pred.tf` transcribes `Encoder.tf`), so what needs checking is that the two
+definitions compute the same function, and sampled agreement on the same inputs is the test
+that a definition-by-definition transcription can be given without a Lean toolchain on the
+Python side or a Python interpreter on the Lean side.  Limits: sampled, not universal; the
+outcome vectors keep to the layers the Lean models (every policy set has a permissive policy
+for the command and for select, so the oracle's grants are table level; no FKs, uniqueness or
+cardinality on the harness table); constants are integers (text and uuid values are interned
+to integers as the encoder does).  A new construct in `Pred` or a new outcome rule gets its
+vectors in the same generator.
 
 **D33. English rendering is a fixed function of the spec (D10, D15).** `mls explain` and the diff
 and proof reports use `mls/english.py`; the same construct always reads the same way, so a

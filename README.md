@@ -82,6 +82,12 @@ permissive policy is TRUE on it and every restrictive one is), and the statement
 semantics: every executed statement satisfies what the proofs assume, and without column reads
 it is executed exactly when the net-effect predicate admits it.  The NULL normalization is a
 theorem too: with `IS TRUE`, RLS, CHECK and triggers admit the same rows, and without it they
-disagree exactly on UNKNOWN.  Against a small relational model, the CHECK and FK templates keep
-their invariants under every statement, and the RESTRICT guard the proofs assume is the one the
-FK enforces.
+disagree exactly on UNKNOWN.  Against a small relational model, the CHECK, FK and transition
+templates keep their invariants under every statement, the RESTRICT guard the proofs assume is
+the one the FK enforces, and the induction step the solver discharges for the written row is
+enough for the state.  The compiled hierarchy helper computes `in_group` (descending from the
+user's groups meets the walk up from the row's group), and the cardinality trigger keeps its
+bound over a bag of rows when the writers of a group are serialized — which is what the
+parent-row lock is assumed to provide.  The transcription is checked against the Python by
+generated test vectors: the evaluator, the encoder and the oracle on the same data, as
+`#guard`s in the Lean build.
