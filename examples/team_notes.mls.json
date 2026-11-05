@@ -1,0 +1,245 @@
+{
+  "$comment": "The spec the user guide builds in its tour (docs/GUIDE.md section 3): team notes on Supabase, read by members and admins, archived notes hidden. tests/test_guide.py replays the tour on it.",
+  "mls_version": "0.1",
+  "identity": {
+    "adapter": "supabase",
+    "context": {
+      "uid": {
+        "source": "auth.uid",
+        "type": "uuid"
+      }
+    }
+  },
+  "roles": [
+    "authenticated"
+  ],
+  "tables": {
+    "members": {
+      "columns": {
+        "user_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "team_id": {
+          "type": "int",
+          "nullable": false
+        }
+      },
+      "primary_key": [
+        "user_id",
+        "team_id"
+      ],
+      "unique": [],
+      "mode": "owned",
+      "assume": [],
+      "tags": []
+    },
+    "notes": {
+      "columns": {
+        "id": {
+          "type": "int",
+          "nullable": false
+        },
+        "team_id": {
+          "type": "int",
+          "nullable": false
+        },
+        "author_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "body": {
+          "type": "text",
+          "nullable": false
+        },
+        "archived": {
+          "type": "int",
+          "nullable": true
+        }
+      },
+      "primary_key": [
+        "id"
+      ],
+      "unique": [],
+      "mode": "owned",
+      "assume": [],
+      "tags": []
+    },
+    "admins": {
+      "columns": {
+        "user_id": {
+          "type": "uuid",
+          "nullable": false
+        },
+        "team_id": {
+          "type": "int",
+          "nullable": false
+        }
+      },
+      "primary_key": [
+        "user_id",
+        "team_id"
+      ],
+      "unique": [],
+      "mode": "owned",
+      "assume": [],
+      "tags": []
+    }
+  },
+  "relations": {
+    "member_of": {
+      "table": "members",
+      "key": "user_id",
+      "value": "team_id"
+    },
+    "admin_of": {
+      "table": "admins",
+      "key": "user_id",
+      "value": "team_id"
+    }
+  },
+  "hierarchies": {},
+  "opaques": {},
+  "rules": [
+    {
+      "id": "R1",
+      "name": "member_read",
+      "table": "notes",
+      "kind": "policy",
+      "role": "authenticated",
+      "command": "select",
+      "mode": "permissive",
+      "using": {
+        "member": {
+          "relation": "member_of",
+          "key": {
+            "ctx": "uid"
+          },
+          "value": {
+            "col": "team_id"
+          }
+        }
+      }
+    },
+    {
+      "id": "R2",
+      "name": "admin_read",
+      "table": "notes",
+      "kind": "policy",
+      "role": "authenticated",
+      "command": "select",
+      "mode": "permissive",
+      "using": {
+        "member": {
+          "relation": "admin_of",
+          "key": {
+            "ctx": "uid"
+          },
+          "value": {
+            "col": "team_id"
+          }
+        }
+      }
+    },
+    {
+      "id": "R3",
+      "name": "admin_is_member",
+      "table": "admins",
+      "kind": "inclusion",
+      "columns": [
+        "user_id",
+        "team_id"
+      ],
+      "relation": "member_of",
+      "on_delete": "restrict"
+    },
+    {
+      "id": "R4",
+      "name": "hide_archived",
+      "table": "notes",
+      "kind": "policy",
+      "role": "authenticated",
+      "command": "all",
+      "mode": "restrictive",
+      "using": {
+        "or": [
+          {
+            "is_null": {
+              "col": "archived"
+            }
+          },
+          {
+            "cmp": [
+              {
+                "col": "archived"
+              },
+              "<>",
+              {
+                "const": 1
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "properties": [
+    {
+      "id": "P1",
+      "description": "a user only reads the notes of their own teams",
+      "template": "tenant_isolation",
+      "table": "notes",
+      "column": "team_id",
+      "relation": "member_of",
+      "key": {
+        "ctx": "uid"
+      },
+      "commands": [
+        "select"
+      ]
+    },
+    {
+      "id": "P2",
+      "description": "a member reads every note of their team that is not archived",
+      "template": "must_allow",
+      "table": "notes",
+      "role": "authenticated",
+      "command": "select",
+      "when": {
+        "and": [
+          {
+            "member": {
+              "relation": "member_of",
+              "key": {
+                "ctx": "uid"
+              },
+              "value": {
+                "col": "team_id"
+              }
+            }
+          },
+          {
+            "or": [
+              {
+                "is_null": {
+                  "col": "archived"
+                }
+              },
+              {
+                "cmp": [
+                  {
+                    "col": "archived"
+                  },
+                  "=",
+                  {
+                    "const": 0
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

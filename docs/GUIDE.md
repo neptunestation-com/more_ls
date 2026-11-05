@@ -139,7 +139,9 @@ Nothing else in the toolchain makes a network call.
 
 This section builds a spec for a small team-notes app on Supabase, one requirement at a time.
 You need no database: everything here runs on your machine in seconds.  Every output shown is
-what `mls` actually prints, trimmed only where marked.
+what `mls` actually prints, trimmed only where marked.  The finished spec is
+`examples/team_notes.mls`, and the test suite replays this tour on it, so the outputs stay
+current.
 
 ### Step 1: one rule, one guarantee
 

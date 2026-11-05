@@ -69,6 +69,10 @@ union member the renderer does not cover.
   fixtures (`tests/templates/specs.py`) derive from the example specs; `test_specs.py` builds and
   checks every one without Docker, so an example edit that breaks a fixture fails in the fast
   suite, not only in the Postgres jobs.
+- The guide's tour (GUIDE §3) is replayed by `tests/test_guide.py` on `examples/team_notes.mls`:
+  every command it shows runs in its own process (in-process runs get other counterexamples)
+  and must print the lines the guide shows. A change to report, lint, explain or compile output
+  updates the tour in the same change.
 - Implementation defaults decided during M1 are D21–D27, during M2 D28–D33, during M3 D34–D36,
   after M4 D40–D44, during M5 (brownfield) D45–D49, syntax D50, in `docs/DECISIONS.md`.  D42: row-dependent column visibility is normalization
   (the column is its own table with its own policies); there is no masking construct.

@@ -1,0 +1,41 @@
+mls 0.1
+comment 'The spec the user guide builds in its tour (docs/GUIDE.md section 3): team notes on Supabase, read by members and admins, archived notes hidden. tests/test_guide.py replays the tour on it.'
+
+identity supabase { uid: auth.uid uuid }
+roles authenticated
+
+table members owned {
+  user_id uuid not null,
+  team_id int not null;
+  primary_key (user_id, team_id)
+}
+
+table notes owned {
+  id int not null,
+  team_id int not null,
+  author_id uuid not null,
+  body text not null,
+  archived int;
+  primary_key (id)
+}
+
+table admins owned {
+  user_id uuid not null,
+  team_id int not null;
+  primary_key (user_id, team_id)
+}
+
+relation member_of = members(user_id, team_id)
+relation admin_of = admins(user_id, team_id)
+
+rules {
+  R1 policy member_read on notes: authenticated select permissive using member_of(@uid, team_id)
+  R2 policy admin_read on notes: authenticated select permissive using admin_of(@uid, team_id)
+  R3 inclusion admin_is_member on admins: (user_id, team_id) in member_of on_delete restrict
+  R4 policy hide_archived on notes: authenticated all restrictive using archived is null or archived <> 1
+}
+
+properties {
+  P1 tenant_isolation notes: team_id in member_of(@uid) for select description 'a user only reads the notes of their own teams'
+  P2 must_allow notes authenticated select: member_of(@uid, team_id) and (archived is null or archived = 0) description 'a member reads every note of their team that is not archived'
+}
