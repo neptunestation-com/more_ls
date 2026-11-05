@@ -173,6 +173,74 @@ path names.  The corpus run with both syntaxes scored the same on the seed cases
 terse on the repair benchmark, at a third fewer output tokens, so terse became the default of
 the LLM loop (D50 as amended; `docs/LLM.md`).
 
+## Milestone 6 — takeover: keep the schema, replace the policies (D51–D55, proposed)
+
+Milestone 5 made MLS able to read a database it did not create. The case it will mostly meet
+is narrower and more common: the tables, keys and data stay, the RLS policies (if any) go, and
+MLS takes over the policy set. Today that path ends in a spec that governs nothing (`mls
+import` makes tables without RLS `observed`), drops the usual Supabase key type (`bigint`),
+and deploys new policies next to the old ones. This milestone makes it one runbook, tested end
+to end on the Supabase image.
+
+Scope:
+- **Supabase as a platform** (D55): `supabase/postgres` in the test matrix for the takeover
+  tests; what the compiled script cannot do as Supabase's `postgres` role is recorded in
+  FINDINGS and resolved template by template. Done first, because its findings may change the
+  other items.
+- **`bigint`** (D53): a column and context type with `int`'s semantics; `character varying`
+  read as `text` on adopted tables. Through the model, both syntaxes, checker, encoder, harness,
+  compiler casts, import, drift, English, REFERENCE, Lean.
+- **`mls import --policies discard`** (D52): a skeleton with every table adopted, relations
+  proposed from the schema's membership tables, FK-shaped inclusions and readable CHECKs kept,
+  every discarded policy listed in the notes with its text; `--observe` to leave tables out.
+- **The spec owns the policy set** (D51): a fixed template that drops the policies of an adopted
+  table the spec does not declare, in the deploy transaction; differential test with
+  pre-existing permissive and restrictive policies, mutation `REPLACE_KEEPS_FOREIGN`.
+- **Bypass paths** (D54): non-`security_invoker` views and `SECURITY DEFINER` functions over
+  governed tables reachable by an app role, in import notes, `status`, drift (`hardening`) and,
+  when assumed, every proof report.
+- **Documents**: `docs/TAKEOVER.md`, the runbook (back up; `import --policies discard`; review
+  the notes; write the requirements; `generate` or write the rules; `prove`; compare with what
+  the old policies allowed via `import` + `diff`; `drift` to see what the deploy will drop;
+  `preflight`; deploy; `drift` clean; `status`; rollback). The guide is reordered so that its
+  main path starts from an existing schema (greenfield becomes the side path); recipes are
+  restated in schema terms ("you have `projects.owner_id → auth.users`", "you have a
+  membership table", "your policies call `is_admin()`", "you have a `deleted_at` column").
+
+Open question (decide before the runbook): **ownership two tables away.** Real schemas nest:
+`tasks.project_id → projects.team_id → team_members`. The fragment's membership is one table
+deep, so today a task policy needs `team_id` copied onto `tasks` with a composite FK
+`(project_id, team_id) → projects (id, team_id)` (expressible now: a relation on `projects` and
+an inclusion rule). That is a schema change, which is what takeover users resist. The
+alternative is a composed relation (`relation task_team = tasks(project_id) . projects(id,
+team_id)`), compiled to a nested InitPlan (`project_id = any(array(select id from projects where
+team_id = any(array(select ...))))`), with a declared bound on composition length so the
+obligations stay in EPR (invariant 6). Needs a FINDINGS experiment on plan shape and a
+decision; until then the runbook documents the denormalization recipe.
+
+Acceptance:
+- `tests/brownfield/starter_schema.sql`, a typical Supabase starter (profiles keyed by
+  `auth.users`, `bigint` identity keys, a membership table, nested tables, two half-hearted
+  policies, one table without RLS, one view, one `SECURITY DEFINER` function), loaded into
+  `supabase/postgres` with data: the runbook's commands, replayed by a test the way
+  `tests/test_guide.py` replays the tour, end with `drift` clean (bypass paths fixed or
+  assumed), every property proved, the old policies gone, and the differential test passing on
+  the deployed database.
+- `import --policies discard` of that schema `check`s with every table adopted, every
+  membership table a relation and every FK-shaped inclusion a rule; `keep` is unchanged and the
+  Milestone 5 acceptance tests still pass.
+- Deploying a spec over an adopted table with foreign policies leaves exactly the spec's
+  policies; the mutation that skips the drop is caught by the differential test on PG 15–18.
+- A `bigint` key above 2³¹ round-trips through import, compile, the differential test and
+  drift; the Lean vectors are regenerated and the Lean build passes.
+- A non-invoker view over a governed table is `hardening` drift until fixed or assumed, and an
+  assumed one appears in the proof report's assumptions.
+
+Not in scope: rewriting the user's views, functions or triggers; enums and other custom types
+(not met in practice); a composed relation unless the open question is decided in its favour;
+marketing material (blog articles and tutorials cite the runbook once it exists; they are not
+acceptance criteria).
+
 ## Parallel track — Lean 4
 
 Formalize: 3VL, predicate semantics, policy combination, NULL normalization lemma, and correctness

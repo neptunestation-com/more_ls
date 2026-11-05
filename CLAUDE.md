@@ -74,7 +74,7 @@ union member the renderer does not cover.
   and must print the lines the guide shows. A change to report, lint, explain or compile output
   updates the tour in the same change.
 - Implementation defaults decided during M1 are D21–D27, during M2 D28–D33, during M3 D34–D36,
-  after M4 D40–D44, during M5 (brownfield) D45–D49, syntax D50, in `docs/DECISIONS.md`.  D42: row-dependent column visibility is normalization
+  after M4 D40–D44, during M5 (brownfield) D45–D49, syntax D50, M6 (takeover, proposed) D51–D55, in `docs/DECISIONS.md`.  D42: row-dependent column visibility is normalization
   (the column is its own table with its own policies); there is no masking construct.
 - M4: `uv run mls generate` / `mls eval --llm` (src/mls/llm, docs/LLM.md, D37–D39). Tests never call the
   API: `MLS_LLM_SCRIPT=<json>` or `ScriptedClient` replays answers. `evals/make_cases.py` regenerates
