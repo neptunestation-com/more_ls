@@ -455,9 +455,26 @@ class MustAllow(PropBase):
     when: Pred
 
 
+class RoleSeparation(PropBase):
+    """No row is admitted to `command` on `table` for both roles (D49): the English form of the
+    `custom` property it already was.  The two roles are evaluated with the same context values
+    (the same user acting under either role) and, for update, both the targeted and the written
+    row must be admitted to both."""
+    template: Literal["role_separation"]
+    table: str
+    roles: list[str] = Field(min_length=2, max_length=2)
+    command: Literal["select", "insert", "update", "delete"]
+
+    @model_validator(mode="after")
+    def _distinct(self) -> "RoleSeparation":
+        if self.roles[0] == self.roles[1]:
+            raise ValueError("role_separation needs two different roles")
+        return self
+
+
 Property = Annotated[
     Union[TenantIsolation, ColumnImmutable, MonotoneIn, WriteSubsetRead, LeastPrivilege,
-          InvariantPreserved, Custom, MustAllow],
+          InvariantPreserved, Custom, MustAllow, RoleSeparation],
     Field(discriminator="template"),
 ]
 

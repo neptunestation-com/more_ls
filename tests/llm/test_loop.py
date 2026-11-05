@@ -237,3 +237,24 @@ def test_mutants_are_solver_graded(example_spec):
         check_spec(Spec.model_validate(m.data))
         assert all("rule" not in inv for p in m.data["properties"] if p["template"] == "invariant_preserved"
                    for inv in p["invariants"])
+
+
+def test_lint_findings_are_hints_in_the_repair_prompt():
+    """D49: the buggy owner_read rule set carries a legacy duplicate of member_read (a subsumption
+    finding); the repair request carries it under Hints after the counterexamples, and a spec
+    that proves is never sent back for a lint finding."""
+    sk, rules, _ = parts(base())
+    b = json.loads((ROOT / "evals" / "cases" / "specs" / "buggy_owner_read.mls.json").read_text())
+    props, buggy = b["properties"], b["rules"]
+    client = ScriptedClient([{"properties": props}, {"rules": buggy}, {"rules": rules}])
+    res = generate(REQ, sk, client, max_repairs=2)
+    assert res.status == "proved" and res.repair_rounds == 1, res.errors
+    fb = client.exchanges[2].request.user
+    assert "# Hints (lint findings" in fb
+    assert "- subsumption: policy R11 (legacy_member_read) and policy R1 (member_read) on docs admit the same rows" in fb
+    assert fb.index("REFUTED") < fb.index("# Hints")
+    # the fixed rules prove: no further round, whatever the lint would say
+    noisy = rules + [{**next(r for r in rules if r["id"] == "R1"), "id": "R1b", "name": "member_read_again"}]
+    client = ScriptedClient([{"properties": props}, {"rules": noisy}])
+    res = generate(REQ, sk, client, max_repairs=2)
+    assert res.status == "proved" and res.repair_rounds == 0

@@ -24,6 +24,7 @@ from mls.errors import ErrorSink, MlsError, SpecError
 from mls.spec.model import (
     CONTEXT_NOW, And, BypassAssumed, CardinalityRule, CheckRule, ColRef, ColType, ColumnRule, Cmp, Const, CtxRef,
     In, Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
+    RoleSeparation,
     NowBetween, OldRef, OpaqueRef, Or, OwnerAssumed, PolicyRule, RlsAssumed, Spec, TenantIsolation,
     ColumnImmutable, WriteSubsetRead, LeastPrivilege, TransitionRule,
 )
@@ -737,7 +738,7 @@ class Checker:
             if p.id in ids:
                 self.err(path + ".id", f"duplicate property id '{p.id}'")
             ids.add(p.id)
-            if isinstance(p, (TenantIsolation, ColumnImmutable, WriteSubsetRead, Custom, MustAllow)):
+            if isinstance(p, (TenantIsolation, ColumnImmutable, WriteSubsetRead, Custom, MustAllow, RoleSeparation)):
                 if p.table not in self.spec.tables:
                     self.err(path + ".table", f"unknown table '{p.table}'")
                     continue
@@ -793,6 +794,10 @@ class Checker:
                 if p.role not in self.spec.roles:
                     self.err(path + ".role", f"unknown role '{p.role}'")
                 self.pred(p.when, must_allow_scope(p.table, p.command), path + ".when")
+            elif isinstance(p, RoleSeparation):
+                for j, role in enumerate(p.roles):
+                    if role not in self.spec.roles:
+                        self.err(f"{path}.roles[{j}]", f"unknown role '{role}'")
 
 
 def check_spec(spec: Spec) -> Spec:

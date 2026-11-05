@@ -581,6 +581,16 @@ proof report's verdicts or the eval grading (D38 grades net effect, which they d
 the LLM loop sees them as hints in the repair prompt, never as refutations. Why lint: a
 redundant policy is not a defect of the spec's meaning, and `pg_more_ls` conflating hygiene with
 safety made its exit code mean two things.
+*Implementation defaults (2026-11-05):* `props/lint.py`; `mls lint` prints the findings after
+the leakproof warnings and still exits 0. Coverage's "grant without a policy" is, in MLS terms,
+a column rule whose role has no permissive policy for the access it limits (every other grant
+is derived from a permissive policy); a governed table with no permissive policy at all is
+reported too. Subsumption compares policies whose commands lie within the other's, on every
+side the commands evaluate; two policies that admit the same rows are one finding, as a pair.
+A contradictory policy is within anything and trivially redundant, a subsumed one is redundant:
+each policy is reported once, under the most specific kind. `role_separation` evaluates both
+roles with the same context values (one user, either role). Hints reach the LLM loop only in a
+proof-driven repair request.
 
 ## Syntax (2026-11-04)
 

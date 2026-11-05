@@ -512,6 +512,19 @@ meets refutes the property) and the bound (`every row meeting the condition is a
 update, `when` ranges over `old` and `new` and should state the whole change.  The written row
 is assumed valid, so `when` states what the user can do, not the integrity rules.
 
+### 12.9 `role_separation`
+
+    {"id": "S1", "template": "role_separation", "table": "approvals",
+     "roles": ["requester", "approver"], "command": "update"}
+
+No row is admitted to `<command>` for both roles (D49): the English form of the `custom`
+property it already was.  One obligation, `<command>: no row is admitted to both a and b`:
+the stored-row constraints and both roles' effective policies (for update, the targeted and the
+written row, with the transition rules) are unsatisfiable together.  Both roles are evaluated
+with the same context values, so it states that no user acting under either role reaches the
+same row.  A counterexample is a row (and user) both roles may touch.  Two different declared
+roles are required.
+
 ## 13. Renderings: English and terse
 
 `mls explain` prints every rule, property and (in reports) scenario as an English sentence
@@ -539,6 +552,7 @@ Examples:
     P1 tenant_isolation docs: tenant_id in member_of(@uid) for select, insert, update
     P6 least_privilege: authenticated docs[select, insert, update]; authenticated memberships[select]
     P7 must_allow docs authenticated select: member_of(@uid, tenant_id) and not archived is null
+    S1 role_separation approvals update: requester | approver
     org: groups id id parent parent_id depth depth max_depth 3 members group_member
 
 A scenario (a counterexample or an example) lists the context, the row or rows, and the
@@ -635,11 +649,26 @@ Exit 1 on any mismatch or failed plan check.
 
 Rules and properties in English, or one terse line each (§13).
 
-### `mls lint SPEC [--dsn DSN]`
+### `mls lint SPEC [--dsn DSN] [--timeout SECONDS] [--json]`
 
-Leakproof lint (D14): for each column of a protected table, the operators of its type that are
-not leakproof and therefore cannot use an index before the row policy.  With `--dsn` the list
-comes from the server's catalog.  Prints `warning: ...` lines and a count.  Exit 0.
+Hygiene, never safety: nothing here enters a proof verdict, the eval grading or the exit code.
+Two parts.  The leakproof lint (D14): for each column of a protected table, the operators of
+its type that are not leakproof and therefore cannot use an index before the row policy; with
+`--dsn` the list comes from the server's catalog.  Printed as `warning: ...`.  The policy-set
+lint (D49, `src/mls/props/lint.py`), printed as `<kind>: ...`:
+
+| Kind | Finding |
+|---|---|
+| `coverage` | a column rule whose role has no permissive policy for the access it limits (the grant is dead); a governed table on which no role has a permissive policy (nobody can do anything); an `observed` table a selector (§11) would match, or that has the column a `tenant_isolation` property names |
+| `contradiction` | a policy whose `using` (or `check`) cannot be TRUE on any row that satisfies the table's constraints: it never admits a row |
+| `subsumption` | two permissive policies on the same table and role, the commands of one within the other's, where every row the first admits the second admits too (`T(p2) → T(p1)` valid under the constraints, on the three-valued encoding); two policies that admit the same rows are reported once as a pair |
+| `redundancy` | a policy whose removal leaves the effective predicate the same for every command and side it takes part in, on its table and on the tables of the relations it reads; a policy already reported as contradictory, subsumed or equivalent is not reported again |
+
+A finding whose question relied on an opaque block ends with `(conditional on opaque block x)`.
+The last line is `N warning(s), M finding(s)`.  `--json` prints `{"warnings": [{"table",
+"column", "type", "operators", "message"}], "findings": [{"kind", "table", "message", "rules",
+"conditional_on"}]}`.  Exit 0 whatever is found; 1 only if the spec does not check.  The LLM
+loop quotes the findings as hints in its repair prompt (`docs/LLM.md`).
 
 ### `mls diff OLD NEW [--format md|json] [--out FILE] [--timeout SECONDS]`
 

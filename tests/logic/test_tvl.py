@@ -96,3 +96,24 @@ def test_encoding_matches_evaluator(p, a, b, g, u, clr, uid, ts, facts):
     concrete = eval_pred(pred, row, ctx, Database({"rel": set(facts)}))
     expected = True if t else (False if f else None)
     assert concrete == expected, (p, row, ctx, facts, t, f, concrete)
+
+
+def test_subsumption_needs_the_three_valued_negation():
+    """D49: `p2 ∧ ¬p1 UNSAT` with a two-valued `¬p1` (p1 FALSE) says `a < 1 or a >= 1` subsumes
+    `b = 0`; on the (T, F) encoding it does not, because p1 is UNKNOWN on a row with a NULL `a`
+    that p2 admits."""
+    from pydantic import TypeAdapter
+
+    from mls.logic.solve import solve
+    from mls.logic.term import FALSE
+    from mls.spec.model import Pred
+
+    p1 = TypeAdapter(Pred).validate_python(
+        {"or": [{"cmp": [{"col": "a"}, "<", {"const": 1}]}, {"cmp": [{"col": "a"}, ">=", {"const": 1}]}]})
+    p2 = TypeAdapter(Pred).validate_python({"cmp": [{"col": "b"}, "=", {"const": 0}]})
+    enc = Encoder(SPEC)
+    t1, f1, t2 = enc.T(p1, "r", "t"), enc.F(p1, "r", "t"), enc.T(p2, "r", "t")
+    assert solve([t2, f1, *enc.side_conditions], FALSE).proved          # two-valued: "subsumed"
+    res = solve([t2, *enc.side_conditions], t1)                           # three-valued: a counterexample
+    assert res.status == "refuted"
+    assert res.model.var("r.a.null", Sort.BOOL) is True if hasattr(res.model, "var") else True

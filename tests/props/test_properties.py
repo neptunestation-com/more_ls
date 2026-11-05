@@ -202,3 +202,33 @@ def test_report_formats(example_spec):
     assert "## Assumptions" in md and "identity adapter 'supabase'" in md
     js = json.loads(dumps_json(example_spec, results))
     assert js["summary"]["PROVED"] == 10 and js["properties"][0]["obligations"]
+
+
+def test_role_separation_proved_and_refuted():
+    """D49: no row of docs is read by both authenticated and an auditor who reads archived rows
+    (R5 keeps archived rows from authenticated); an auditor reading level-0 rows shares rows."""
+    d = base()
+    d["roles"].append("auditor")
+    d["rules"].append({"id": "A1", "kind": "policy", "name": "auditor_read", "table": "docs", "role": "auditor",
+                       "command": "select", "mode": "permissive",
+                       "using": {"cmp": [{"col": "archived"}, "=", {"const": 1}]}})
+    d["properties"] = [{"id": "S1", "template": "role_separation", "table": "docs",
+                        "roles": ["authenticated", "auditor"], "command": "select"}]
+    spec = make(d)
+    r = run_property(spec, spec.properties[0])
+    assert r.verdict == "PROVED" and r.obligations[0].name == "select: no row is admitted to both authenticated and auditor"
+    d["rules"][-1]["using"] = {"cmp": [{"col": "level"}, "<=", {"const": 0}]}
+    spec = make(d)
+    r = run_property(spec, spec.properties[0])
+    assert r.verdict == "REFUTED"
+    sc = r.obligations[0].scenario
+    row = sc.rows["r"]["values"]
+    assert row["level"] <= 0 and row["archived"] != 1  # both roles admit it: a member's unarchived level-0 row
+    assert [sc.context["uid"], row["tenant_id"]] in sc.relations["member_of"] or \
+        [sc.context["uid"], row["tenant_id"]] in sc.relations["admin_of"] or row["owner_id"] == sc.context["uid"]
+    # the same role twice, or an unknown role, is refused by the checker
+    from mls.errors import SpecError
+    d["properties"][0]["roles"] = ["authenticated", "nobody"]
+    with pytest.raises(SpecError) as ei:
+        make(d)
+    assert ei.value.errors[0].path == "$.properties[0].roles[1]"

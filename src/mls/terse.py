@@ -18,6 +18,7 @@ from typing import Any
 from mls.spec.model import (
     And, CardinalityRule, CheckRule, ColRef, ColumnImmutable, ColumnRule, Cmp, Const, CtxRef, Custom,
     InclusionRule, InGroup, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MonotoneIn, MustAllow, NewRef,
+    RoleSeparation,
     Not, NowBetween, OldRef, OpaqueRef, Or, PolicyRule, Pred, Property, Rule, Spec, TenantIsolation,
     TransitionRule, WriteSubsetRead,
 )
@@ -133,6 +134,8 @@ def prop(p: Property) -> str:
         return f"{p.id} custom {p.table} {p.role} {p.command} {p.which}: {pred(p.goal)}"
     if isinstance(p, MustAllow):
         return f"{p.id} must_allow {p.table} {p.role} {p.command}: {pred(p.when)}"
+    if isinstance(p, RoleSeparation):
+        return f"{p.id} role_separation {p.table} {p.command}: {p.roles[0]} | {p.roles[1]}"
     raise TypeError(p)
 
 

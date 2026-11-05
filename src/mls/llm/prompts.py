@@ -62,6 +62,8 @@ the key and value columns of R's table (the membership lookup runs as the user),
   keeps the invariants (inductive proof)
 - custom: {"table", "role", "command", "which": old|new, "goal": p}  every row the role can <command>
   satisfies goal (an upper bound on access)
+- role_separation: {"table", "roles": [a, b], "command"}  no row is admitted to <command> for both roles
+  (the same user under either role)
 - must_allow: {"table", "role", "command", "when": p}  every valid row where p holds is admitted by
   the role's <command> (a lower bound: catches policies, transitions and column rules that deny too
   much).  The rows are assumed to satisfy the table's checks and inclusions, so p states what the

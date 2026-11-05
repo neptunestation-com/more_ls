@@ -21,7 +21,7 @@ from mls.props.effective import (
 from mls.spec.model import (
     And, CardinalityRule, CheckRule, Cmp, ColRef, ColumnImmutable, Custom, InclusionRule,
     InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MemberBody, MonotoneIn, MustAllow, NewRef,
-    Not, OldRef, Or, Pred, Property, Spec, TenantIsolation, WriteSubsetRead,
+    Not, OldRef, Or, Pred, Property, RoleSeparation, Spec, TenantIsolation, WriteSubsetRead,
 )
 from mls.logic.term import IntVal, add
 
@@ -289,6 +289,30 @@ def custom(spec: Spec, p: Custom) -> list[Obligation]:
                        [enc]).finish()]
 
 
+def role_separation(spec: Spec, p: RoleSeparation) -> list[Obligation]:
+    """No row admitted to both roles (D49): constraints ∧ policies(a) ∧ policies(b) is UNSAT,
+    with the same context values for both.  A model is a row (and user) both roles may touch."""
+    enc = Encoder(spec)
+    a, b = p.roles
+    rows = _rows_for(p.command, p.table)
+    assumptions: list[Term] = [*relation_axioms(spec, enc)]
+    for row in rows:
+        assumptions.append(_T(enc, row_constraints(spec, p.table), row, p.table))
+    if p.command == "update":
+        assumptions.append(_T(enc, transition_constraints(spec, p.table), "new", p.table))
+    sides = {"select": [("using", "r")], "delete": [("using", "old")], "insert": [("check", "new")],
+             "update": [("using", "old"), ("check", "new")]}[p.command]
+    preds = []
+    for role in (a, b):
+        for which, img in sides:
+            e = effective(spec, p.table, role, p.command, which)
+            preds.append(e)
+            assumptions.append(_T(enc, e, img, p.table))
+    rels = _relations_of(spec, *preds, row_constraints(spec, p.table))
+    return [Obligation(p.id, f"{p.command}: no row is admitted to both {a} and {b}",
+                       assumptions, FALSE, dict(rows), rels, [enc]).finish()]
+
+
 def access_terms(spec: Spec, table: str, role: str, cmd: str, enc: Encoder) -> Term:
     """The access layers of `cmd` as `role`: the effective policies and, for an update, the
     transition rules and the column privileges — `net_terms` without the stored-row constraints
@@ -532,6 +556,8 @@ def relation_visibility_obligations(spec: Spec) -> list[Obligation]:
 
 
 def obligations_for(spec: Spec, prop: Property) -> list[Obligation]:
+    if isinstance(prop, RoleSeparation):
+        return role_separation(spec, prop)
     if isinstance(prop, TenantIsolation):
         return tenant_isolation(spec, prop)
     if isinstance(prop, ColumnImmutable):

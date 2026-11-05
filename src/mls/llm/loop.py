@@ -230,7 +230,7 @@ class Loop:
                     return LoopResult("escalated", spec, props, rules, self.rounds, esc, verdicts,
                                       steps=self.steps, notes=self.notes)
                 before = rules
-                rules, errors = self._ask("rules", rules, self._counterexamples(spec, bad))
+                rules, errors = self._ask("rules", rules, self._counterexamples(spec, bad) + self._hints(spec))
                 if not errors and rules == before:
                     # the rules pass stands by its rules (typically: it judges the property wrong);
                     # more rounds would only repeat the exchange, so escalate now
@@ -255,6 +255,16 @@ class Loop:
                 if o.scenario:
                     lines.append(f"  counterexample: {english.scenario(spec, o.scenario)}")
         return "\n".join(lines)
+
+    def _hints(self, spec: Spec) -> str:
+        """Lint findings (D49) as hints: hygiene the model may act on, never a violation."""
+        from mls.props.lint import lint_spec
+
+        findings = lint_spec(spec, self.timeout_ms)
+        if not findings:
+            return ""
+        return ("\n\n# Hints (lint findings: hygiene, not violations; act on them only where it serves "
+                "the properties)\n" + "\n".join(f"- {f}" for f in findings))
 
     @staticmethod
     def _statement(spec: Spec, pid: str) -> str:

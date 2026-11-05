@@ -153,8 +153,16 @@ All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered 
   `has_parent` functions; the depth bound d is the declared `max_depth`.  Two versions of a spec
   share these functions when the tree (table, columns, members relation) is the same, so a
   changed `max_depth` diffs exactly; a changed tree is a different function (tagged `@new`).
+- **role_separation (D49):** `constraints ∧ effective_a ∧ effective_b` is UNSAT over the command's
+  images (for update: `using` on `old`, `check` on `new`, plus the transition constraints), with one
+  set of context values for both roles; a model is a row both roles may touch.
 - **Opaque blocks:** uninterpreted predicates; any proof whose UNSAT core includes one is reported as
   conditional on it. A property that holds only by constraining an opaque block is REFUTED.
+
+Policy-set hygiene (D49) asks the solver the same kind of question but is never a verdict: a
+contradiction is `constraints ∧ T(p)` UNSAT, a subsumption `constraints ∧ T(p2) → T(p1)` valid,
+a redundancy `constraints → (T(eff) ↔ T(eff without p))` valid, all on the (T, F) encoding; the
+two-valued `p2 ∧ ¬p1` UNSAT is wrong where `p1` is UNKNOWN on a row `p2` admits.
 
 ## 8. Explicit assumptions in every proof report
 

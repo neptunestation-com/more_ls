@@ -95,11 +95,12 @@ def cmd_compile(a) -> int:
 
 def cmd_lint(a) -> int:
     from mls.pg.lint import lint_catalog, lint_static
+    from mls.props.lint import lint_spec
 
     try:
         spec = _load(a.spec)
     except SpecError as e:
-        _print_errors(e, False)
+        _print_errors(e, a.json)
         return 1
     if a.dsn:
         import psycopg
@@ -108,9 +109,17 @@ def cmd_lint(a) -> int:
             warnings = lint_catalog(spec, conn)
     else:
         warnings = lint_static(spec)
+    findings = lint_spec(spec, timeout_ms=a.timeout * 1000)  # D49: hygiene, never verdicts
+    if a.json:
+        print(json.dumps({"warnings": [{"table": w.table, "column": w.column, "type": w.type,
+                                        "operators": w.operators, "message": str(w)} for w in warnings],
+                          "findings": [f.to_dict() for f in findings]}, indent=2))
+        return 0
     for w in warnings:
         print(f"warning: {w}")
-    print(f"{len(warnings)} warning(s)")
+    for f in findings:
+        print(str(f))
+    print(f"{len(warnings)} warning(s), {len(findings)} finding(s)")
     return 0
 
 
@@ -478,9 +487,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out")
     p.set_defaults(fn=cmd_compile)
 
-    p = sub.add_parser("lint", help="leakproof lint")
+    p = sub.add_parser("lint", help="leakproof lint and policy-set hygiene (coverage, contradiction, subsumption, "
+                                    "redundancy; findings, never verdicts)")
     p.add_argument("spec")
     p.add_argument("--dsn")
+    p.add_argument("--timeout", type=int, default=20, help="per-question solver timeout in seconds")
+    p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_lint)
 
     p = sub.add_parser("test", help="differential test against real Postgres (Docker or --dsn)")

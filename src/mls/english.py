@@ -12,12 +12,14 @@ from mls.spec.model import (
     CONTEXT_NOW, And, BypassAssumed, CardinalityRule, CheckRule, ColRef, ColumnImmutable, ColumnRule, Cmp, Const,
     CtxRef, Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MonotoneIn,
     MustAllow, NewRef, Not, NowBetween, OldRef, OpaqueRef, Or, OwnerAssumed, PolicyRule, Pred, Property, RlsAssumed,
+    RoleSeparation,
     Rule, Spec, TenantIsolation, TransitionRule, WriteSubsetRead,
 )
 
 OPS = {"=": "is", "<>": "is not", "<": "is less than", "<=": "is at most", ">": "is greater than",
        ">=": "is at least"}
 VERB = {"select": "read", "insert": "insert", "update": "update", "delete": "delete", "all": "read and change"}
+VERB_PAST = {"select": "read", "insert": "inserted", "update": "updated", "delete": "deleted"}
 USER_SOURCES = ("auth.uid", "current_user")
 
 
@@ -151,6 +153,10 @@ def prop(spec: Spec, p: Property) -> str:
         img = "the new row" if p.command in ("insert", "update") and p.which == "new" else "the row"
         return (f"Whenever {p.role} can {VERB[p.command]} a row of {p.table}, "
                 f"{pred(spec, p.goal, img)}.")
+    if isinstance(p, RoleSeparation):
+        a, b = p.roles
+        return f"No row of {p.table} can be {VERB_PAST[p.command]} by both {a} and {b}." if p.command != "insert" \
+            else f"No new row of {p.table} can be inserted by both {a} and {b}."
     if isinstance(p, MustAllow):
         if p.command == "update":
             return f"{p.role} can change a row of {p.table} whenever {pred(spec, p.when, 'the new row')}."

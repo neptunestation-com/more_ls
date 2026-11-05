@@ -16,7 +16,10 @@ how well it does that on the corpus in `evals/cases`.
    types, fragment, relation shapes) and the compiler's soundness obligations are run.  Every error
    carries a JSON path and a fix; errors under `$.properties` go back to pass 1, the rest to pass 2.
 4. **Prove.** `run_all`.  Each refuted property goes back to the rules pass as its English
-   statement, the failing obligation and the counterexample scenario in English.
+   statement, the failing obligation and the counterexample scenario in English, followed by the
+   lint findings of the rule set (D49: subsumed, redundant or contradictory policies, dead column
+   rules) under a *Hints* heading, hygiene the model may act on, never a violation; a rule set
+   that proves is never sent back for a finding.
 5. **Repair budget.** `--max-repairs N` bounds the total number of repair requests (structural,
    checker, proof).  When it is spent: `invalid` if the spec still does not check, `escalated` if
    properties are still refuted (each with its scenario and the rules pass's notes, for a human to

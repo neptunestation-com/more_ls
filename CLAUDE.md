@@ -129,6 +129,12 @@ code or a generated object name, update them in the same change.
   `ungoverned` / `refuted` / `opaque` / `unproved` / `proved` from the proof results (global
   properties attributed per obligation through `Obligation.rows`) plus, with `--dsn`, the live
   RLS state and the tables outside the spec; `tests/props/test_status.py` pins the output.
+  Lint pack (D49, `props/lint.py`): coverage, contradiction, subsumption, redundancy as
+  `mls lint` findings (never verdicts, exit 0), solver questions on the (T, F) encoding
+  (`tests/logic/test_tvl.py` keeps the case the two-valued check gets wrong), a positive and
+  a negative fixture per lint in `tests/props/test_lint.py`; the LLM loop quotes them as hints
+  in proof-driven repair prompts. `role_separation` is a property template (one obligation,
+  both roles under the same context values).
 - Lean track (D11, D41): `lean/` is a Lake project (core Lean 4, no Mathlib; pinned in
   `lean/lean-toolchain`). `cd lean && lake build` checks it; CI does, and `uv run pytest -m lean`
   does when `lake` is on PATH (skipped otherwise). `lean/MLS/Pred.lean` is `logic/tvl.py`

@@ -386,13 +386,31 @@ but cannot otherwise check).
 ### 4.7 Lint
 
     $ uv run mls lint examples/tenant_docs.mls.json
-    0 warning(s)
+    0 warning(s), 0 finding(s)
 
-The lint warns, per column type, about operators that are not leakproof (`LIKE`, pattern
-matching, most text operators): Postgres will not evaluate such a qual before the row policy, so
-a query that filters on them cannot use its index and falls back to filtering every visible row.
+The lint is hygiene, not safety: it never changes a verdict and always exits 0.  The warnings
+are about performance: per column type, the operators that are not leakproof (`LIKE`, pattern
+matching, most text operators), which Postgres will not evaluate before the row policy, so a
+query filtering on them cannot use its index and falls back to filtering every visible row.
 Equality is leakproof.  With `--dsn` it reads the catalog of the real server rather than the
 static list.
+
+The findings are about the shape of the policy set, the things a reviewer would otherwise spot
+by reading the rules twice: a policy that never admits a row (`contradiction`), one that admits
+only rows another policy already admits (`subsumption`), one whose removal changes nothing
+(`redundancy`), and a column rule or a governed table that no permissive policy backs, or an
+`observed` table that a selector or a tenant column suggests should be governed (`coverage`):
+
+    subsumption: policy R11 (legacy_member_read) and policy R1 (member_read) on docs admit the same rows for authenticated: one of them is enough
+    0 warning(s), 1 finding(s)
+
+The questions are put to the solver on the same three-valued encoding as the proofs, which
+matters: `level < 1 or level >= 1` is a tautology in two-valued logic and UNKNOWN on a NULL
+level, so it subsumes an owner policy only when the column is NOT NULL.  When the LLM loop
+(§8) repairs a rule set, the findings go into the repair prompt as hints.
+
+To say that two roles never reach the same row, use the `role_separation` property, which is
+proved like any other: *No row of approvals can be updated by both requester and approver.*
 
 ## 5. Identity: who the current user is
 

@@ -25,7 +25,7 @@ error).  For the design: `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.
     uv run mls generate req.txt --skeleton skel.json        # LLM loop: requirements -> proved spec (docs/LLM.md)
     uv run mls eval evals/cases [--llm] [--mutate DIR]      # grade the corpus; run the loop on it; make mutants
     uv run mls test    examples/tenant_docs.mls.json --versions 16 --explain   # + EXPLAIN checks at 1M rows
-    uv run mls lint    examples/tenant_docs.mls.json        # leakproof lint
+    uv run mls lint    examples/tenant_docs.mls.json        # leakproof warnings and policy-set findings (hygiene, exit 0)
     uv run mls explain examples/tenant_docs.mls.json        # the rules and properties in plain English
     uv run mls explain examples/tenant_docs.mls.json --terse   # one line per rule: member_of(@uid, tenant_id) and ...
     uv run mls diff    examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json     # access diff with scenarios
@@ -88,8 +88,10 @@ stated hardening assumptions, `mls import` of a live schema, and the lifter (D46
 MLS itself emits and the usual hand-written idioms read back into the verified fragment, the
 rest opaque blocks with their catalog signature; importing a deployed spec gives it back with
 no opaque block and an empty behaviour diff), and selectors (`applies_to`, D48: one rule for
-every table a selector matches, expanded by `check`) are done; `mls status` and the lint pack
-are next (`docs/ROADMAP.md`).
+every table a selector matches, expanded by `check`), `mls status` (per table: ungoverned, refuted,
+opaque, unproved, proved) and the lint pack (D49: coverage, contradiction, subsumption and
+redundancy as findings, never verdicts, plus the `role_separation` template) are done, which
+closes Milestone 5; the terse syntax (D50) is next (`docs/ROADMAP.md`).
 
 ### Measured with `claude-opus-5-5`
 

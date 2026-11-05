@@ -37,3 +37,23 @@ def test_hierarchy_and_cardinality_english():
     assert ("org**: rows of groups form a tree (parent_id points to the parent id) at most 3 levels deep; "
             "a parent never changes; a user belongs to the groups listed in group_member and to everything "
             "below them." in text)
+
+
+def test_role_separation_english():
+    """D49: the English form of the `custom` property it already was."""
+    from mls import terse
+
+    d = base()
+    d["roles"].append("auditor")
+    d["properties"] = [{"id": "S1", "template": "role_separation", "table": "docs",
+                        "roles": ["authenticated", "auditor"], "command": "select"},
+                       {"id": "S2", "template": "role_separation", "table": "docs",
+                        "roles": ["authenticated", "auditor"], "command": "insert"},
+                       {"id": "S3", "template": "role_separation", "table": "docs",
+                        "roles": ["authenticated", "auditor"], "command": "update"}]
+    spec = make(d)
+    assert [english.prop(spec, p) for p in spec.properties] == [
+        "No row of docs can be read by both authenticated and auditor.",
+        "No new row of docs can be inserted by both authenticated and auditor.",
+        "No row of docs can be updated by both authenticated and auditor."]
+    assert terse.prop(spec.properties[0]) == "S1 role_separation docs select: authenticated | auditor"
