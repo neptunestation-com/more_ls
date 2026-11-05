@@ -45,7 +45,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "enrollments": {
     "columns": {
@@ -62,7 +65,10 @@
      "user_id",
      "course_id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "teaching": {
     "columns": {
@@ -79,7 +85,10 @@
      "user_id",
      "course_id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "assignments": {
     "columns": {
@@ -99,7 +108,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "submissions": {
     "columns": {
@@ -123,7 +135,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    }
   },
   "relations": {

@@ -45,7 +45,10 @@
      "user_id",
      "tenant_id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "invites": {
     "columns": {
@@ -69,7 +72,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    }
   },
   "relations": {

@@ -273,11 +273,50 @@ class Opaque(Strict):
 
 
 # ----------------------------------------------------------------------------- rules
+class AppliesTo(Strict):
+    """A selector (D48): which tables a rule applies to, in place of `table`.  One key:
+    `has_column: [name]` or `[name, type]`, `named: [t, ...]`, `tagged: tag`, `all: true`,
+    `and: [...]`, `or: [...]`.  The checker expands the rule into one rule per matching governed
+    table before anything else sees the spec (`spec/selectors.py`)."""
+    has_column: list[str] | None = Field(default=None, min_length=1, max_length=2)
+    named: list[str] | None = Field(default=None, min_length=1)
+    tagged: str | None = None
+    all: Literal[True] | None = None
+    and_: list["AppliesTo"] | None = Field(default=None, alias="and", min_length=1)
+    or_: list["AppliesTo"] | None = Field(default=None, alias="or", min_length=1)
+
+    @model_validator(mode="after")
+    def _one_key(self) -> "AppliesTo":
+        keys = [k for k in ("has_column", "named", "tagged", "all", "and_", "or_") if getattr(self, k) is not None]
+        if len(keys) != 1:
+            raise ValueError("a selector is exactly one of {has_column}, {named}, {tagged}, {all}, {and}, {or}")
+        return self
+
+
+AppliesTo.model_rebuild()
+
+
 class RuleBase(Strict):
+    """`table` names the table; `applies_to` (D48) selects tables instead, and the checker
+    expands the rule into one per matching table, with ids `<id>.<table>` and `from` naming the
+    selector rule (an expanded rule carries `table`, `applies_to` and `from` together)."""
     id: str
     name: str
-    table: str
+    table: str | None = None
+    applies_to: AppliesTo | None = None
+    from_: str | None = Field(default=None, alias="from")
     requirement: str | None = None
+
+    @model_validator(mode="after")
+    def _table_or_selector(self) -> "RuleBase":
+        if self.table is None and self.applies_to is None:
+            raise ValueError("a rule needs \"table\" (one table) or \"applies_to\" (a selector, D48)")
+        if self.table is not None and self.applies_to is not None and self.from_ is None:
+            raise ValueError("\"table\" and \"applies_to\" are exclusive (only an expanded rule, which carries "
+                             "\"from\", has both)")
+        if self.from_ is not None and self.table is None:
+            raise ValueError("an expanded rule (\"from\") names its table")
+        return self
 
 
 class PolicyRule(RuleBase):
@@ -437,6 +476,10 @@ class Spec(Strict):
     properties: list[Property] = Field(default_factory=list)
 
     # convenience accessors (no validation here; see spec/check.py)
+    def expansions(self, rule_id: str) -> list[Rule]:
+        """The rules a selector rule `rule_id` expanded into (empty when it is not a selector)."""
+        return [r for r in self.rules if r.from_ == rule_id]
+
     def governed(self) -> dict[str, Table]:
         """The tables MLS compiles for: `owned` and `adopted` (D45)."""
         return {n: t for n, t in self.tables.items() if t.mode != "observed"}

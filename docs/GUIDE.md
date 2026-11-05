@@ -108,6 +108,15 @@ from requirements (section 8).
 | `cardinality` | at most N rows per group value | trigger that locks the parent row and counts |
 | `column_rule` | a role may read or write only these columns | column-level `GRANT` |
 
+A rule that should hold on several tables carries `"applies_to"` instead of `"table"`: a
+selector such as `{"has_column": ["tenant_id", "int"]}`, `{"tagged": "tenant"}` or `{"named":
+["docs", "files"]}`.  `mls check` expands it into one concrete rule per matching table
+(`R1.docs`, `R1.files`) before anything else looks at the spec, so proofs, DDL, diffs and
+reports are always about concrete rules; `mls explain` prints the selector once with the tables
+it matched.  A selector that matches nothing is an error, not an empty rule: that is how a
+renamed column would otherwise switch a tenant policy off.  Add a table with the column later
+and the rule covers it the next time `check` runs.
+
 **Properties** are statements the solver proves about the rules.  They come in templates (tenant
 isolation, column immutable, monotone in a relation, write ⊆ read, least privilege, invariant
 preserved) plus two general ones: `custom` (an upper bound: every row a role can touch satisfies

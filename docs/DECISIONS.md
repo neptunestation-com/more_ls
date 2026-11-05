@@ -548,6 +548,14 @@ reference uses one and the generated rules may use either form, since grading is
 sort of tables; nothing is gained, since the set of tables is finite and declared); selectors
 resolved against the catalog at compile time rather than against the spec (the compiled DDL
 would depend on something the spec does not say; D15).
+*Implementation defaults (2026-11-05):* an expanded rule keeps `applies_to` next to `table` and
+`from`, so that `explain` can print the selector once without a side table; nothing else reads
+it. Errors inside an expanded rule report under the selector rule's JSON path. `in_schema` is
+not implemented: a table of the spec carries no schema (the schema is a deployment argument,
+`--schema`), so the selector would have nothing to match against; it returns when tables do.
+An `invariant_preserved` reference to a selector rule becomes one reference per expansion; the
+eval mutants operate on the unexpanded reference, so a mutation of a selector rule is one
+mutant for all its tables.
 
 **D49. Policy-set hygiene is lint, not proof.** `pg_more_ls` had nine proofs; four already exist
 here as templates or as `diff` (tenant isolation, write ⊆ read, policy equivalence, role

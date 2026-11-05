@@ -1,0 +1,518 @@
+{
+ "id": "st_self_grant__drop_R4",
+ "origin": "synthetic",
+ "base_case": "st_self_grant",
+ "mutation": "drop:R4",
+ "requirements": "Users belong to tenants (memberships). Every table with a tenant_id column (memberships, docs and files, and any table added later) is tenant-scoped the same way: members of a tenant see, add and change its rows, and a row never moves into a tenant the user does not belong to. Nobody deletes. A file's size is never negative. The tenants table itself is not exposed to users.",
+ "expected_properties": [
+  "Docs are only seen, added and changed by members of their tenant.",
+  "Files are only seen, added and changed by members of their tenant.",
+  "Leaving a tenant never grants access.",
+  "Whatever is written to docs can be read back.",
+  "Whatever is written to files can be read back.",
+  "The application role may only select/insert/update docs and files and select memberships; nothing on tenants.",
+  "File sizes stay non-negative.",
+  "A member reads the docs of their tenants.",
+  "A member reads the files of their tenants.",
+  "A member adds a file of non-negative size to their tenant."
+ ],
+ "reference_spec": {
+  "$comment": "the selector matches by column, so it also governs memberships: a member adds and changes memberships of their own tenants (self-grant into any tenant via update)",
+  "mls_version": "0.1",
+  "identity": {
+   "adapter": "supabase",
+   "context": {
+    "uid": {
+     "source": "auth.uid",
+     "type": "uuid"
+    }
+   }
+  },
+  "roles": [
+   "authenticated"
+  ],
+  "tables": {
+   "memberships": {
+    "columns": {
+     "user_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "tenant_id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "user_id",
+     "tenant_id"
+    ],
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
+   },
+   "docs": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "tenant_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "archived": {
+      "type": "bool",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": [
+     "tenant"
+    ]
+   },
+   "files": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "tenant_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "size": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": [
+     "tenant"
+    ]
+   },
+   "tenants": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "name": {
+      "type": "text",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
+   }
+  },
+  "relations": {
+   "member_of": {
+    "table": "memberships",
+    "key": "user_id",
+    "value": "tenant_id"
+   }
+  },
+  "hierarchies": {},
+  "opaques": {},
+  "rules": [
+   {
+    "id": "R1",
+    "name": "member_read",
+    "applies_to": {
+     "has_column": [
+      "tenant_id",
+      "int"
+     ]
+    },
+    "requirement": "members read their tenants' rows",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "tenant_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R2",
+    "name": "member_insert",
+    "applies_to": {
+     "has_column": [
+      "tenant_id",
+      "int"
+     ]
+    },
+    "requirement": "members add rows to their tenants",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "insert",
+    "mode": "permissive",
+    "check": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "tenant_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R3",
+    "name": "member_update",
+    "applies_to": {
+     "has_column": [
+      "tenant_id",
+      "int"
+     ]
+    },
+    "requirement": "members change their tenants' rows",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "update",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "tenant_id"
+      }
+     }
+    },
+    "check": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "tenant_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R4",
+    "name": "size_positive",
+    "table": "files",
+    "requirement": "a file has a non-negative size",
+    "kind": "check",
+    "predicate": {
+     "cmp": [
+      {
+       "col": "size"
+      },
+      ">=",
+      {
+       "const": 0
+      }
+     ]
+    }
+   }
+  ],
+  "properties": [
+   {
+    "id": "P1",
+    "description": "docs are only seen, added and changed by members of their tenant",
+    "template": "tenant_isolation",
+    "table": "docs",
+    "column": "tenant_id",
+    "relation": "member_of",
+    "key": {
+     "ctx": "uid"
+    },
+    "commands": [
+     "select",
+     "insert",
+     "update"
+    ]
+   },
+   {
+    "id": "P2",
+    "description": "files are only seen, added and changed by members of their tenant",
+    "template": "tenant_isolation",
+    "table": "files",
+    "column": "tenant_id",
+    "relation": "member_of",
+    "key": {
+     "ctx": "uid"
+    },
+    "commands": [
+     "select",
+     "insert",
+     "update"
+    ]
+   },
+   {
+    "id": "P3",
+    "description": "leaving a tenant never grants access",
+    "template": "monotone_in",
+    "relation": "member_of"
+   },
+   {
+    "id": "P4",
+    "description": "whatever is written to docs can be read back",
+    "template": "write_subset_read",
+    "table": "docs"
+   },
+   {
+    "id": "P5",
+    "description": "whatever is written to files can be read back",
+    "template": "write_subset_read",
+    "table": "files"
+   },
+   {
+    "id": "P6",
+    "description": "members select/insert/update docs and files, select memberships, and nothing on tenants",
+    "template": "least_privilege",
+    "allowed": {
+     "authenticated": {
+      "docs": [
+       "select",
+       "insert",
+       "update"
+      ],
+      "files": [
+       "select",
+       "insert",
+       "update"
+      ],
+      "memberships": [
+       "select"
+      ]
+     }
+    }
+   },
+   {
+    "id": "P7",
+    "description": "file sizes stay non-negative",
+    "template": "invariant_preserved",
+    "invariants": [
+     {
+      "rule": "R4"
+     }
+    ]
+   },
+   {
+    "id": "P8",
+    "description": "a member reads the docs of their tenants",
+    "template": "must_allow",
+    "table": "docs",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "tenant_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P9",
+    "description": "a member reads the files of their tenants",
+    "template": "must_allow",
+    "table": "files",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "tenant_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P10",
+    "description": "a member adds a file of non-negative size to their tenant",
+    "template": "must_allow",
+    "table": "files",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "and": [
+      {
+       "member": {
+        "relation": "member_of",
+        "key": {
+         "ctx": "uid"
+        },
+        "value": {
+         "col": "tenant_id"
+        }
+       }
+      },
+      {
+       "cmp": [
+        {
+         "col": "size"
+        },
+        ">=",
+        {
+         "const": 0
+        }
+       ]
+      }
+     ]
+    }
+   }
+  ]
+ },
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "REFUTED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED"
+ },
+ "start_rules": [
+  {
+   "id": "R1",
+   "name": "member_read",
+   "applies_to": {
+    "has_column": [
+     "tenant_id",
+     "int"
+    ]
+   },
+   "requirement": "members read their tenants' rows",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R2",
+   "name": "member_insert",
+   "applies_to": {
+    "has_column": [
+     "tenant_id",
+     "int"
+    ]
+   },
+   "requirement": "members add rows to their tenants",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R3",
+   "name": "member_update",
+   "applies_to": {
+    "has_column": [
+     "tenant_id",
+     "int"
+    ]
+   },
+   "requirement": "members change their tenants' rows",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "check": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  }
+ ],
+ "mutant_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "REFUTED",
+  "P7": "REFUTED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

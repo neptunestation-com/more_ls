@@ -1,0 +1,33 @@
+{
+ "id": "st_self_grant",
+ "origin": "seed",
+ "requirements": "Users belong to tenants (memberships). Every table with a tenant_id column (memberships, docs and files, and any table added later) is tenant-scoped the same way: members of a tenant see, add and change its rows, and a row never moves into a tenant the user does not belong to. Nobody deletes. A file's size is never negative. The tenants table itself is not exposed to users.",
+ "expected_properties": [
+  "Docs are only seen, added and changed by members of their tenant.",
+  "Files are only seen, added and changed by members of their tenant.",
+  "Leaving a tenant never grants access.",
+  "Whatever is written to docs can be read back.",
+  "Whatever is written to files can be read back.",
+  "The application role may only select/insert/update docs and files and select memberships; nothing on tenants.",
+  "File sizes stay non-negative.",
+  "A member reads the docs of their tenants.",
+  "A member reads the files of their tenants.",
+  "A member adds a file of non-negative size to their tenant."
+ ],
+ "reference_spec": "specs/st_self_grant.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "REFUTED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED",
+  "P10": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

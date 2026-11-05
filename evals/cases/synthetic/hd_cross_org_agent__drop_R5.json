@@ -44,7 +44,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "agents": {
     "columns": {
@@ -61,7 +64,10 @@
      "user_id",
      "org_id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "tickets": {
     "columns": {
@@ -89,7 +95,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    }
   },
   "relations": {

@@ -39,7 +39,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "groups": {
     "columns": {
@@ -63,7 +66,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "group_members": {
     "columns": {
@@ -80,7 +86,10 @@
      "user_id",
      "group_id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "files": {
     "columns": {
@@ -104,7 +113,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    }
   },
   "relations": {

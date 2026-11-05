@@ -239,6 +239,13 @@ def test_import_of_the_brownfield_fixture(brownfield):
                       "tasks_priority_check": {"and": [{"cmp": [{"col": "priority"}, ">=", {"const": 0}]},
                                                        {"cmp": [{"col": "priority"}, "<=", {"const": 5}]}]}}
     assert any("tasks_priority_check" in n and "drift reports the definition as differs" in n for n in res.notes)
+    # late binding (D48): a selector over the imported spec expands to every adopted table with the column
+    d = dict(res.spec)
+    d["rules"] = d["rules"] + [{"id": "S1", "kind": "policy", "name": "project_rows", "role": "authenticated",
+                                "command": "select", "mode": "permissive", "using": member,
+                                "applies_to": {"has_column": ["project_id", "uuid"]}}]
+    sel = check_spec(Spec.model_validate(d))
+    assert [r.table for r in sel.expansions("S1")] == ["project_members", "tasks"]
     assert not any(r.kind == "inclusion" for r in spec.rules)  # single-column FKs are not inclusions
     cr = [r for r in spec.rules if r.kind == "column_rule"]
     assert [(r.table, r.role, r.access, r.columns) for r in cr] == [("profiles", "anon", "read", ["display_name", "id"])]

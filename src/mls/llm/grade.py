@@ -51,6 +51,9 @@ def expected_status(case: dict) -> str:
 def portable_properties(reference: Spec) -> list[dict]:
     """The reference properties with rule references replaced by their predicates, so they can be
     evaluated on a different rule set (rule ids are not shared)."""
+    from mls.spec.selectors import expand_selectors
+
+    reference, _, _ = expand_selectors(reference)  # a reference to a selector rule names its expansions (D48)
     out = []
     for p in reference.properties:
         d = p.model_dump(by_alias=True, exclude_none=True)

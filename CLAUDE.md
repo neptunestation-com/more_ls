@@ -121,7 +121,11 @@ code or a generated object name, update them in the same change.
   `tests/templates/test_lift.py` is the per-template round trip (deploy, import, drift clean,
   `behaviour_diff` empty) on PG 15–18. The harness creates adopted tables itself before the
   script (`Harness.pre_existing_sql`). `tests/brownfield/supabase_schema.sql` is the hand-written
-  acceptance fixture.
+  acceptance fixture. Selectors (D48): `Rule.applies_to` in place of `table`; `check_spec` runs
+  `spec/selectors.py:expand_selectors` first (one rule per governed table, id `<id>.<table>`,
+  `from`, the selector kept on the expansion for `english.selector_line`), then the checker
+  with the original rule paths; nothing downstream sees a selector. `in_schema` is not
+  implemented (tables carry no schema).
 - Lean track (D11, D41): `lean/` is a Lake project (core Lean 4, no Mathlib; pinned in
   `lean/lean-toolchain`). `cd lean && lake build` checks it; CI does, and `uv run pytest -m lean`
   does when `lake` is on PATH (skipped otherwise). `lean/MLS/Pred.lean` is `logic/tvl.py`

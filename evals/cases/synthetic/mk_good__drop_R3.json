@@ -58,7 +58,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "orders": {
     "columns": {
@@ -78,7 +81,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    }
   },
   "relations": {},

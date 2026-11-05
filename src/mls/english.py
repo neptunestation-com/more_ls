@@ -217,9 +217,25 @@ def assumption_lines(spec: Spec) -> list[str]:
     return [assumption(t, a) for t, tb in spec.tables.items() for a in tb.assume]
 
 
+def selector_line(spec: Spec, rule_id: str) -> str:
+    """A selector rule (D48) rendered once: what it selects and the tables it expanded into."""
+    from mls.spec.selectors import phrase
+
+    exp = spec.expansions(rule_id)
+    return (f"applies to every governed table that {phrase(exp[0].applies_to)}: "
+            f"{', '.join(r.table for r in exp)}")
+
+
 def spec_summary(spec: Spec) -> str:
     lines = ["# What the rules say", ""]
+    seen: set[str] = set()
     for r in spec.rules:
+        if r.from_ is not None and r.applies_to is not None:
+            if r.from_ not in seen:  # the selector once, then its expansion as a list
+                seen.add(r.from_)
+                lines.append(f"- **{r.from_}**: {selector_line(spec, r.from_)}")
+                lines += [f"  - **{x.id}**: {rule(spec, x)}" for x in spec.expansions(r.from_)]
+            continue
         lines.append(f"- **{r.id}**: {rule(spec, r)}")
     lines += ["", "# What is guaranteed (properties)", ""]
     for p in spec.properties:

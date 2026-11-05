@@ -126,7 +126,7 @@ It is not a role you declare or grant to.
 | `unique` | no | list of column lists; each compiled as a UNIQUE constraint `<table>_<cols>_key` |
 | `mode` | no, default `owned` | `owned`, `adopted` or `observed` (D45, below) |
 | `assume` | no | hardening the compiler cannot establish on an `adopted` table, stated as assumptions (below) |
-| `tags` | no | free strings with no meaning of their own (selectors, D48) |
+| `tags` | no | free strings with no meaning of their own; `{"tagged": "x"}` selectors (§11, D48) match them |
 
 There is no way to reference a table the spec does not declare.  What the compiler does with a
 declared table depends on its mode:
@@ -312,7 +312,37 @@ a foreign key, which a CHECK cannot express soundly).
 ## 11. Rules
 
 Every rule has `id` (unique across rules), `kind`, `name` (an identifier, unique per table; it
-names the compiled object), `table` and optionally `requirement` (free text).
+names the compiled object), `table` or `applies_to` (below), and optionally `requirement`
+(free text).
+
+**Selectors** (D48).  `"applies_to"` in place of `"table"` makes one rule apply to every
+governed table a selector matches:
+
+    {"id": "R1", "kind": "policy", "name": "member_read",
+     "applies_to": {"has_column": ["tenant_id", "int"]},
+     "role": "authenticated", "command": "select", "mode": "permissive", "using": ...}
+
+| Selector | Matches a table that |
+|---|---|
+| `{"has_column": ["c"]}` / `["c", "type"]` | has column `c` (of that type) |
+| `{"named": ["t", ...]}` | is one of the names |
+| `{"tagged": "tag"}` | lists the tag under `tags` (§5) |
+| `{"all": true}` | is any governed table |
+| `{"and": [...]}`, `{"or": [...]}` | matches all / any of the selectors |
+
+`mls check` expands the rule, before anything else, into one rule per matching `owned` or
+`adopted` table in declaration order, with id `<id>.<table>` (`R1.docs`, `R1.files`), the same
+`name`, `"table"` set and `"from": "R1"`; an `invariant_preserved` reference to `R1` becomes
+one reference per expansion.  Everything downstream, the solver, the compiler, `diff`,
+`migrate`, `drift`, the English and terse renderings, sees only the concrete rules, so a
+selector rule and its hand-written expansion (the same ids, with `from`) are the same spec:
+`mls explain --terse` prints them byte-identically and `mls diff` reports changes per concrete
+rule.  A selector that matches no governed table is an error at `check`, `rule 'R1' applies to
+no table (has column tenant_id)`, at `$.rules[i].applies_to` (a silent empty expansion is how
+a renamed column disables a tenant policy); the message names an `observed` table that would
+have matched.  Late binding: a table added to the spec (by hand or by re-running `mls import`)
+with the selected column is covered the next time `check` runs.  Errors inside an expanded rule
+report under the selector rule's path.
 
 ### 11.1 `policy`
 
@@ -486,6 +516,8 @@ is assumed valid, so `when` states what the user can do, not the integrity rules
 
 `mls explain` prints every rule, property and (in reports) scenario as an English sentence
 (`src/mls/english.py`).  This is the approval artifact (D10): it is what a product owner reads.
+A selector rule (§11) is printed once, *applies to every governed table that has column
+tenant_id: docs, files*, with its expansion as an indented list of concrete rules.
 
 `mls explain --terse`, the `before`/`after` lines of `mls diff`, and the `spec_terse` field of
 LLM transcripts use a one-line notation (D44), for reading only; JSON remains the only input.
@@ -755,6 +787,9 @@ Classes of error, with the typical message:
 - **shape**: unknown key, missing key, wrong JSON type (from the pydantic model, with the path);
 - **names**: unknown table, column, role, relation, hierarchy, opaque block, rule or context
   value; invalid identifier; duplicate rule id, rule name per table or property id;
+- **selectors** (D48): `rule 'R1' applies to no table (has column tenant_id)`; `a rule needs
+  "table" (one table) or "applies_to" (a selector)`; `"table" and "applies_to" are exclusive`;
+  `a selector is exactly one of {has_column}, {named}, {tagged}, {all}, {and}, {or}`;
 - **modes** (D45): `table 't' is observed; a rule cannot name it`; `table 't' is owned: ...
   nothing is assumed`; `'r' is not an app role of this spec`; `'disabled' is not an assumption
   the proofs can state`; with `--dsn`: `adopted table 't' has no column 'c'`; `column 't.c' is

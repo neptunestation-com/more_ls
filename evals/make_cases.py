@@ -52,6 +52,15 @@ def policy(id, name, table, command, mode="permissive", using=None, check=None, 
     return r
 
 
+def selector_policy(id, name, applies_to, command, mode="permissive", using=None, check=None, role="authenticated",
+                    req=None):
+    """A policy with `applies_to` (D48) in place of `table`."""
+    r = policy(id, name, None, command, mode, using, check, role, req)
+    del r["table"]
+    r["applies_to"] = applies_to
+    return r
+
+
 def check(id, name, table, predicate, req=None):
     return {"id": id, "kind": "check", "name": name, "table": table, "predicate": predicate, **({"requirement": req} if req else {})}
 
@@ -125,10 +134,12 @@ def same(*cols):
 SUPABASE = {"adapter": "supabase", "context": {"uid": {"source": "auth.uid", "type": "uuid"}}}
 
 
-def T(columns, pk, unique=None):
+def T(columns, pk, unique=None, tags=None):
     t = {"columns": {c: {"type": ty, "nullable": nul} for c, (ty, nul) in columns.items()}, "primary_key": pk}
     if unique:
         t["unique"] = unique
+    if tags:
+        t["tags"] = tags
     return t
 
 
@@ -743,6 +754,73 @@ case("cr_salary_leak", CRS_REQ.replace("Staff see their own salary record and no
           [x if x["id"] != "R5" else policy("R5", "staff_salaries", "salaries", "select", using=mem, role="staff", req="staff see salaries") for x in CRS_RULES],
           CRS_PROPS, roles=("staff", "hr")),
      {**CRS_OK, "P3": "REFUTED"})
+
+
+# ============================================================================= F12 selectors (D48): one rule, every tenant table
+ST_TABLES = {
+    "memberships": pairs(),
+    "docs": T({"id": ("int", False), "tenant_id": ("int", False), "archived": ("bool", False)}, ["id"], tags=["tenant"]),
+    "files": T({"id": ("int", False), "tenant_id": ("int", False), "size": ("int", False)}, ["id"], tags=["tenant"]),
+    "tenants": T({"id": ("int", False), "name": ("text", False)}, ["id"]),  # not tagged: not selected
+}
+ST_REL = {"member_of": {"table": "memberships", "key": "user_id", "value": "tenant_id"}}
+tenant = member("member_of", "tenant_id")
+TAGGED = {"tagged": "tenant"}
+ST_RULES = [
+    selector_policy("R1", "member_read", TAGGED, "select", using=tenant, req="members read their tenants' rows"),
+    selector_policy("R2", "member_insert", TAGGED, "insert", check=tenant, req="members add rows to their tenants"),
+    selector_policy("R3", "member_update", TAGGED, "update", using=tenant, check=tenant, req="members change their tenants' rows"),
+    check("R4", "size_positive", "files", cmp(col("size"), ">=", const(0)), req="a file has a non-negative size"),
+]
+size_ok = cmp(col("size"), ">=", const(0))
+ST_PROPS = [
+    isolation("P1", "docs are only seen, added and changed by members of their tenant", "docs", "tenant_id", "member_of",
+              ["select", "insert", "update"]),
+    isolation("P2", "files are only seen, added and changed by members of their tenant", "files", "tenant_id", "member_of",
+              ["select", "insert", "update"]),
+    monotone("P3", "leaving a tenant never grants access", "member_of"),
+    write_subset_read("P4", "whatever is written to docs can be read back", "docs"),
+    write_subset_read("P5", "whatever is written to files can be read back", "files"),
+    least_privilege("P6", "members select/insert/update docs and files, select memberships, and nothing on tenants",
+                    {"authenticated": {"docs": ["select", "insert", "update"], "files": ["select", "insert", "update"],
+                                       "memberships": ["select"]}}),
+    invariants("P7", "file sizes stay non-negative", "R4"),
+    must_allow("P8", "a member reads the docs of their tenants", "docs", "authenticated", "select", tenant),
+    must_allow("P9", "a member reads the files of their tenants", "files", "authenticated", "select", tenant),
+    must_allow("P10", "a member adds a file of non-negative size to their tenant", "files", "authenticated", "insert",
+               and_(tenant, size_ok)),
+]
+ST_REQ = ("Users belong to tenants (memberships). Every table tagged tenant (docs and files today, and any table "
+          "tagged later) is tenant-scoped the same way: members of a tenant see, add and change its rows, and a "
+          "row never moves into a tenant the user does not belong to. Nobody deletes. Memberships are read-only "
+          "to users. A file's size is never negative. The tenants table itself is not exposed to users.")
+ST_ENG = ["Docs are only seen, added and changed by members of their tenant.",
+          "Files are only seen, added and changed by members of their tenant.",
+          "Leaving a tenant never grants access.", "Whatever is written to docs can be read back.",
+          "Whatever is written to files can be read back.",
+          "The application role may only select/insert/update docs and files and select memberships; nothing on tenants.",
+          "File sizes stay non-negative.", "A member reads the docs of their tenants.",
+          "A member reads the files of their tenants.", "A member adds a file of non-negative size to their tenant."]
+ST_OK = {f"P{i}": "PROVED" for i in range(1, 11)}
+case("st_good", ST_REQ, ST_ENG,
+     spec("one selector rule per command over every table tagged tenant (D48)", ST_TABLES, ST_REL, ST_RULES, ST_PROPS), ST_OK)
+case("st_files_forgotten",
+     ST_REQ.replace("Every table tagged tenant (docs and files today, and any table tagged later) is tenant-scoped "
+                    "the same way: members of a tenant see, add and change its rows",
+                    "Docs are tenant-scoped: members of a tenant see, add and change its docs; files are not exposed to "
+                    "users yet"), ST_ENG,
+     spec("the selector names docs only: files are left ungoverned (nobody reads or writes them)", ST_TABLES, ST_REL,
+          [x if x["id"] == "R4" else {**x, "applies_to": {"named": ["docs"]}} for x in ST_RULES], ST_PROPS),
+     {**ST_OK, "P9": "REFUTED", "P10": "REFUTED"})
+case("st_self_grant",
+     ST_REQ.replace("Every table tagged tenant (docs and files today, and any table tagged later)",
+                    "Every table with a tenant_id column (memberships, docs and files, and any table added later)")
+           .replace(" Memberships are read-only to users.", ""), ST_ENG,
+     spec("the selector matches by column, so it also governs memberships: a member adds and changes memberships of "
+          "their own tenants (self-grant into any tenant via update)", ST_TABLES, ST_REL,
+          [x if x["id"] == "R4" else {**x, "applies_to": {"has_column": ["tenant_id", "int"]}} for x in ST_RULES],
+          ST_PROPS),
+     {**ST_OK, "P6": "REFUTED"})
 
 
 # ----------------------------------------------------------------------------- write and verify

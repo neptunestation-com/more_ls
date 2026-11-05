@@ -45,7 +45,10 @@
      "user_id",
      "tenant_id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "admins": {
     "columns": {
@@ -62,7 +65,10 @@
      "user_id",
      "tenant_id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    },
    "events": {
     "columns": {
@@ -86,7 +92,10 @@
     "primary_key": [
      "id"
     ],
-    "unique": []
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
    }
   },
   "relations": {

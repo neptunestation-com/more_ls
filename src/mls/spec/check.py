@@ -111,9 +111,11 @@ def must_allow_scope(table: str, command: str) -> Scope:
 
 
 class Checker:
-    def __init__(self, spec: Spec):
+    def __init__(self, spec: Spec, rule_paths: list[str] | None = None):
         self.spec = spec
         self.sink = ErrorSink()
+        # the JSON path of each rule: an expanded selector rule reports under the selector's path
+        self.rule_paths = rule_paths or [f"$.rules[{i}]" for i in range(len(spec.rules))]
 
     # ------------------------------------------------------------------ helpers
     def err(self, path: str, msg: str, fix: str = "", code: str = "error") -> None:
@@ -619,9 +621,10 @@ class Checker:
         names: set[tuple[str, str]] = set()
         colrules: set[tuple[str, str, str]] = set()
         for i, r in enumerate(self.spec.rules):
-            path = f"$.rules[{i}]"
+            path = self.rule_paths[i]
             if r.id in ids:
-                self.err(path + ".id", f"duplicate rule id '{r.id}'")
+                self.err(path + ".id", f"duplicate rule id '{r.id}'" + (" (an expansion of a selector rule, D48)"
+                                                                        if r.from_ is not None else ""))
             ids.add(r.id)
             if r.name is not None and not IDENT.match(r.name):
                 self.err(path + ".name", f"'{r.name}' is not a valid identifier")
@@ -793,11 +796,14 @@ class Checker:
 
 
 def check_spec(spec: Spec) -> Spec:
-    """Typecheck and fragment-check `spec`, then return it with its sugar expanded
-    (spec/expand.py).  Every consumer must use the returned spec."""
+    """Expand the selectors (spec/selectors.py, D48), typecheck and fragment-check `spec`, then
+    return it with its sugar expanded (spec/expand.py).  Every consumer must use the returned
+    spec: it is the one with concrete rules and no `in`."""
     from mls.spec.expand import expand_spec
+    from mls.spec.selectors import expand_selectors
 
-    errors = Checker(spec).run()
+    spec, errors, paths = expand_selectors(spec)
+    errors += Checker(spec, paths).run()
     if errors:
         raise SpecError(errors)
     return expand_spec(spec)

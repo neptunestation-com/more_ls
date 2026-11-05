@@ -1,0 +1,362 @@
+{
+ "$comment": "the selector names docs only: files are left ungoverned (nobody reads or writes them)",
+ "mls_version": "0.1",
+ "identity": {
+  "adapter": "supabase",
+  "context": {
+   "uid": {
+    "source": "auth.uid",
+    "type": "uuid"
+   }
+  }
+ },
+ "roles": [
+  "authenticated"
+ ],
+ "tables": {
+  "memberships": {
+   "columns": {
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "user_id",
+    "tenant_id"
+   ]
+  },
+  "docs": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "archived": {
+     "type": "bool",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ],
+   "tags": [
+    "tenant"
+   ]
+  },
+  "files": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "tenant_id": {
+     "type": "int",
+     "nullable": false
+    },
+    "size": {
+     "type": "int",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ],
+   "tags": [
+    "tenant"
+   ]
+  },
+  "tenants": {
+   "columns": {
+    "id": {
+     "type": "int",
+     "nullable": false
+    },
+    "name": {
+     "type": "text",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ]
+  }
+ },
+ "relations": {
+  "member_of": {
+   "table": "memberships",
+   "key": "user_id",
+   "value": "tenant_id"
+  }
+ },
+ "rules": [
+  {
+   "id": "R1",
+   "kind": "policy",
+   "name": "member_read",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "requirement": "members read their tenants' rows",
+   "applies_to": {
+    "named": [
+     "docs"
+    ]
+   }
+  },
+  {
+   "id": "R2",
+   "kind": "policy",
+   "name": "member_insert",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "requirement": "members add rows to their tenants",
+   "applies_to": {
+    "named": [
+     "docs"
+    ]
+   }
+  },
+  {
+   "id": "R3",
+   "kind": "policy",
+   "name": "member_update",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "check": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   },
+   "requirement": "members change their tenants' rows",
+   "applies_to": {
+    "named": [
+     "docs"
+    ]
+   }
+  },
+  {
+   "id": "R4",
+   "kind": "check",
+   "name": "size_positive",
+   "table": "files",
+   "predicate": {
+    "cmp": [
+     {
+      "col": "size"
+     },
+     ">=",
+     {
+      "const": 0
+     }
+    ]
+   },
+   "requirement": "a file has a non-negative size"
+  }
+ ],
+ "properties": [
+  {
+   "id": "P1",
+   "template": "tenant_isolation",
+   "description": "docs are only seen, added and changed by members of their tenant",
+   "table": "docs",
+   "column": "tenant_id",
+   "relation": "member_of",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select",
+    "insert",
+    "update"
+   ]
+  },
+  {
+   "id": "P2",
+   "template": "tenant_isolation",
+   "description": "files are only seen, added and changed by members of their tenant",
+   "table": "files",
+   "column": "tenant_id",
+   "relation": "member_of",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select",
+    "insert",
+    "update"
+   ]
+  },
+  {
+   "id": "P3",
+   "template": "monotone_in",
+   "description": "leaving a tenant never grants access",
+   "relation": "member_of"
+  },
+  {
+   "id": "P4",
+   "template": "write_subset_read",
+   "description": "whatever is written to docs can be read back",
+   "table": "docs"
+  },
+  {
+   "id": "P5",
+   "template": "write_subset_read",
+   "description": "whatever is written to files can be read back",
+   "table": "files"
+  },
+  {
+   "id": "P6",
+   "template": "least_privilege",
+   "description": "members select/insert/update docs and files, select memberships, and nothing on tenants",
+   "allowed": {
+    "authenticated": {
+     "docs": [
+      "select",
+      "insert",
+      "update"
+     ],
+     "files": [
+      "select",
+      "insert",
+      "update"
+     ],
+     "memberships": [
+      "select"
+     ]
+    }
+   }
+  },
+  {
+   "id": "P7",
+   "template": "invariant_preserved",
+   "description": "file sizes stay non-negative",
+   "invariants": [
+    {
+     "rule": "R4"
+    }
+   ]
+  },
+  {
+   "id": "P8",
+   "template": "must_allow",
+   "description": "a member reads the docs of their tenants",
+   "table": "docs",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P9",
+   "template": "must_allow",
+   "description": "a member reads the files of their tenants",
+   "table": "files",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "tenant_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P10",
+   "template": "must_allow",
+   "description": "a member adds a file of non-negative size to their tenant",
+   "table": "files",
+   "role": "authenticated",
+   "command": "insert",
+   "when": {
+    "and": [
+     {
+      "member": {
+       "relation": "member_of",
+       "key": {
+        "ctx": "uid"
+       },
+       "value": {
+        "col": "tenant_id"
+       }
+      }
+     },
+     {
+      "cmp": [
+       {
+        "col": "size"
+       },
+       ">=",
+       {
+        "const": 0
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

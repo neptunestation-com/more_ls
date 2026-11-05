@@ -85,8 +85,9 @@ Milestone 5 (brownfield, the `pg_more_ls` graft) is in progress: `in` with a con
 stated hardening assumptions, `mls import` of a live schema, and the lifter (D46: the policies
 MLS itself emits and the usual hand-written idioms read back into the verified fragment, the
 rest opaque blocks with their catalog signature; importing a deployed spec gives it back with
-no opaque block and an empty behaviour diff) are done; selectors, `mls status` and the lint
-pack are next (`docs/ROADMAP.md`).
+no opaque block and an empty behaviour diff), and selectors (`applies_to`, D48: one rule for
+every table a selector matches, expanded by `check`) are done; `mls status` and the lint pack
+are next (`docs/ROADMAP.md`).
 
 ### Measured with `claude-opus-5-5`
 
