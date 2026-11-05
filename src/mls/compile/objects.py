@@ -41,6 +41,7 @@ class TableObj:
     columns: dict[str, ColumnObj]
     pk: tuple[str, ...] | None
     uniques: dict[str, tuple[str, ...]]   # constraint name -> columns
+    mode: str = "owned"                   # owned | adopted (observed tables are not objects)
 
 
 @dataclass(frozen=True)
@@ -126,11 +127,11 @@ class Objects:
 def objects(spec: Spec, mutations: frozenset[Mutation] = frozenset()) -> Objects:
     sc = SqlCompiler(spec, get_adapter(spec), mutations)
     tables = {}
-    for name, t in spec.tables.items():
+    for name, t in spec.governed().items():
         tables[name] = TableObj(
             name, {c: ColumnObj(SQL_TYPE[col.type], not col.nullable) for c, col in t.columns.items()},
             tuple(t.primary_key) if t.primary_key else None,
-            {unique_name(name, u): tuple(u) for u in t.unique})
+            {unique_name(name, u): tuple(u) for u in t.unique}, t.mode)
     o = Objects(list(spec.roles), tables)
     for r in spec.checks():
         o.constraints[(r.table, r.name)] = ConstraintObj(r.table, r.name, "check", check_def(r, sc), r.id)

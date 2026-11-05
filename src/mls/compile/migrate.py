@@ -202,16 +202,24 @@ def migrate(old: Spec, new: Spec, allow_destructive: bool = False,
     for name in n.tables:
         if name in o.tables:
             continue
-        for s in table_ddl(name, new.tables[name]):
-            schema.add(s, "create table", name)
+        adopted = n.tables[name].mode == "adopted"
+        if adopted:
+            m.notes.append(f"table '{name}' is adopted: it must already exist with the declared columns "
+                           f"(mls check --dsn verifies that); only its hardening is applied here")
+        else:
+            for s in table_ddl(name, new.tables[name]):
+                schema.add(s, "create table", name)
         schema.add(f"revoke all on {q(name)} from public", "revoke all", name)
         for r in n.roles:
             schema.add(f"revoke all on {q(name)} from {q(r)}", "revoke all", name)
         schema.add(f"alter table {q(name)} enable row level security", "enable rls", name)
-        if Mutation.HARDENING_NO_FORCE not in mutations:
+        if not adopted and Mutation.HARDENING_NO_FORCE not in mutations:
             schema.add(f"alter table {q(name)} force row level security", "force rls", name)
     for name in sorted(set(o.tables) & set(n.tables)):
         ot, nt = o.tables[name], n.tables[name]
+        if ot.mode != nt.mode:
+            m.notes.append(f"table '{name}' changes mode from {ot.mode} to {nt.mode}; no DDL follows from that "
+                           f"(ownership is a statement about who created the table), drift reflects it")
         for c, col in nt.columns.items():
             if c not in ot.columns:
                 nn = " not null" if col.notnull else ""

@@ -212,3 +212,22 @@ def org_flat_spec() -> Spec:
                                              {"cmp": [{"col": "depth"}, "=", {"const": 0}]}]}})
     d["properties"] = [p for p in d["properties"] if p["id"] in ("P4", "P5")]
     return make(d)
+
+
+# ----------------------------------------------------------------------------- M5 (brownfield, D45)
+def adopted_spec(assume: list[dict] | None = None) -> Spec:
+    """The example with `docs` adopted (the harness creates it as the pre-existing table) and the
+    optional hardening assumptions."""
+    d = base()
+    d["tables"]["docs"]["mode"] = "adopted"
+    if assume:
+        d["tables"]["docs"]["assume"] = assume
+    return make(d)
+
+
+def observed_spec() -> Spec:
+    """The example plus an observed table nothing names."""
+    d = base()
+    d["tables"]["audit"] = {"columns": {"id": {"type": "int", "nullable": False}}, "mode": "observed",
+                            "tags": ["legacy"]}
+    return make(d)

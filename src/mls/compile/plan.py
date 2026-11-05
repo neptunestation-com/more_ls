@@ -99,13 +99,17 @@ def compile_spec(spec: Spec, mutations: frozenset[Mutation] | set[Mutation] = fr
             raise CompileError(errs)
     adapter = get_adapter(spec)
     sc = SqlCompiler(spec, adapter, mutations)
+    from mls import english
+
     s = Script(assumptions=[f"identity ({adapter.name}): {adapter.assumption}",
-                            "trusted roles: the owner of the MLS schema and superusers"])
+                            "trusted roles: the owner of the MLS schema and superusers",
+                            *english.assumption_lines(spec)])
     s.add("preamble", preamble_ddl(spec))
     s.add("roles", role_ddl(spec))
     s.add("roles", internal_role_ddl(spec))
     for name, t in spec.tables.items():
-        s.add("tables", table_ddl(name, t))
+        if t.mode == "owned":
+            s.add("tables", table_ddl(name, t))  # adopted tables exist; observed ones are not touched
     for r in spec.checks():
         s.add("checks", check_ddl(r, sc), r.id)
     for r in spec.inclusions():

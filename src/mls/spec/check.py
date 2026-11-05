@@ -22,10 +22,10 @@ from pydantic import ValidationError
 
 from mls.errors import ErrorSink, MlsError, SpecError
 from mls.spec.model import (
-    CONTEXT_NOW, And, CardinalityRule, CheckRule, ColRef, ColType, ColumnRule, Cmp, Const, CtxRef, In,
-    Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
-    NowBetween, OldRef, OpaqueRef, Or, PolicyRule, Spec, TenantIsolation, ColumnImmutable,
-    WriteSubsetRead, LeastPrivilege, TransitionRule,
+    CONTEXT_NOW, And, BypassAssumed, CardinalityRule, CheckRule, ColRef, ColType, ColumnRule, Cmp, Const, CtxRef,
+    In, Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
+    NowBetween, OldRef, OpaqueRef, Or, OwnerAssumed, PolicyRule, RlsAssumed, Spec, TenantIsolation,
+    ColumnImmutable, WriteSubsetRead, LeastPrivilege, TransitionRule,
 )
 
 IDENT = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
@@ -114,6 +114,17 @@ class Checker:
 
     def col_nullable(self, table: str, col: str) -> bool:
         return self.spec.tables[table].columns[col].nullable
+
+    def governed(self, table: str, path: str, what: str) -> bool:
+        """An `observed` table is mentioned, not governed (D45): nothing may name it but the
+        table declaration itself.  Reports and returns False when `table` is observed."""
+        t = self.spec.tables.get(table)
+        if t is not None and t.mode == "observed":
+            self.err(path, f"table '{table}' is observed; {what} cannot name it (an observed table is "
+                           f"in the schema but not governed)",
+                     f"set tables.{table}.mode to \"adopted\" (the table exists) or \"owned\" (MLS creates it)")
+            return False
+        return True
 
     # ------------------------------------------------------------------ terms
     def term_type(self, term, scope: Scope, path: str) -> ColType | None:
@@ -439,6 +450,54 @@ class Checker:
                 for j, c in enumerate(u):
                     if c not in t.columns:
                         self.err(f"{path}.unique[{i}][{j}]", f"unknown column '{c}'")
+            for i, tag in enumerate(t.tags):
+                if not tag.strip():
+                    self.err(f"{path}.tags[{i}]", "empty tag")
+            self.check_assumptions(tname, t, path)
+
+    def check_assumptions(self, tname: str, t, path: str) -> None:
+        """`assume` (D45) states the hardening the compiler cannot establish on an adopted table.
+        An owned table has none (its hardening is emitted and verified); an observed table is not
+        governed; and there is no assumption under which a table without row level security
+        means anything (that table is observed)."""
+        if t.assume and t.mode == "owned":
+            self.err(f"{path}.assume", f"table '{tname}' is owned: the compiler emits its hardening and drift "
+                                       f"verifies it, so nothing is assumed (an owned table whose owner "
+                                       f"would be an app role is refused, not assumed)",
+                     "set mode to \"adopted\" to keep the assumptions, or remove them")
+            return
+        if t.assume and t.mode == "observed":
+            self.err(f"{path}.assume", f"table '{tname}' is observed and not governed; nothing is assumed about it",
+                     "set mode to \"adopted\", or remove the assumptions")
+            return
+        seen: set[tuple[str, str]] = set()
+        for i, a in enumerate(t.assume):
+            apath = f"{path}.assume[{i}]"
+            if isinstance(a, OwnerAssumed):
+                key = ("owner", a.owner)
+                if a.owner not in self.spec.roles:
+                    self.err(f"{apath}.owner", f"'{a.owner}' is not an app role of this spec; only an app-role "
+                                               f"owner needs an assumption (any other owner is trusted by D13 already)",
+                             f"one of: {', '.join(self.spec.roles)}; or remove the assumption")
+            elif isinstance(a, BypassAssumed):
+                key = ("bypassrls", a.bypassrls)
+                if a.bypassrls not in self.spec.roles:
+                    self.err(f"{apath}.bypassrls", f"'{a.bypassrls}' is not an app role of this spec",
+                             f"one of: {', '.join(self.spec.roles)}; or remove the assumption")
+            elif isinstance(a, RlsAssumed):
+                key = ("rls", a.rls)
+                if a.rls != "not_forced":
+                    self.err(f"{apath}.rls", f"'{a.rls}' is not an assumption the proofs can state: a policy on a "
+                                             f"table without row level security enabled means nothing, so an "
+                                             f"adopted table without it is observed",
+                             "use \"not_forced\" (the owner bypasses the policies and is trusted), or set "
+                             "mode to \"observed\" until row level security is enabled outside MLS")
+            else:
+                self.err(apath, "unknown assumption")
+                continue
+            if key in seen:
+                self.err(apath, "duplicate assumption", "remove it")
+            seen.add(key)
 
     def key_sets(self, table: str) -> list[frozenset[str]]:
         t = self.spec.tables[table]
@@ -456,6 +515,8 @@ class Checker:
             if rel.table not in self.spec.tables:
                 self.err(path + ".table", f"unknown table '{rel.table}'",
                          f"one of: {', '.join(self.spec.tables)}")
+                continue
+            if not self.governed(rel.table, path + ".table", "a relation"):
                 continue
             ok = True
             for fld in ("key", "value"):
@@ -484,6 +545,8 @@ class Checker:
             t = self.spec.tables.get(h.table)
             if t is None:
                 self.err(path + ".table", f"unknown table '{h.table}'", f"one of: {', '.join(self.spec.tables)}")
+                continue
+            if not self.governed(h.table, path + ".table", "a hierarchy"):
                 continue
             ok = True
             for fld in ("id", "parent", "depth"):
@@ -524,6 +587,8 @@ class Checker:
             if o.table not in self.spec.tables:
                 self.err(path + ".table", f"unknown table '{o.table}'")
                 continue
+            if not self.governed(o.table, path + ".table", "an opaque block"):
+                continue
             for i, c in enumerate(o.columns):
                 if c not in self.spec.tables[o.table].columns:
                     self.err(f"{path}.columns[{i}]", f"unknown column '{c}' of table '{o.table}'")
@@ -550,6 +615,8 @@ class Checker:
             if r.table not in self.spec.tables:
                 self.err(path + ".table", f"unknown table '{r.table}'",
                          f"one of: {', '.join(self.spec.tables)}")
+                continue
+            if not self.governed(r.table, path + ".table", "a rule"):
                 continue
             if r.kind != "column_rule":
                 if (r.table, r.name) in names:
@@ -614,6 +681,8 @@ class Checker:
         if r.parent == r.table:
             self.err(path + ".parent", "the parent table must be a different table")
             return
+        if not self.governed(r.parent, path + ".parent", "a cardinality rule's parent"):
+            return
         if not parent.primary_key or len(parent.primary_key) != 1:
             self.err(path + ".parent", f"'{r.parent}' needs a single-column primary key that '{r.group}' "
                                        f"references")
@@ -656,6 +725,8 @@ class Checker:
                 if p.table not in self.spec.tables:
                     self.err(path + ".table", f"unknown table '{p.table}'")
                     continue
+                if not self.governed(p.table, path + ".table", "a property"):
+                    continue
             if isinstance(p, TenantIsolation):
                 if p.column not in self.spec.tables[p.table].columns:
                     self.err(path + ".column", f"unknown column '{p.column}'")
@@ -677,6 +748,8 @@ class Checker:
                     for t in tabs:
                         if t not in self.spec.tables:
                             self.err(f"{path}.allowed.{role}.{t}", f"unknown table '{t}'")
+                        else:
+                            self.governed(t, f"{path}.allowed.{role}.{t}", "a property")
             elif isinstance(p, InvariantPreserved):
                 for j, inv in enumerate(p.invariants):
                     ipath = f"{path}.invariants[{j}]"
@@ -692,6 +765,8 @@ class Checker:
                     else:
                         if inv.table not in self.spec.tables:
                             self.err(ipath + ".table", f"unknown table '{inv.table}'")
+                            continue
+                        if not self.governed(inv.table, ipath + ".table", "an invariant"):
                             continue
                         self.pred(inv.predicate, invariant_scope(inv.table), ipath + ".predicate")
             elif isinstance(p, Custom):

@@ -1,0 +1,268 @@
+"""Milestone 5 (D45) on real Postgres: an adopted table owned by an app role proves and drifts with
+the assumption stated; `check --dsn` verifies adopted tables against the catalog; `mls import` of
+the deployed example round-trips to a spec whose drift is clean; the hand-written Supabase-style
+fixture imports to a spec that checks, with every policy an opaque block carrying its signature,
+and proves conditionally on them."""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import psycopg
+import pytest
+
+from mls.cli import main
+from mls.compile import compile_spec
+from mls.errors import SpecError
+from mls.pg.adopt import import_schema, verify_adopted
+from mls.pg.drift import drift
+from mls.pg.harness import Harness, run_differential
+from mls.props.report import to_markdown
+from mls.props.runner import run_all
+from mls.spec import check_spec
+from mls.spec.model import Spec
+from tests.templates import specs
+
+pytestmark = pytest.mark.pg
+
+ASSUME = [{"owner": "authenticated"}, {"rls": "not_forced"}]
+FIXTURE = Path(__file__).resolve().parent.parent / "brownfield" / "supabase_schema.sql"
+
+
+@pytest.fixture(scope="module")
+def adopted(pg_dsn):
+    spec = specs.adopted_spec(ASSUME)
+    h = Harness(spec, compile_spec(spec), pg_dsn, "mls_adopt")
+    h.deploy()
+    with h.conn.cursor() as cur:
+        cur.execute('alter table "docs" owner to "authenticated"')  # the brownfield state the spec assumes
+    yield spec, h
+    h.close()
+
+
+def test_assumed_hardening_is_reported_as_assumed(adopted):
+    spec, h = adopted
+    res = drift(h.conn, spec, compile_spec(spec))
+    assert res.ok, [str(i) for i in res.items]
+    kinds = {i.kind for i in res.items}
+    assert kinds == {"assumed"}, [str(i) for i in res.items]
+    assert any("owner authenticated is an app role and is trusted" in i.object for i in res.items)
+    assert any("row level security is not forced" in i.object for i in res.items)
+    assert "assumed: owner `authenticated` of adopted table `docs` is trusted" in to_markdown(spec, run_all(spec))
+
+
+def test_without_the_assumption_it_is_hardening_drift(adopted):
+    spec, h = adopted
+    bare = specs.adopted_spec()
+    res = drift(h.conn, bare, compile_spec(bare))
+    assert not res.ok
+    assert {i.kind for i in res.items} == {"hardening"}
+    assert any("owned by app role authenticated" in i.object for i in res.items)
+
+
+def test_stale_assumption_is_a_note(adopted):
+    spec, h = adopted
+    script = compile_spec(spec)
+    with h.conn.transaction(force_rollback=True):
+        with h.conn.cursor() as cur:
+            cur.execute('alter table "docs" owner to current_user')
+            cur.execute('alter table "docs" force row level security')
+            for g in script.by_section("grants"):  # ownership transfer folds the old owner's grants into the new one
+                cur.execute(g)
+        res = drift(h.conn, spec, script)
+    assert res.ok and res.items == [], [str(i) for i in res.items]
+    assert any("no longer needed" in n and "owner" in n for n in res.notes)
+    assert any("no longer needed" in n and "not_forced" in n for n in res.notes)
+
+
+def test_adopted_differential_and_mutation(pg_dsn):
+    spec = specs.adopted_spec()
+    res = run_differential(spec, compile_spec(spec), pg_dsn, "mls_adopt_diff", seed=1, rows_per_table=30,
+                           n_contexts=16, ops_per_context=25)
+    assert res.ok, res.summary()
+    from mls.compile import Mutation
+
+    bad = run_differential(spec, compile_spec(spec, {Mutation.POLICY_ALL_RESTRICTIVE}), pg_dsn, "mls_adopt_mut",
+                           seed=1, rows_per_table=30, n_contexts=16, ops_per_context=25)
+    assert not bad.ok
+
+
+def test_observed_table_must_exist(adopted):
+    spec, h = adopted
+    obs = specs.observed_spec()
+    res = drift(h.conn, obs, compile_spec(obs))
+    assert any(i.kind == "missing" and "table audit (observed)" in i.object for i in res.items)
+    with h.conn.transaction(force_rollback=True):
+        with h.conn.cursor() as cur:
+            cur.execute('create table "audit" (id integer)')
+        res = drift(h.conn, obs, compile_spec(obs))
+    assert not any("audit" in i.object for i in res.items), [str(i) for i in res.items]
+
+
+def test_check_dsn_verifies_adopted_tables(adopted, tmp_path, capsys):
+    spec, h = adopted
+    assert verify_adopted(h.conn, spec) == []
+    wrong = spec.model_copy(deep=True)
+    wrong.tables["docs"].columns["note"] = wrong.tables["docs"].columns["level"]  # declared int, text in the catalog
+    with h.conn.transaction(force_rollback=True):
+        with h.conn.cursor() as cur:
+            cur.execute('alter table "docs" drop column "archived" cascade')
+            cur.execute('alter table "docs" add column "note" text')
+        errs = verify_adopted(h.conn, wrong)
+    paths = {e.path: e for e in errs}
+    assert "adopted table 'docs' has no column 'archived'" in paths["$.tables.docs.columns.archived"].message
+    assert "text in the catalog, declared int" in paths["$.tables.docs.columns.note.type"].message
+    # the same table declared owned, while an app role owns it: refused with the fix
+    owned = specs.policy_spec()
+    errs = verify_adopted(h.conn, owned)
+    assert len(errs) == 1 and errs[0].path == "$.tables.docs.mode"
+    assert '{"owner": "authenticated"}' in errs[0].fix
+    dsn = psycopg.conninfo.make_conninfo(h.dsn, dbname=h.dbname)
+    p = tmp_path / "adopted.json"
+    d = json.loads(specs.EXAMPLE.read_text())
+    d["tables"]["docs"]["mode"] = "adopted"
+    d["tables"]["docs"]["assume"] = ASSUME
+    p.write_text(json.dumps(d))
+    assert main(["check", str(p), "--dsn", dsn]) == 0
+    assert "OK" in capsys.readouterr().out
+    assert main(["check", str(specs.EXAMPLE), "--dsn", dsn, "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["errors"][0]["path"] == "$.tables.docs.mode"
+
+
+# ----------------------------------------------------------------------------- mls import
+def test_import_of_the_deployed_example_round_trips(pg_dsn, example_spec, tmp_path, capsys):
+    """Acceptance (ROADMAP M5): import the database `mls compile examples/tenant_docs.mls.json`
+    deploys; the spec checks and its drift is clean (opaque blocks until the lifter, #6)."""
+    h = Harness(example_spec, compile_spec(example_spec), pg_dsn, "mls_import_rt")
+    h.deploy()
+    try:
+        res = import_schema(h.conn)
+        imported = check_spec(Spec.model_validate(res.spec))
+        assert imported.identity.adapter == "supabase"
+        assert imported.identity.context["uid"].source == "auth.uid"
+        assert imported.identity.context["clearance"].model_dump() == {"source": "jwt.claims.clearance", "type": "int"}
+        assert imported.roles == ["authenticated"]
+        assert {t: tb.mode for t, tb in imported.tables.items()} == {"docs": "adopted", "memberships": "adopted",
+                                                                     "admins": "adopted"}
+        assert imported.tables["docs"].columns == example_spec.tables["docs"].columns
+        assert imported.tables["docs"].primary_key == ["id"]
+        assert {(r.table, r.key, r.value) for r in imported.relations.values()} == {
+            ("memberships", "user_id", "tenant_id"), ("admins", "user_id", "tenant_id")}
+        names = {p.name for p in imported.policies()}
+        assert {"member_read", "admin_read", "member_insert", "member_update", "not_archived"} <= names
+        assert any(r.kind == "inclusion" and r.name == "owner_in_tenant" for r in imported.rules)
+        assert any(r.kind == "column_rule" and r.table == "memberships" and r.columns == ["tenant_id", "user_id"]
+                   for r in imported.rules)
+        o = imported.opaques["member_read_using"]
+        assert (o.columns, o.context) == (["level", "tenant_id"], ["uid", "clearance"]) and o.relations == ["memberships"]
+        assert any("CHECK level_range" in n for n in res.notes) and any("trigger tenant_immutable" in n for n in res.notes)
+        d = drift(h.conn, imported, compile_spec(imported))
+        assert d.ok, [str(i) for i in d.items]
+        assert {i.kind for i in d.items} == {"foreign"}
+        assert any("constraint level_range" in i.object for i in d.items)
+        # the CLI: --out writes the spec, the notes go to stderr, and `check --dsn` accepts it
+        dsn = psycopg.conninfo.make_conninfo(h.dsn, dbname=h.dbname)
+        out = tmp_path / "imported.json"
+        assert main(["import", "--dsn", dsn, "--out", str(out)]) == 0
+        assert "note:" in capsys.readouterr().err
+        assert main(["check", str(out), "--dsn", dsn]) == 0
+        assert main(["drift", str(out), "--dsn", dsn]) == 0
+        assert "drift: none" in capsys.readouterr().out
+    finally:
+        h.close()
+
+
+@pytest.fixture(scope="module")
+def brownfield(pg_dsn):
+    dbname = "mls_brownfield"
+    with psycopg.connect(pg_dsn, autocommit=True) as admin:
+        admin.execute(f'drop database if exists "{dbname}"')
+        admin.execute(f'create database "{dbname}"')
+    conn = psycopg.connect(psycopg.conninfo.make_conninfo(pg_dsn, dbname=dbname), autocommit=True)
+    conn.execute(FIXTURE.read_text())
+    yield conn
+    conn.close()
+    with psycopg.connect(pg_dsn, autocommit=True) as admin:
+        admin.execute(f'drop database if exists "{dbname}"')
+
+
+def test_import_of_the_brownfield_fixture(brownfield):
+    """Acceptance (ROADMAP M5): the hand-written Supabase-style schema imports to a spec that
+    checks; every policy is an opaque block whose signature names the columns and context it
+    reads; a proof over it is conditional on those blocks."""
+    res = import_schema(brownfield)
+    spec = check_spec(Spec.model_validate(res.spec))
+    assert spec.identity.adapter == "supabase" and set(spec.identity.context) == {"uid", "role"}
+    assert spec.identity.context["role"].model_dump() == {"source": "jwt.claims.role", "type": "text"}
+    assert spec.roles == ["anon", "authenticated"]
+    modes = {t: tb.mode for t, tb in spec.tables.items()}
+    assert modes == {"profiles": "adopted", "projects": "adopted", "project_members": "adopted",
+                     "tasks": "adopted", "audit_log": "observed"}
+    assert "credits" not in spec.tables["profiles"].columns and "id" not in spec.tables["tasks"].columns
+    assert spec.tables["profiles"].columns["created_at"].type == "timestamp"
+    assert spec.tables["tasks"].primary_key is None  # bigserial id is not modelled
+    # every policy is a rule whose predicates are opaque blocks with the catalog signature
+    by_name = {p.name: p for p in spec.policies()}
+    o = spec.opaques[by_name["tasks_of_my_projects"].using.opaque]
+    assert o.columns == ["project_id"] and o.context == ["uid"] and o.relations == ["project_members"]
+    assert "project_members" in o.sql
+    o = spec.opaques[by_name["assignee_updates"].using.opaque]
+    assert o.columns == ["assignee"] and o.context == ["uid", "role"]
+    o = spec.opaques[by_name["members_see_their_projects"].using.opaque]
+    assert o.columns == ["id"] and o.relations == ["project_members"]
+    assert by_name["no_deletes_of_done_tasks"].mode == "restrictive"
+    assert by_name["insert_into_own_projects"].command == "insert" and by_name["insert_into_own_projects"].using is None
+    assert by_name["users_update_own_profile"].check is None  # equal to using: one block, not two
+    two = [p for n, p in by_name.items() if n.startswith("members_see_memberships")]
+    assert len(two) == 2 and {p.role for p in two} == {"anon", "authenticated"}
+    assert two[0].using == two[1].using  # one opaque block shared by the two rules
+    assert spec.relations["project_members"].model_dump() == {"table": "project_members", "key": "project_id",
+                                                               "value": "user_id"}
+    assert not any(r.kind == "inclusion" for r in spec.rules)  # single-column FKs are not inclusions
+    cr = [r for r in spec.rules if r.kind == "column_rule"]
+    assert [(r.table, r.role, r.access, r.columns) for r in cr] == [("profiles", "anon", "read", ["display_name", "id"])]
+    assert any("is not an inclusion" in n for n in res.notes)
+    assert any("has insert on project_members but no permissive insert policy" in n for n in res.notes)
+    assert any("audit_log has row level security disabled: observed" in n for n in res.notes)
+    assert any('"tasks of my projects" on tasks is imported as rule tasks_of_my_projects' in n for n in res.notes)
+    assert any("trigger tasks_touch" in n for n in res.notes) and any("CHECK" in n and "priority" in n for n in res.notes)
+    # proofs over the imported spec are conditional on the blocks and the report lists them
+    d = dict(res.spec)
+    d["properties"] = [
+        {"id": "P1", "template": "write_subset_read", "table": "profiles"},
+        {"id": "P2", "template": "custom", "table": "tasks", "role": "authenticated", "command": "select",
+         "which": "old", "goal": {"opaque": by_name["tasks_of_my_projects"].using.opaque}},
+        # distinct blocks are distinct uninterpreted predicates: an insert admitted by one block is not
+        # shown readable by another, so this one is refuted, not conditional
+        {"id": "P3", "template": "write_subset_read", "table": "tasks"},
+    ]
+    proved = check_spec(Spec.model_validate(d))
+    results = {r.id: r for r in run_all(proved)}
+    assert results["P1"].verdict == "PROVED" and results["P1"].conditional_on == ["users_update_own_profile_using"]
+    assert results["P2"].verdict == "PROVED" and results["P2"].conditional_on == ["tasks_of_my_projects_using"]
+    assert results["P3"].verdict == "REFUTED"
+    md = to_markdown(proved, list(results.values()))
+    assert "2 proved (2 conditional on opaque blocks), 1 refuted" in md
+    for r in results.values():
+        for name in r.conditional_on:
+            assert f"opaque block '{name}' on" in md  # the assumptions list it with its SQL
+        if r.conditional_on:
+            assert f"conditional on opaque blocks: {', '.join(r.conditional_on)}" in md
+    # the hardening state is recorded as assumptions, so drift reports it as assumed, not as hardening;
+    # what fails is only what the notes announced: renamed policies and the grants without a policy
+    assert all(tb.assume == [] or tb.mode == "adopted" for tb in spec.tables.values())
+    assert [a.model_dump() for a in spec.tables["tasks"].assume] == [{"rls": "not_forced"}]
+    assert any("table tasks: assumed row level security is not forced" in n for n in res.notes)
+    dd = drift(brownfield, spec, compile_spec(spec))
+    assert dd.by_kind("assumed") and not dd.by_kind("hardening"), [str(i) for i in dd.items]
+    failing = [i for i in dd.items if i.kind not in ("foreign", "assumed")]
+    assert failing and all(i.kind in ("missing", "unexpected") and ("policy" in i.object or "privilege" in i.object)
+                           for i in failing), [str(i) for i in failing]
+    assert any("privilege INSERT on project_members for authenticated" in i.object for i in failing)
+    assert any("has delete on tasks but no permissive delete policy" in n for n in res.notes)
+
+
+def test_import_needs_an_app_role(brownfield):
+    with pytest.raises(SpecError) as ei:
+        import_schema(brownfield, roles=[])
+    assert ei.value.errors[0].path == "$.roles" and "--role" in ei.value.errors[0].fix

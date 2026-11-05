@@ -31,4 +31,11 @@ def rules_schema() -> dict:
 def skeleton_of(spec: Spec | dict) -> dict:
     """Everything of a spec except rules and properties: what both passes are given."""
     data = spec if isinstance(spec, dict) else spec.model_dump(by_alias=True, exclude_none=True)
-    return {k: data[k] for k in SKELETON_KEYS if k in data and data[k] not in ({}, None)}
+    out = {k: data[k] for k in SKELETON_KEYS if k in data and data[k] not in ({}, None)}
+    for t in out.get("tables", {}).values():  # the D45 fields at their defaults are noise in a prompt
+        if t.get("mode") == "owned":
+            t.pop("mode")
+        for k in ("assume", "tags"):
+            if t.get(k) == []:
+                t.pop(k)
+    return out

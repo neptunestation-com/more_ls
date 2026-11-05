@@ -197,7 +197,7 @@ def user_columns(spec: Spec, adapter: Adapter) -> set[tuple[str, str]]:
 
 def table_order(spec: Spec) -> list[str]:
     """Tables ordered so that every FK target precedes its referencing table."""
-    deps = {t: set() for t in spec.tables}
+    deps = {t: set() for t in spec.governed()}
     for inc in spec.inclusions():
         target = spec.relations[inc.relation].table
         if target != inc.table:
@@ -206,9 +206,9 @@ def table_order(spec: Spec) -> list[str]:
         if fk.parent != fk.table:
             deps[fk.table].add(fk.parent)
     order: list[str] = []
-    while len(order) < len(spec.tables):
+    while len(order) < len(deps):
         progress = False
-        for t in spec.tables:
+        for t in deps:
             if t in order:
                 continue
             if deps[t] <= set(order):
@@ -290,9 +290,19 @@ class Harness:
                     cur.execute(s.sql)
             for s in self.adapter.harness_setup_sql(self.spec):
                 cur.execute(s)
+            for s in self.pre_existing_sql():
+                cur.execute(s)
             for s in self.script.statements:
                 if s.section not in ("preamble", "roles"):
                     cur.execute(s.sql)
+
+    def pre_existing_sql(self) -> list[str]:
+        """What the brownfield database holds before the script runs: the adopted tables (D45),
+        created from their declared columns as a stand-in for the real ones.  The compiled script
+        never creates them."""
+        from mls.compile.table import table_ddl
+
+        return [s for name, t in self.spec.tables.items() if t.mode == "adopted" for s in table_ddl(name, t)]
 
     def attach(self) -> None:
         """Connect to an already deployed database (e.g. after a migration) without redeploying."""
@@ -446,17 +456,17 @@ class Harness:
             for _ in range(n_contexts):
                 role = rnd.choice(self.spec.roles)
                 ctx = gen.context(role)
-                for table in self.spec.tables:
+                for table in self.spec.governed():
                     self.run_select(cur, role, ctx, table, ds, res)
                     all_cols = list(self.spec.tables[table].columns)
                     if self._granted_cols(role, table, "select") != all_cols:
                         self.run_select(cur, role, ctx, table, ds, res, all_cols)  # probe column grants
                 # statements go mostly to tables the role can write, and mostly to rows it can see
-                writable = [t for t in self.spec.tables
+                writable = [t for t in self.spec.governed()
                             if any(c in privileges(self.spec).get((role, t), {}) for c in ("insert", "update", "delete"))]
                 db = self.db(ds)
                 for _ in range(ops_per_context):
-                    table = rnd.choice(writable) if writable and rnd.random() < 0.8 else rnd.choice(list(self.spec.tables))
+                    table = rnd.choice(writable) if writable and rnd.random() < 0.8 else rnd.choice(list(self.spec.governed()))
                     rows = ds.tables.get(table, [])
                     visible = [r for r in rows if self.oracle.visible(role, r, ctx, db, table)]
                     pick = (rnd.choice(visible) if visible and rnd.random() < 0.7 else rnd.choice(rows)) if rows else None

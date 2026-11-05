@@ -159,7 +159,9 @@ All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered 
 ## 8. Explicit assumptions in every proof report
 
 Identity adapter assumption; trusted roles (owner, superuser, and the internal role `mls_internal`
-that owns the SECURITY DEFINER helpers) after hardening; isolation level for non-engine-enforced
+that owns the SECURITY DEFINER helpers) after hardening; the `assume` entries of adopted tables
+(D45: an app-role owner, unforced row-level security, an app role with BYPASSRLS, each trusted),
+and the lists of adopted and observed tables; isolation level for non-engine-enforced
 constructs (cardinality relies on the parent-row lock under READ COMMITTED); opaque blocks used,
 each with its declared signature and SQL, and the number of proofs conditional on them; Postgres
 version range validated by the differential tests.

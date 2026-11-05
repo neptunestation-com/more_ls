@@ -103,6 +103,17 @@ code or a generated object name, update them in the same change.
   `nullif(.., '')`; its hardening is drift-only (`pg/catalog.py` collects per role the functions
   that set `app.*` and the `ALTER ROLE .. SET app.*` defaults; `pg/drift.py` reports them for this
   adapter). The harness user context is the membership key (`user_context_name`), not a source.
+  Table modes (D45): `Table.mode` is `owned` | `adopted` | `observed`; `Spec.governed()` is what the
+  compiler, harness, objects and drift iterate (observed tables are only checked to exist). The
+  compiler never creates or forces an adopted table (`compile/hardening.py`); `drift` shadow-creates
+  it from the spec, reports undeclared constraints/triggers/indexes/columns on it as `foreign`
+  (non-failing) and the `assume` entries as `assumed` (non-failing; a stale one is a note). The
+  assumptions are rendered once (`english.assumption_lines`) for the proof report, explain, diff
+  and the script header. `pg/adopt.py` is `mls import` (every policy an opaque block with its
+  catalog signature; `true`/`false` as `lit`; inclusion-shaped FKs as inclusion rules; column
+  grants as column rules; hardening state as `assume`) and `verify_adopted` (`check --dsn`). The
+  harness creates adopted tables itself before the script (`Harness.pre_existing_sql`).
+  `tests/brownfield/supabase_schema.sql` is the hand-written acceptance fixture.
 - Lean track (D11, D41): `lean/` is a Lake project (core Lean 4, no Mathlib; pinned in
   `lean/lean-toolchain`). `cd lean && lake build` checks it; CI does, and `uv run pytest -m lean`
   does when `lake` is on PATH (skipped otherwise). `lean/MLS/Pred.lean` is `logic/tvl.py`
@@ -131,7 +142,7 @@ src/mls/
   props/       property templates + custom properties, proof runner, reports
   compile/     one module per template: policy, check, fk, transition, time, column, index, hardening
   identity/    adapters: supabase, pg_roles, session_setting (D47)
-  pg/          catalog introspection, EXPLAIN checks, differential test harness
+  pg/          catalog introspection, EXPLAIN checks, differential test harness, import (adopt.py)
   cli.py
 tests/
   templates/   per-template differential + mutation tests (parametrized over PG versions)

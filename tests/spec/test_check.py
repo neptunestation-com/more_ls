@@ -251,3 +251,58 @@ def test_in_is_in_the_schema_and_shape_errors_name_the_path():
                                                    "predicate": {"in": [{"col": "level"}, {"const": 1}]}}]})
     errs = pydantic_errors_to_mls(ei.value)
     assert any(e.path.startswith("$.rules[0].predicate.in") for e in errs), [e.path for e in errs]
+
+
+# ----------------------------------------------------------------------------- M5: table modes (D45)
+def test_observed_table_cannot_be_named():
+    d = base()
+    d["tables"]["docs"]["mode"] = "observed"
+    errs = errors(d)
+    assert has(errs, "$.rules[0].table", "table 'docs' is observed; a rule cannot name it")
+    assert any(e.path == "$.rules[0].table" and 'set tables.docs.mode to "adopted"' in e.fix for e in errs)
+    assert has(errs, "$.properties[0].table", "a property cannot name it")
+    d = base()
+    d["tables"]["memberships"]["mode"] = "observed"
+    errs = errors(d)
+    assert has(errs, "$.relations.member_of.table", "a relation cannot name it")
+
+
+def test_assume_is_refused_where_the_proofs_cannot_state_it():
+    d = base()
+    d["tables"]["docs"]["assume"] = [{"owner": "authenticated"}]
+    errs = errors(d)  # owned: the hardening is emitted, not assumed
+    assert has(errs, "$.tables.docs.assume", "table 'docs' is owned")
+    assert any('set mode to "adopted"' in e.fix for e in errs)
+    d["tables"]["docs"]["mode"] = "adopted"
+    assert errors(d) == []
+    d["tables"]["docs"]["assume"] = [{"owner": "nobody"}, {"rls": "disabled"}, {"bypassrls": "authenticated"},
+                                     {"bypassrls": "authenticated"}]
+    errs = errors(d)
+    assert has(errs, "$.tables.docs.assume[0].owner", "'nobody' is not an app role")
+    assert has(errs, "$.tables.docs.assume[1].rls", "not an assumption the proofs can state")
+    assert any(e.path == "$.tables.docs.assume[1].rls" and 'mode to "observed"' in e.fix for e in errs)
+    assert has(errs, "$.tables.docs.assume[3]", "duplicate assumption")
+    d["tables"]["docs"]["mode"] = "observed"
+    d["tables"]["docs"]["assume"] = [{"rls": "not_forced"}]
+    d["rules"] = [r for r in d["rules"] if r["table"] != "docs"]
+    d["properties"] = []
+    assert has(errors(d), "$.tables.docs.assume", "observed and not governed")
+
+
+def test_mode_shape_errors_name_the_path():
+    from mls.spec.check import pydantic_errors_to_mls
+    from pydantic import ValidationError
+
+    d = base()
+    d["tables"]["docs"]["mode"] = "leased"
+    with pytest.raises(ValidationError) as ei:
+        Spec.model_validate(d)
+    assert pydantic_errors_to_mls(ei.value)[0].path == "$.tables.docs.mode"
+    d["tables"]["docs"]["mode"] = "adopted"
+    d["tables"]["docs"]["assume"] = [{"trusted": "x"}]
+    with pytest.raises(ValidationError) as ei:
+        Spec.model_validate(d)
+    e = pydantic_errors_to_mls(ei.value)[0]
+    assert e.path == "$.tables.docs.assume[0]" and "{owner}, {bypassrls}, {rls}" in e.message
+    schema = spec_json_schema()
+    assert "mode" in schema["$defs"]["Table"]["properties"]

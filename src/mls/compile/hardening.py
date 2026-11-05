@@ -1,5 +1,9 @@
 """Bypass-path hardening (D13): app roles are not owners and have no BYPASSRLS; RLS is enabled and
-FORCED on every table; TRUNCATE is never granted; app roles cannot SET session_replication_role."""
+FORCED on every table; TRUNCATE is never granted; app roles cannot SET session_replication_role.
+
+On an `adopted` table (D45) the compiler enables row level security and sets the privileges the
+rules need, but does not FORCE it and does not touch the owner: that hardening is verified by
+drift or stated in the table's `assume`, never silently emitted."""
 from __future__ import annotations
 
 from mls.compile.mutations import Mutation
@@ -33,11 +37,11 @@ def role_ddl(spec: Spec) -> list[str]:
 
 def table_hardening_ddl(spec: Spec, mutations: frozenset[Mutation] = frozenset()) -> list[str]:
     out = []
-    for t in spec.tables:
+    for t, tb in spec.governed().items():
         out.append(f"revoke all on {q(t)} from public")
         for r in spec.roles:
             out.append(f"revoke all on {q(t)} from {q(r)}")
         out.append(f"alter table {q(t)} enable row level security")
-        if Mutation.HARDENING_NO_FORCE not in mutations:
+        if tb.mode == "owned" and Mutation.HARDENING_NO_FORCE not in mutations:
             out.append(f"alter table {q(t)} force row level security")
     return out

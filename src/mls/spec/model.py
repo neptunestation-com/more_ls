@@ -5,7 +5,8 @@ JSON shape (D-open-detail "exact JSON shape": explicit, no silent defaults):
   {"mls_version": "0.1",
    "identity": {"adapter": "supabase", "context": {"uid": {"source": "auth.uid", "type": "uuid"}}},
    "roles": ["authenticated"],
-   "tables": {name: {"columns": {col: {"type": T, "nullable": bool}}, "primary_key": [..], "unique": [[..]]}},
+   "tables": {name: {"columns": {col: {"type": T, "nullable": bool}}, "primary_key": [..], "unique": [[..]],
+                     "mode": "owned" | "adopted" | "observed", "assume": [..], "tags": [..]}},
    "relations": {name: {"table": t, "key": col, "value": col}},
    "hierarchies": {name: {"table": t, "id": col, "parent": col, "depth": col, "max_depth": d, "members": rel}},
    "opaques": {name: {"table": t, "columns": [..], "context": [..], "sql": "..."}},
@@ -65,7 +66,7 @@ def _single_key(v: Any) -> str:
             return "?"
         return next(iter(v))
     for tag in ("col", "ctx", "const", "old", "new", "cmp", "in", "member", "in_group", "now_between",
-                "is_null", "opaque", "and", "or", "not", "lit"):
+                "is_null", "opaque", "and", "or", "not", "lit", "owner", "bypassrls", "rls"):
         if hasattr(v, tag) or hasattr(v, tag + "_"):
             return tag
     return "?"
@@ -181,10 +182,48 @@ class Column(Strict):
     nullable: bool
 
 
+TableMode = Literal["owned", "adopted", "observed"]
+
+
+class OwnerAssumed(Strict):
+    """The table's owner is the app role named here and is trusted (D45; D13 hardening it replaces:
+    app roles are not table owners)."""
+    owner: str
+
+
+class BypassAssumed(Strict):
+    """The app role named here has BYPASSRLS, reads and writes the table unfiltered, and is trusted."""
+    bypassrls: str
+
+
+class RlsAssumed(Strict):
+    """`not_forced`: row level security is not forced on the table; its owner bypasses every policy
+    and is trusted.  (No other value: a table without row level security *enabled* is `observed`.)"""
+    rls: str
+
+
+Assumption = Annotated[
+    Union[
+        Annotated[OwnerAssumed, Tag("owner")],
+        Annotated[BypassAssumed, Tag("bypassrls")],
+        Annotated[RlsAssumed, Tag("rls")],
+    ],
+    Discriminator(_single_key, custom_error_type="invalid_assumption",
+                  custom_error_message="an assumption is one of {owner}, {bypassrls}, {rls}"),
+]
+
+
 class Table(Strict):
+    """`mode` (D45): `owned` — MLS creates the table and emits and verifies its hardening;
+    `adopted` — the table exists, MLS adds rules to it, the hardening it cannot establish is
+    stated under `assume`; `observed` — in the schema, mentioned, not governed: no rule may name
+    it.  `tags` are free strings for selectors (D48)."""
     columns: dict[str, Column]
     primary_key: list[str] | None = None
     unique: list[list[str]] = Field(default_factory=list)
+    mode: TableMode = "owned"
+    assume: list[Assumption] = Field(default_factory=list)
+    tags: list[str] = Field(default_factory=list)
 
 
 class Relation(Strict):
@@ -398,6 +437,10 @@ class Spec(Strict):
     properties: list[Property] = Field(default_factory=list)
 
     # convenience accessors (no validation here; see spec/check.py)
+    def governed(self) -> dict[str, Table]:
+        """The tables MLS compiles for: `owned` and `adopted` (D45)."""
+        return {n: t for n, t in self.tables.items() if t.mode != "observed"}
+
     def rule(self, rule_id: str) -> Rule:
         for r in self.rules:
             if r.id == rule_id:

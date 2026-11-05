@@ -441,8 +441,58 @@ After deploying, confirm the live database matches the spec:
 catalogs and compares them.  It reports missing objects, unexpected objects on MLS tables (a
 hand-added policy, a trigger), definitions that differ (an edited expression, a constraint left
 NOT VALID, a changed grant) and hardening violations (an app role with `BYPASSRLS`, RLS not
-forced, a login-capable `mls_internal`).  Run it from CI against production; it needs only read
-access to the catalog plus the ability to create and roll back the shadow schema.
+forced, a login-capable `mls_internal`).  On an adopted table (section 6.1) it also lists, without
+failing, the objects MLS did not create and the hardening the spec assumes.  Run it from CI
+against production; it needs only read access to the catalog plus the ability to create and roll
+back the shadow schema.
+
+### 6.1 Adopting an existing schema
+
+MLS does not have to create the tables it governs.  A table declares its `mode`:
+
+- `owned` (the default): MLS creates it, hardens it, and everything on it that the spec did not
+  produce is drift.
+- `adopted`: the table exists.  Its columns and keys are described in the spec as they are in
+  the catalog, and MLS adds rules to it: policies, constraints, triggers, indexes, grants, and
+  `ENABLE ROW LEVEL SECURITY`.  What MLS would do to an owned table but cannot do to one it did
+  not create (force row-level security, change the owner) is either already in place, and drift
+  verifies it, or stated as an assumption the proofs repeat.
+- `observed`: in the schema, mentioned, not governed.  No rule may name it.
+
+To adopt a live schema, let MLS write the first version of the spec:
+
+    uv run mls import --dsn "$DSN" --out spec.mls.json
+
+Every table with row-level security becomes `adopted` (a table without it is `observed`: a
+policy on it would mean nothing), the identity adapter is guessed from what the policies read,
+relations are proposed from the foreign keys and the keys the policies look up, and every
+existing policy becomes a rule whose predicate is an `opaque` block carrying the columns,
+context values and relations the SQL reads.  The notes printed on stderr list what was left
+out: a column whose type MLS does not model, a CHECK or trigger (listed, not imported), a grant
+with no policy behind it, a policy whose name is not an identifier.  The hardening state is
+recorded as assumptions:
+
+    "tasks": {
+      "columns": { ... },
+      "mode": "adopted",
+      "assume": [{"rls": "not_forced"}]
+    }
+
+which the proof report states as *assumed: row level security is not forced on adopted table
+`tasks`; its owner bypasses every policy and is trusted*, and which `mls drift` reports as
+`assumed` rather than as drift.  Force row-level security on the table, remove the assumption,
+and drift is clean; leave the assumption in and drift tells you it is no longer needed.  An
+`adopted` table owned by an app role works the same way with `{"owner": "<role>"}`; the same
+table declared `owned` is refused by `mls check --dsn`, because the compiler never emits a
+hardening it then has to assume.
+
+The imported spec is a starting point.  It checks, compiles and proves as it is, but every
+proof over an imported policy is conditional on its opaque block, which says little a reviewer
+can act on.  The lifter (`docs/ROADMAP.md`, Milestone 5) turns the policies it can read into the
+fragment; until then, rewrite the ones that matter by hand in the fragment and let `mls diff`
+confirm the rewrite changes nothing.  From the import on, the spec is the source of truth:
+`mls check --dsn` verifies that the adopted tables still have the columns the spec declares,
+and `mls drift` says whether the database and the spec still agree.
 
 Keep the spec in version control next to the application.  The spec, not the SQL, is the source
 of truth; the SQL is a build artifact.
@@ -606,8 +656,11 @@ solver, and `-m lean` builds the Lean formalization when `lake` is on the path.
 
 These are decisions, not gaps; `docs/DECISIONS.md` has the reasoning.
 
-- **Greenfield.**  MLS creates its tables.  It does not import hand-written policies or adopt
-  existing tables (D8).
+- **Ownership is per table.**  MLS creates the tables it owns and adopts the ones it did not
+  create (section 6.1), but it never silently applies to an adopted table a hardening it would
+  have to assume: an app-role owner or unforced row-level security is stated in the spec and
+  repeated in every report, or it is drift.  A hand-written policy is adopted as an opaque block
+  (D45); turning it into the verified fragment is the lifter's job (Milestone 5).
 - **The fragment.**  No joins, subqueries, arithmetic or functions in predicates.  Comparison
   right-hand sides are context or constants; membership keys are context, not columns; negated
   membership is rejected in policies (it is an anti-join the planner cannot drive from an

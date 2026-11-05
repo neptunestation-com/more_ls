@@ -112,7 +112,10 @@ It is not a role you declare or grant to.
           "owner_id":  {"type": "uuid", "nullable": true}
         },
         "primary_key": ["id"],
-        "unique": [["owner_id", "slug"]]
+        "unique": [["owner_id", "slug"]],
+        "mode": "owned",
+        "assume": [],
+        "tags": []
       }
     }
 
@@ -121,11 +124,47 @@ It is not a role you declare or grant to.
 | `columns` | yes, non-empty | name to `{type, nullable}` |
 | `primary_key` | no | list of NOT NULL columns; compiled as the primary key constraint `<table>_pkey` |
 | `unique` | no | list of column lists; each compiled as a UNIQUE constraint `<table>_<cols>_key` |
+| `mode` | no, default `owned` | `owned`, `adopted` or `observed` (D45, below) |
+| `assume` | no | hardening the compiler cannot establish on an `adopted` table, stated as assumptions (below) |
+| `tags` | no | free strings with no meaning of their own (selectors, D48) |
 
-The compiler emits `CREATE TABLE` with exactly these columns and constraints, revokes all
-privileges from `public` and from every declared role, then enables and forces row-level
-security.  Every table in the spec is an MLS table; there is no way to reference a table the
-spec does not declare (D8).
+There is no way to reference a table the spec does not declare.  What the compiler does with a
+declared table depends on its mode:
+
+- **`owned`** (the default; every spec written before D45 is unchanged): MLS creates the table.
+  The compiler emits `CREATE TABLE` with exactly these columns and constraints, revokes all
+  privileges from `public` and from every declared role, then enables and forces row-level
+  security.  Every object on it that the spec does not produce is drift.
+- **`adopted`**: the table exists already.  `columns`, `primary_key` and `unique` describe it
+  (`mls import` reads them from the catalog; `mls check --dsn` verifies them; `drift` compares
+  them).  The compiler creates nothing and emits what the rules need: policies, constraints,
+  triggers, indexes, privileges, and `ENABLE ROW LEVEL SECURITY`.  It does not `FORCE` row-level
+  security and does not touch the owner: that hardening is either in place (drift verifies it)
+  or stated under `assume`.  A constraint, trigger, index or column on the table that the spec
+  does not declare is `foreign` (listed by drift, not drift); a policy or privilege the spec does
+  not declare is still drift.
+- **`observed`**: the table is in the schema and is mentioned so that the spec can speak about
+  it; nothing governs it.  No rule, relation, hierarchy, opaque block or property may name it
+  (the checker refuses with the path and the fix: set the mode to `adopted`).  Drift only checks
+  that it exists.  `mls import` marks a table without row-level security as observed: a policy on
+  such a table means nothing, so nothing can be assumed about it.
+
+`assume` is a list of single-key objects, allowed only on an `adopted` table:
+
+| Assumption | Meaning | What drift reports |
+|---|---|---|
+| `{"owner": "<app role>"}` | the table is owned by that app role, which could alter its policies, and the role is trusted | `assumed` instead of `hardening: owned by app role`; the owner's privileges are not compared (an owner holds them all) |
+| `{"rls": "not_forced"}` | row-level security is not forced; the owner bypasses the policies and is trusted | `assumed` instead of `hardening: row level security is not forced` |
+| `{"bypassrls": "<app role>"}` | the role has `BYPASSRLS`, reads and writes the table unfiltered, and is trusted | `assumed` instead of `hardening: role has BYPASSRLS` (only when every governed table assumes it) |
+
+Every assumption is repeated in the proof report, `mls explain`, `mls diff` and the compiled
+script's header (D13's list of trusted roles grows by it).  When the catalog no longer needs an
+assumption (the owner changed, RLS was forced), drift says so in a note: the fix shows up as the
+assumption going away.  Refused at `check`: `assume` on an `owned` table (its hardening is
+emitted and verified, so an app-role owner is an error there, not an assumption; `mls check
+--dsn` reports it as such), on an `observed` table, naming a role that is not an app role of the
+spec, or an `rls` value other than `not_forced` (there is no assumption under which a policy on a
+table without row-level security enabled means anything).
 
 ## 6. `relations`
 
@@ -508,8 +547,8 @@ it).
 
 Hardening (D13), on every deployment: the preamble refuses to run as an app role; app roles
 lose `BYPASSRLS`, `SUPERUSER`, `CREATEDB`, `CREATEROLE` and `SET` on `session_replication_role`;
-every table gets `ENABLE` and `FORCE ROW LEVEL SECURITY`; all privileges are revoked from
-`public`; `TRUNCATE` is never granted.  With the `session_setting` adapter, `mls drift` also
+every owned table gets `ENABLE` and `FORCE ROW LEVEL SECURITY` (an adopted table only `ENABLE`,
+§5); all privileges are revoked from `public`; `TRUNCATE` is never granted.  With the `session_setting` adapter, `mls drift` also
 reports (kind `hardening`) an app role that may execute a function whose body sets `app.*`
 (`set_config('app....` or `SET app....`, in any schema) and an app role with an
 `ALTER ROLE ... SET app.*` default (D47); nothing is emitted for these, since the fix is to
@@ -523,10 +562,15 @@ Every command reads specs as JSON files.  Commands that load a spec exit 1 with 
 errors if it does not check.  Commands that need a database take `--dsn`; `mls test` can start
 Docker containers instead.
 
-### `mls check SPEC [--json]`
+### `mls check SPEC [--dsn DSN [--schema NAME]] [--json]`
 
 Schema, types, fragment and the compiler's soundness obligations.  Prints `SPEC: OK` or the
 errors (§17).  `--json`: `{"ok": true}` or `{"ok": false, "errors": [...]}`.  Exit 0 or 1.
+With `--dsn`, the spec's tables are also verified against the catalog (D45): an `adopted` or
+`observed` table must exist; an `adopted` table must have every column the spec declares, with
+the declared type (a missing column is an error here and drift otherwise); an `owned` table
+that exists must not be owned by an app role (the fix names the `adopted` mode and the
+assumption to add).
 
 ### `mls prove SPEC [--format md|json] [--out FILE] [--timeout SECONDS]`
 
@@ -593,8 +637,37 @@ with samples, then `pre-flight: OK ...` or the count of violation groups.  JSON:
 
 Shadow-deploys the spec in a transaction it rolls back, then compares catalogs.  Items are
 `<kind>: <object> (expected ..., found ...)` with kinds `missing`, `unexpected`, `differs`,
-`hardening`.  Prints `drift: none, the live schema matches the spec` or the item count.  Exit 1
-if any item.
+`hardening` (drift), `assumed` (hardening the spec's `assume` accounts for, §5) and `foreign`
+(an object on an adopted table that the spec does not declare and that cannot grant access: a
+constraint, trigger, index or column).  Prints `drift: none, the live schema matches the spec`
+or the count of drift items, followed by the counts of assumed and foreign items in parentheses.
+Exit 1 if any drift item; `assumed` and `foreign` items are the expected state of an adopted
+table and do not fail.
+
+### `mls import --dsn DSN [--schema NAME] [--role ROLE ...] [--out FILE] [--json]`
+
+Writes a spec from a live schema (D45): a starting point the human or the loop edits; from then
+on the spec is the source of truth and `mls drift` says whether the database still agrees.
+Every table with row-level security enabled is `adopted` (columns of MLS types, primary key and
+unique constraints read from the catalog; other columns are left out and noted), every other
+table `observed`.  The hardening state is recorded as assumptions (an app-role owner, RLS not
+forced, an app role with `BYPASSRLS`).  The app roles are the roles the policies and grants
+name, minus owners, superusers and `mls_internal` (`--role` overrides).  The identity adapter
+is guessed from the policy expressions (`auth.uid()`/`auth.jwt()` → `supabase`,
+`current_setting('app.*')` → `session_setting`, `current_user` → `pg_roles`) with the context
+values they read, and reported when ambiguous.  A relation is proposed for every `(key, value)`
+pair an inclusion-shaped foreign key targets and for every two-column key a policy's SQL
+reads.  Every policy becomes a rule, one per role it applies to, whose `using` and `check` are
+opaque blocks with the policy's catalog signature: the columns it depends on or names, the
+context values whose source it reads, the proposed relations whose table it names (a literal
+`true`/`false` is a `lit`); the lifter (D46) later turns the blocks it can read into the
+fragment.  A foreign key of the inclusion shape (two columns onto a key pair, `MATCH SIMPLE`,
+`ON UPDATE/DELETE RESTRICT`) becomes an inclusion rule; column-level grants become column
+rules.  Listed in the notes and not imported: CHECKs, triggers, other foreign keys, grants
+with no permissive policy, policies for no app role, policies whose names are not identifiers
+(the rule gets the identifier; a deploy renames the policy).  The spec goes to stdout or `--out`,
+the notes to stderr; `--json` prints `{"ok", "spec", "notes"}`.  Exit 1 with the errors when no
+app role is found or the schema has no tables.
 
 ### `mls schema`
 
@@ -646,6 +719,10 @@ Classes of error, with the typical message:
 - **shape**: unknown key, missing key, wrong JSON type (from the pydantic model, with the path);
 - **names**: unknown table, column, role, relation, hierarchy, opaque block, rule or context
   value; invalid identifier; duplicate rule id, rule name per table or property id;
+- **modes** (D45): `table 't' is observed; a rule cannot name it`; `table 't' is owned: ...
+  nothing is assumed`; `'r' is not an app role of this spec`; `'disabled' is not an assumption
+  the proofs can state`; with `--dsn`: `adopted table 't' has no column 'c'`; `column 't.c' is
+  bigint in the catalog, declared int`; `owned table 't' is owned by app role 'r'`;
 - **types**: `type mismatch: int = text`; `operator < is not allowed on text values`; a uuid
   constant that is not a UUID; `timestamp constants are not supported in v1`; `'in' needs at
   least one constant`;
@@ -661,4 +738,4 @@ Classes of error, with the typical message:
 - **compiler** (soundness obligations): a restrictive policy on a relation table that hides
   rows a membership atom needs (D21), with the policy's path and a fix.
 
-`mls migrate` refusals and `mls preflight` notes use the same path convention.
+`mls migrate` refusals, `mls preflight` notes and `mls import` errors use the same path convention.

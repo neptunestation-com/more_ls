@@ -9,10 +9,10 @@ from __future__ import annotations
 from typing import Any
 
 from mls.spec.model import (
-    CONTEXT_NOW, And, CardinalityRule, CheckRule, ColRef, ColumnImmutable, ColumnRule, Cmp, Const, CtxRef, Custom,
-    InclusionRule, InGroup, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
-    NowBetween, OldRef, OpaqueRef, Or, PolicyRule, Pred, Property, Rule, Spec, TenantIsolation,
-    TransitionRule, WriteSubsetRead,
+    CONTEXT_NOW, And, BypassAssumed, CardinalityRule, CheckRule, ColRef, ColumnImmutable, ColumnRule, Cmp, Const,
+    CtxRef, Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MonotoneIn,
+    MustAllow, NewRef, Not, NowBetween, OldRef, OpaqueRef, Or, OwnerAssumed, PolicyRule, Pred, Property, RlsAssumed,
+    Rule, Spec, TenantIsolation, TransitionRule, WriteSubsetRead,
 )
 
 OPS = {"=": "is", "<>": "is not", "<": "is less than", "<=": "is at most", ">": "is greater than",
@@ -199,6 +199,24 @@ def identity_lines(spec: Spec) -> list[str]:
     return lines
 
 
+def assumption(table: str, a) -> str:
+    """One table assumption (D45), as the proof report, drift and explain state it."""
+    if isinstance(a, OwnerAssumed):
+        return (f"assumed: owner `{a.owner}` of adopted table `{table}` is trusted (an app role that owns the "
+                f"table can alter its policies)")
+    if isinstance(a, BypassAssumed):
+        return f"assumed: role `{a.bypassrls}` has BYPASSRLS, reads and writes `{table}` unfiltered, and is trusted"
+    if isinstance(a, RlsAssumed):
+        return (f"assumed: row level security is not forced on adopted table `{table}`; its owner bypasses "
+                f"every policy and is trusted")
+    raise TypeError(a)
+
+
+def assumption_lines(spec: Spec) -> list[str]:
+    """Every table assumption of the spec, in table order (empty for a greenfield spec)."""
+    return [assumption(t, a) for t, tb in spec.tables.items() for a in tb.assume]
+
+
 def spec_summary(spec: Spec) -> str:
     lines = ["# What the rules say", ""]
     for r in spec.rules:
@@ -218,4 +236,13 @@ def spec_summary(spec: Spec) -> str:
             lines.append(f"- **{name}** on {o.table}: `{o.sql}` (not checked by the prover; "
                          f"proofs that use it are conditional on it)")
     lines += ["", "# Identity", "", *identity_lines(spec)]
+    adopted = [t for t, tb in spec.tables.items() if tb.mode == "adopted"]
+    observed = [t for t, tb in spec.tables.items() if tb.mode == "observed"]
+    if adopted or observed:
+        lines += ["", "# Tables MLS did not create", ""]
+        if adopted:
+            lines.append(f"- adopted (exist already; MLS adds rules to them): {', '.join(adopted)}")
+        if observed:
+            lines.append(f"- observed (in the schema, not governed by any rule): {', '.join(observed)}")
+        lines += [f"- {a}" for a in assumption_lines(spec)]
     return "\n".join(lines) + "\n"

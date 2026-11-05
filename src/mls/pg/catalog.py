@@ -20,14 +20,17 @@ def _strip_schema(s: str | None, schema: str) -> str | None:
     return re.sub(rf'(?<![\w"])("?{re.escape(schema)}"?)\.', "", s)
 
 
-def snapshot(conn: psycopg.Connection, schema: str, tables: list[str], roles: list[str]) -> Snapshot:
-    out: Snapshot = {"tables": {}, "roles": {}, "other_tables": []}
+def snapshot(conn: psycopg.Connection, schema: str, tables: list[str], roles: list[str],
+             observed: list[str] = ()) -> Snapshot:
+    """`tables` are snapshotted in full; `observed` ones (D45) only for their existence."""
+    out: Snapshot = {"tables": {}, "roles": {}, "other_tables": [], "observed": {}}
     with conn.cursor() as cur:
         cur.execute(psql.SQL("set local search_path to {}, pg_catalog").format(psql.Identifier(schema)))
         cur.execute("""select c.relname from pg_class c join pg_namespace n on n.oid = c.relnamespace
                        where n.nspname = %s and c.relkind in ('r', 'p') order by 1""", (schema,))
         present = [r[0] for r in cur.fetchall()]
-        out["other_tables"] = sorted(set(present) - set(tables))
+        out["other_tables"] = sorted(set(present) - set(tables) - set(observed))
+        out["observed"] = {t: t in present for t in observed}
         for t in tables:
             if t not in present:
                 out["tables"][t] = None

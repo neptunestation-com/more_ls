@@ -32,11 +32,13 @@ error).  For the design: `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.
     uv run mls migrate examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json     # phased DDL with lock levels
     uv run mls preflight examples/tenant_docs_v2.mls.json --old examples/tenant_docs.mls.json --dsn $DSN
     uv run mls drift   examples/tenant_docs_v2.mls.json --dsn $DSN   # live catalog vs. a shadow deploy
+    uv run mls import  --dsn $DSN --out imported.mls.json   # a spec from a live schema: tables adopted, policies opaque
     uv run mls schema                                       # JSON Schema of the spec language
     uv run mls eval    evals/cases                          # expected verdicts of the eval corpus
 
 Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 on mismatches,
-`diff` 2 if anything changed, `preflight` and `drift` 1 when they find something.
+`diff` 2 if anything changed, `preflight` and `drift` 1 when they find something (`drift` lists an
+adopted table's foreign objects and assumed hardening without failing).
 `docs/MIGRATION.md` describes the migration phases and the observed lock levels.
 
 ## Test
@@ -55,9 +57,10 @@ Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 
     src/mls/compile   one module per template + indexes, grants, hardening, plan, objects, migrate
     src/mls/identity  supabase, pg_roles, session_setting adapters
     src/mls/pg        concrete oracle, differential harness, EXPLAIN checks, leakproof lint,
-                      pre-flight, catalog snapshots, drift, lock observation
+                      pre-flight, catalog snapshots, drift, lock observation, import (adopt.py)
     src/mls/english.py  plain-English rendering of rules, properties, scenarios (the approval artifact)
-    tests/            spec, logic, props, cli (no Postgres); templates (Postgres 15–18, Docker)
+    tests/            spec, logic, props, cli (no Postgres); templates (Postgres 15–18, Docker);
+                      brownfield/ a hand-written Supabase-style schema `mls import` adopts
     evals/cases       eval case format and the first cases (the prototype's three corpora)
     examples/         tenant_docs (supabase), tenant_docs_v2 (its next version), pg_roles_docs (pg_roles),
                       session_docs (session_setting), org_tree (hierarchy with in_group policies and a
@@ -76,6 +79,12 @@ Alpha (0.1).  All four milestones of `docs/ROADMAP.md` are implemented:
    parent-row lock, full opaque-block reporting;
 4. the LLM loop with bounded repair and human escalation, and the evaluation corpus with
    solver-graded mutants (`docs/LLM.md`).
+
+Milestone 5 (brownfield, the `pg_more_ls` graft) is in progress: `in` with a constant list, the
+`session_setting` adapter, ownership modes per table (`owned` / `adopted` / `observed`) with
+stated hardening assumptions, and `mls import` of a live schema (every policy an opaque block
+with its catalog signature) are done; the lifter, selectors, `mls status` and the lint pack are
+next (`docs/ROADMAP.md`).
 
 ### Measured with `claude-opus-5-5`
 

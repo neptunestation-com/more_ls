@@ -91,7 +91,7 @@ def explain_select(conn: psycopg.Connection, spec: Spec, adapter: Adapter, table
 def explain_checks(conn: psycopg.Connection, spec: Spec, adapter: Adapter, ctx_for_role) -> list[ExplainResult]:
     out = []
     for role in spec.roles:
-        for table in spec.tables:
+        for table in spec.governed():
             if not any(p.table == table and p.role == role and p.command in ("select", "all")
                        for p in spec.policies()):
                 continue
@@ -127,7 +127,7 @@ def scale_load_sql(spec: Spec, adapter: Adapter, n_rows: int, n_users: int = 100
             return f"(({i} % 2) = 0)"
         return f"(now() + (({i} % 100) - 50) * interval '1 day')"
 
-    for table, t in spec.tables.items():
+    for table, t in spec.governed().items():
         cols = list(t.columns)
         if table in hier_tables:
             h = hier_tables[table]

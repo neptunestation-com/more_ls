@@ -1,4 +1,4 @@
-"""mls: check | prove | compile | test | diff | migrate | preflight | drift | explain | lint | schema | eval"""
+"""mls: check | prove | compile | test | diff | migrate | preflight | drift | import | explain | lint | schema | eval"""
 from __future__ import annotations
 
 import argparse
@@ -35,6 +35,13 @@ def cmd_check(a) -> int:
     from mls.compile.plan import soundness_errors
 
     errs = soundness_errors(spec)
+    if not errs and a.dsn:  # D45: adopted tables are checked against the catalog
+        import psycopg
+
+        from mls.pg.adopt import verify_adopted
+
+        with psycopg.connect(a.dsn) as conn:
+            errs = verify_adopted(conn, spec, schema=a.schema)
     if errs:
         _print_errors(CompileError(errs), a.json)
         return 1
@@ -271,8 +278,37 @@ def cmd_drift(a) -> int:
             print(f"note: {n}")
         for i in res.items:
             print(str(i))
-        print("drift: " + ("none, the live schema matches the spec" if res.ok else f"{len(res.items)} item(s)"))
+        failing = [i for i in res.items if i.kind not in ("assumed", "foreign")]
+        extra = ", ".join(f"{len(res.by_kind(k))} {k}" for k in ("assumed", "foreign") if res.by_kind(k))
+        print("drift: " + ("none, the live schema matches the spec" if res.ok else f"{len(failing)} item(s)")
+              + (f" ({extra})" if extra else ""))
     return 0 if res.ok else 1
+
+
+def cmd_import(a) -> int:
+    import psycopg
+
+    from mls.pg.adopt import import_schema
+
+    try:
+        with psycopg.connect(a.dsn) as conn:
+            res = import_schema(conn, schema=a.schema, roles=a.role or None)
+    except SpecError as e:
+        _print_errors(e, a.json)
+        return 1
+    text = json.dumps(res.spec, indent=1) + "\n"
+    if a.out:
+        Path(a.out).write_text(text)
+    if a.json:
+        print(json.dumps({"ok": True, "spec": res.spec, "notes": res.notes}, indent=1))
+    else:
+        for n in res.notes:
+            print(f"note: {n}", file=sys.stderr)
+        if not a.out:
+            print(text, end="")
+        else:
+            print(f"{a.out}: imported {len(res.spec['tables'])} table(s), {len(res.notes)} note(s)", file=sys.stderr)
+    return 0
 
 
 def cmd_eval(a) -> int:
@@ -398,6 +434,8 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("check", help="validate, typecheck and fragment-check a spec")
     p.add_argument("spec")
+    p.add_argument("--dsn", help="also verify the adopted tables against this database's catalog (D45)")
+    p.add_argument("--schema", default="public")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_check)
 
@@ -471,6 +509,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--schema", default="public")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_drift)
+
+    p = sub.add_parser("import", help="write a spec from a live schema: every table adopted, every policy opaque (D45)")
+    p.add_argument("--dsn", required=True)
+    p.add_argument("--schema", default="public")
+    p.add_argument("--role", action="append", help="app role (repeatable); default: the roles the policies and grants name")
+    p.add_argument("--out", help="write the spec here (default: stdout); the notes go to stderr")
+    p.add_argument("--json", action="store_true", help="print {spec, notes} as JSON")
+    p.set_defaults(fn=cmd_import)
 
     p = sub.add_parser("eval", help="run eval cases (expected verdicts of reference specs; --llm runs the loop)")
     p.add_argument("cases", nargs="+")

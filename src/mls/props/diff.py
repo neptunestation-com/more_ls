@@ -373,7 +373,7 @@ def to_json(old: Spec, new: Spec, d: DiffResult) -> dict:
     view = merged_spec(old, new)
     return {
         "notes": d.notes,
-        "assumptions": english.identity_lines(new),
+        "assumptions": english.identity_lines(new) + [f"- {a}" for a in english.assumption_lines(new)],
         "summary": {"access_changes": len(d.access_changes), "integrity_changes": len(d.integrity_changes),
                     "grant_changes": len(d.grants), "unknown": len(d.unknown)},
         "access": [
@@ -451,7 +451,8 @@ def to_markdown(old: Spec, new: Spec, d: DiffResult) -> str:
                  f"change(s), {s['grant_changes']} privilege change(s), {s['unknown']} undecided**")
     if d.notes:
         lines += ["", "## Notes", ""] + [f"- {n}" for n in d.notes]
-    lines += ["", "## Assumptions", "", *english.identity_lines(new)]
+    lines += ["", "## Assumptions", "", *english.identity_lines(new),
+              *[f"- {a}" for a in english.assumption_lines(new)]]
     lines += ["", "## Access changes", ""]
     shown = [a for a in d.access if a.verdict != "PROVED"]
     if not shown:

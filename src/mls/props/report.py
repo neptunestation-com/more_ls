@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 
+from mls import english
 from mls.identity import get_adapter
 from mls.props.runner import PropertyResult
 from mls.spec.model import Spec
@@ -47,9 +48,20 @@ def assumptions(spec: Spec, results: list[PropertyResult]) -> list[str]:
                  "snapshot and the bound could be exceeded"
                  if spec.cardinalities() else
                  "isolation level: no assumption (every construct is enforced by the engine on single rows)")
+    adopted = [t for t, tb in spec.tables.items() if tb.mode == "adopted"]
+    observed = [t for t, tb in spec.tables.items() if tb.mode == "observed"]
+    brownfield = []
+    if adopted:
+        brownfield.append(f"adopted tables (not created by MLS; their columns, keys and foreign objects are "
+                          f"what the catalog says, and drift compares them): {', '.join(adopted)}")
+    if observed:
+        brownfield.append(f"observed tables (not governed; no verdict says anything about them): "
+                          f"{', '.join(observed)}")
     return [
         f"identity adapter '{adapter.name}': {adapter.assumption}",
         trusted,
+        *english.assumption_lines(spec),
+        *brownfield,
         isolation,
         "opaque blocks relied on: " + (", ".join(opaque) if opaque else "none"),
         *opaque_lines(spec, opaque),
