@@ -649,6 +649,22 @@ test. The remaining distance is a parser. So:
   constrain against. D33/D44: the renderers are fixed functions of the model. The Lean track
   sees neither syntax.
 
+*Implementation defaults (2026-11-05, the renderer):* `terse.render` is the whole-spec form
+and `spec_listing` its D44 name. A rule line carries everything the model holds, so that the
+round trip can hold: `ID kind name on table: body requirement '...'`, the name between the kind
+and `on` (`R1 policy member_read on docs:`; a column rule may have none), `applies_to sel` in
+place of `on table` on a selector rule, `on table from ID` on its expansions (the selector is
+not repeated: a checked spec is not an input), `requirement` and a property's `description`
+as trailing quoted clauses. The file starts `mls 0.1`; `$comment` is `comment '...'` (a
+`# comment` is discarded by the parser, the author's note is data). Tables are the one
+multi-line item (one column or option per line, `,` between columns, `;` before each option).
+`id`, `parent`, `depth`, `members` are positional in a hierarchy and not reserved, so the
+common column names stay bare; the reserved words are the section, clause, kind, template,
+command, mode and predicate words (`terse.RESERVED`). `in` renders as written on an unchecked
+spec and as its expansion after `check`. `tests/test_terse.py` compares the model's fields and
+union members with what the renderer declares it covers (`RENDERED_FIELDS`, `RENDERED_CLASSES`),
+which is how a construct without a terse form fails the fast suite.
+
 Why not JSON alone: the schema in the prompt is several times the grammar; a spec is three
 lines per atom, resent on every repair round; structural slips in nested single-key objects
 are repair rounds spent on brackets; and `git diff` of a JSON spec does not show a reviewer

@@ -32,7 +32,7 @@ def test_prove_and_compile(tmp_path, capsys):
 def test_explain_terse(capsys):
     assert main(["explain", str(ORG_TREE), "--terse"]) == 0
     out = capsys.readouterr().out
-    assert "R1 policy files: authenticated select permissive using in_group(org, @uid, group_id)\n" in out
+    assert "R1 policy group_read on files: authenticated select permissive using in_group(org, @uid, group_id)" in out
     assert main(["explain", str(ORG_TREE)]) == 0
     assert "# What the rules say" in capsys.readouterr().out
 

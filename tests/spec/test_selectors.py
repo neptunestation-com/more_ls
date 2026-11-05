@@ -125,7 +125,13 @@ def test_selector_and_manual_expansion_are_the_same_spec():
     a = check_spec(Spec.model_validate(with_selector(sel)))
     b = check_spec(Spec.model_validate(manual_expansion(sel)))
     assert spec_listing(a) == spec_listing(b)  # byte-identical terse
-    assert "R2.files policy files: authenticated select permissive using admin_of(@uid, tenant_id)" in spec_listing(a)
+    assert "R2.files policy admin_read on files from R2: authenticated select permissive using admin_of(@uid, tenant_id)" \
+        in spec_listing(a)
+    # the selector rule itself, before the checker expands it, shows the selector
+    from mls.terse import rule as terse_rule
+    raw = Spec.model_validate(with_selector(sel))
+    assert terse_rule(raw.rules[1]) == ("R2 policy admin_read applies_to has_column(tenant_id int): authenticated "
+                                        "select permissive using admin_of(@uid, tenant_id) requirement 'REQ-2'")
     assert [c for c in access_diff(a, b) if c.verdict != "PROVED"] == []
     # explain: the selector once, the expansion as a list
     md = spec_summary(a)

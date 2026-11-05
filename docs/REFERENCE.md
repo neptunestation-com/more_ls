@@ -532,28 +532,78 @@ roles are required.
 A selector rule (§11) is printed once, *applies to every governed table that has column
 tenant_id: docs, files*, with its expansion as an indented list of concrete rules.
 
-`mls explain --terse`, the `before`/`after` lines of `mls diff`, and the `spec_terse` field of
-LLM transcripts use a one-line notation (D44), for reading only; JSON remains the only input.
+The terse syntax (D44, completed to the whole spec by D50) is the second concrete syntax of
+the same model: `mls explain --terse` prints the whole spec in it (`src/mls/terse.py:render`),
+the `before`/`after` lines of `mls diff` and the `spec_terse` field of LLM transcripts use its
+predicate and rule forms, and the parser reads `.mls` files back (D50; the JSON stays the
+canonical serialization).  The grammar:
 
-    term   := column | old.column | new.column | @context | 'text' | 123 | true | false
-    atom   := term op term | term is null | relation(key, value) | in_group(h, key, value)
-              (an `in` list appears as its expansion: level = 2 or level = 3)
-            | now_between(from | -, until | -) | opaque(name) | true | false
-    pred   := atom | not pred | pred and pred | pred or pred     (not > and > or; minimal parens)
-    rule   := ID kind table: ...        property := ID template [table role command which]: ...
+    spec       := 'mls' VERSION [comment] identity roles table* relation* hierarchy* opaque*
+                  'rules' '{' rule* '}' 'properties' '{' property* '}'
+    comment    := 'comment' STRING                               (the spec's $comment)
+    identity   := 'identity' ADAPTER '{' [ctx (';' ctx)*] '}'    ctx := NAME ':' SOURCE TYPE
+    roles      := 'roles' NAME (',' NAME)*
+    table      := 'table' NAME MODE '{' [column (',' column)*] (';' option)* '}'
+    column     := NAME TYPE ['not null']                          (a bare column is nullable)
+    option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
+                | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced')
+    relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
+    hierarchy  := 'hierarchy' NAME '=' TABLE 'id' COL 'parent' COL 'depth' COL 'max_depth' INT 'members' REL
+    opaque     := 'opaque' NAME 'on' TABLE '(' [input (',' input)*] ')' 'relations' '(' [names] ')' 'sql' DOLLAR
+    input      := COL | '@' CTX                                   DOLLAR := $$ sql $$ | $tag$ sql $tag$
+    rule       := ID KIND [NAME] ('on' TABLE | 'applies_to' selector) ['from' ID] ':' body ['requirement' STRING]
+    selector   := has_column(COL [TYPE]) | named(T, ...) | tagged(TAG) | all | and(sel, ...) | or(sel, ...)
+    property   := ID TEMPLATE [table role command which]: ... ['description' STRING]
+    term       := column | old.column | new.column | @context | 'text' | 123 | true | false
+    atom       := term op term | term in (const, ...) | term is null | relation(key, value)
+                | in_group(h, key, value) | now_between(from | -, until | -) | opaque(name) | true | false
+    pred       := atom | not pred | pred and pred | pred or pred   (not > and > or; minimal parens)
 
-Examples:
+`# comments` run to the end of the line.  Keywords are reserved (the section, clause, kind,
+template, command, mode and predicate words; `terse.RESERVED`): a name spelled like one, or
+that is not an identifier, is written `"quoted"`; `'strings'` double their quotes; the SQL of
+an opaque block is dollar-quoted as in Postgres, with a tag (`$mls$`) when it contains `$$`.
+Every item is one line, except a table, whose columns and options are one per line, so a diff
+shows one changed rule or column as one changed line.  A rule's `applies_to` is shown on the
+selector rule; after `mls check` expands it, each expansion shows its table and `from`.  An
+`in` list is shown as written before `check` and as its expansion (`level = 2 or level = 3`)
+after.
 
-    R1 policy docs: authenticated select permissive using member_of(@uid, tenant_id) and level <= @clearance
-    R7 inclusion docs: (owner_id, tenant_id) in member_of on_delete restrict
-    R9 transition docs: new.tenant_id = old.tenant_id
-    R5 cardinality files: tenant_id -> tenants max 5
-    C1 column_rule employees: hr write title, grade
-    P1 tenant_isolation docs: tenant_id in member_of(@uid) for select, insert, update
-    P6 least_privilege: authenticated docs[select, insert, update]; authenticated memberships[select]
-    P7 must_allow docs authenticated select: member_of(@uid, tenant_id) and not archived is null
-    S1 role_separation approvals update: requester | approver
-    org: groups id id parent parent_id depth depth max_depth 3 members group_member
+    mls 0.1
+    comment 'Tenant-scoped documents'
+
+    identity supabase { uid: auth.uid uuid; clearance: jwt.claims.clearance int }
+    roles authenticated
+
+    table docs adopted {
+      id int not null,
+      tenant_id int not null,
+      owner_id uuid;
+      primary_key (id);
+      unique (tenant_id, owner_id);
+      tags (tenant);
+      assume ('rls not_forced')
+    }
+
+    relation member_of = memberships(user_id, tenant_id)
+    hierarchy org = groups id id parent parent_id depth depth max_depth 3 members group_member
+    opaque gate on docs (level, @clearance) relations () sql $$ level < 1 or {ctx:clearance} >= 3 $$
+
+    rules {
+      R1 policy member_read on docs: authenticated select permissive using member_of(@uid, tenant_id) and level <= @clearance requirement 'REQ-1'
+      R2 policy tenant_read applies_to has_column(tenant_id int): authenticated select permissive using member_of(@uid, tenant_id)
+      R7 inclusion owner_in_tenant on docs: (owner_id, tenant_id) in member_of on_delete restrict
+      R9 transition tenant_immutable on docs: new.tenant_id = old.tenant_id
+      R5 cardinality files_per_tenant on files: tenant_id -> tenants max 5
+      C1 column_rule on employees: hr write title, grade
+    }
+
+    properties {
+      P1 tenant_isolation docs: tenant_id in member_of(@uid) for select, insert, update description 'members only'
+      P6 least_privilege: authenticated docs[select, insert, update]; authenticated memberships[select]
+      P7 must_allow docs authenticated select: member_of(@uid, tenant_id) and not archived is null
+      S1 role_separation approvals update: requester | approver
+    }
 
 A scenario (a counterexample or an example) lists the context, the row or rows, and the
 relation facts, in the proof report as

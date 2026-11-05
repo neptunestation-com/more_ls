@@ -146,9 +146,41 @@ Two things about predicates matter from the start:
   index-driven.  When you need more, you declare an `opaque` block and accept that proofs
   depending on it are conditional.
 
-The JSON syntax is verbose by design (it is written by programs).  `mls explain --terse` prints
-the same rules one per line in a readable notation, and the diff and proof reports use the same
-notation; this guide uses it when quoting rules.
+The JSON syntax is verbose by design (it is written by programs).  The same spec has a second,
+terse syntax (D50): one line per item, which `mls explain --terse` prints and this guide uses
+when quoting rules.  The example above, rendered:
+
+    mls 0.1
+    comment 'Tenant-scoped documents with membership-based access, clearance levels, ...'
+
+    identity supabase { uid: auth.uid uuid; clearance: jwt.claims.clearance int }
+    roles authenticated
+
+    table docs owned {
+      id int not null,
+      tenant_id int not null,
+      owner_id uuid,
+      level int not null,
+      archived int;
+      primary_key (id)
+    }
+
+    relation member_of = memberships(user_id, tenant_id)
+
+    rules {
+      R1 policy member_read on docs: authenticated select permissive using member_of(@uid, tenant_id) and level <= @clearance requirement 'REQ-1'
+      R6 check level_range on docs: level >= 0 and level <= 3 requirement 'REQ-5'
+    }
+
+    properties {
+      P1 tenant_isolation docs: tenant_id in member_of(@uid) for select, insert, update description '...'
+    }
+
+The two are views of one model: a construct exists when the model has it, and both syntaxes
+get it in the same change.  The JSON stays the canonical serialization (what `mls schema`
+describes, what the eval cases and every program hold); the terse form is what a person reads
+in a diff or a transcript, and what the parser (`.mls` files, `mls fmt`) reads back.  The
+grammar is in the reference, §13.
 
 ## 4. Walkthrough: tenant-scoped documents
 
@@ -177,17 +209,18 @@ Identity is Supabase: the current user is `auth.uid()` and a `clearance` claim f
 
 ### 4.1 The rules
 
-Here is the whole rule set as `mls explain --terse` prints it:
+Here is the whole rule set as `mls explain --terse` prints it (the `rules` block of the terse
+syntax, §3):
 
-    R1 policy docs: authenticated select permissive using member_of(@uid, tenant_id) and level <= @clearance
-    R2 policy docs: authenticated select permissive using admin_of(@uid, tenant_id)
-    R3 policy docs: authenticated insert permissive check member_of(@uid, tenant_id) and level <= @clearance
-    R4 policy docs: authenticated update permissive using member_of(@uid, tenant_id) check member_of(@uid, tenant_id) and level <= @clearance
-    R5 policy docs: authenticated all restrictive using not archived = 1
-    R6 check docs: level >= 0 and level <= 3
-    R7 inclusion docs: (owner_id, tenant_id) in member_of on_delete restrict
-    R8 inclusion admins: (user_id, tenant_id) in member_of on_delete restrict
-    R9 transition docs: new.tenant_id = old.tenant_id
+    R1 policy member_read on docs: authenticated select permissive using member_of(@uid, tenant_id) and level <= @clearance requirement 'REQ-1'
+    R2 policy admin_read on docs: authenticated select permissive using admin_of(@uid, tenant_id) requirement 'REQ-2'
+    R3 policy member_insert on docs: authenticated insert permissive check member_of(@uid, tenant_id) and level <= @clearance requirement 'REQ-3'
+    R4 policy member_update on docs: authenticated update permissive using member_of(@uid, tenant_id) check member_of(@uid, tenant_id) and level <= @clearance requirement 'REQ-3'
+    R5 policy not_archived on docs: authenticated all restrictive using not archived = 1 requirement 'REQ-4'
+    R6 check level_range on docs: level >= 0 and level <= 3 requirement 'REQ-5'
+    R7 inclusion owner_in_tenant on docs: (owner_id, tenant_id) in member_of on_delete restrict requirement 'REQ-6'
+    R8 inclusion admin_is_member on admins: (user_id, tenant_id) in member_of on_delete restrict requirement 'REQ-6'
+    R9 transition tenant_immutable on docs: new.tenant_id = old.tenant_id requirement 'REQ-7'
 
 Read them as Postgres does: the permissive policies of a command are OR-ed, and the restrictive
 ones are AND-ed on top.  So a member reads a document if its tenant is one of theirs and its

@@ -21,7 +21,10 @@ Read before writing code, in this order:
 
 User-facing documentation is `docs/GUIDE.md` (user guide) and `docs/REFERENCE.md` (language and
 CLI reference). When you add or change a construct, a property template, a CLI flag, an exit
-code or a generated object name, update them in the same change.
+code or a generated object name, update them in the same change. A construct lives in both
+syntaxes (D50): give it its terse form in `terse.py` (and, once the parser exists, its parse)
+in the same change; `tests/test_terse.py` fails the fast suite when the model has a field or a
+union member the renderer does not cover.
 
 ## Non-negotiable invariants
 
@@ -86,10 +89,13 @@ code or a generated object name, update them in the same change.
   parallel writers (`tests/templates/test_cardinality.py`); `-m cvc5` cross-checks the org_tree
   example too (integer-quantified obligations need cvc5 without finite-model-find).
 - `uv run mls explain|diff|migrate|preflight|drift ...` (M2). `mls explain --terse`, the diff's
-  `before`/`after` lines and the transcripts' `spec_terse` use `mls/terse.py` (D44): a one-line
-  rendering of the spec. D50 makes it a second concrete syntax (`.mls` by extension, `mls fmt`,
-  round trip `parse(render(spec)) == spec` as the evidence); the JSON stays canonical (D15) and
-  the English (`english.py`, D33) stays the approval artifact. Migrations are phased; every statement
+  `before`/`after` lines and the transcripts' `spec_terse` use `mls/terse.py` (D44, D50):
+  `terse.render` is the whole spec in the terse syntax (sections `mls`, `comment`, `identity`,
+  `roles`, `table` blocks, `relation`, `hierarchy`, `opaque` with `$$` SQL, `rules {}`,
+  `properties {}`; the grammar is the module docstring and REFERENCE §13). D50 makes it a
+  second concrete syntax (`.mls` by extension, `mls fmt`, round trip `parse(render(spec)) ==
+  spec` as the evidence; the parser is the next step); the JSON stays canonical (D15) and the
+  English (`english.py`, D33) stays the approval artifact. Migrations are phased; every statement
   kind has a lock mode in `compile/migrate.py:LOCKS` that `tests/templates/test_locks.py` observes
   on every PG version — add the kind and its mode when you add a migration statement.
 - `tests/templates/test_migrate.py` is the migration acceptance test: deploy v1 + data, migrate,
