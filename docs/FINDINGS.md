@@ -164,8 +164,8 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
   round spent on syntax: the model wrote parseable sections at the first attempt in every case,
   so the grammar plus three examples is enough of an output contract.  The failures were the
   texts' again: "Memberships are read-only to users" read as a grant of a membership listing
-  (now "no membership listing: the membership lookup is all they get"; both seed cases pass
-  reworded), and the self-grant leak of `st_self_grant`, which the model declines to reproduce
+  (now "no membership listing: the membership lookup is all they get"; both seed cases and their
+  five mutants pass reworded, in both syntaxes), and the self-grant leak of `st_self_grant`, which the model declines to reproduce
   in either syntax (it denies the insert and update that the text asks for), like the classroom
   leak above: a bad-reference case whose text states the defect as a requirement measures the
   model's willingness to write a leak, not the loop.  One JSON-only failure was a one-off

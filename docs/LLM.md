@@ -197,18 +197,20 @@ insert and update instead), the same behaviour as the classroom leak of 2026-11-
 sentence now says "Users never change memberships, and there is no membership listing: the
 membership lookup is all they get"; the two reworded seed cases pass in both syntaxes with no
 repair round.  The repair benchmark's extra JSON failures are three mutants of those two cases
-(the old sentence; their files are reworded too and their rerun is pending), the three
-`st_self_grant` mutants in both syntaxes, one JSON-only judgement call (`sd_good__drop_R2`: the
-model added an id-immutability transition "read into the requirement", named as such in its
-notes; left alone), and one JSON case that did not run at all (an API credit error; "220
-measured").  In terse the model wrote valid sections at the first attempt in every case; no
-repair round was spent on syntax.
+(the old sentence), the three `st_self_grant` mutants in both syntaxes, one JSON-only judgement
+call (`sd_good__drop_R2`: the model added an id-immutability transition "read into the
+requirement", named as such in its notes; left alone), and one JSON case that did not run at all
+(an API credit error; "220 measured").  Rerun with the reworded sentence, the five `st_good` /
+`st_files_forgotten` mutants pass in both syntaxes, and the unrun JSON case passes, all in one
+repair round (22 API calls); that brings the benchmark to 217/221 for JSON and 218/221 for
+terse.  In terse the model wrote valid sections at the first attempt in every case; no repair
+round was spent on syntax.
 
 Decision (D50): the default syntax is `terse`.  The proved and net-equivalent rates are not
-worse than JSON's on either corpus (equal on the seed cases, 4 cases better on the benchmark,
-of which 3 are the reworded family and 1 a judgement call), well inside the run-to-run spread
-recorded above (two to four cases between runs of the same corpus), and the token cost is a
-third lower.  The run cost about 2.7M output tokens in all; the transcripts are not committed.
+worse than JSON's on either corpus (equal on the seed cases, one case better on the benchmark
+after the reruns, a judgement call), inside the run-to-run spread recorded above (two to four
+cases between runs of the same corpus), and the token cost is a third lower.  The run cost
+about 2.7M output tokens in all; the transcripts are not committed.
 
 Seed run: 63 API calls, about 158k output tokens and 87k input tokens (most of them cache reads).
 This is the third run: the first two found a schema-decoding problem (D37), ambiguous requirement
