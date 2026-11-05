@@ -130,6 +130,17 @@ def v_c() -> Spec:
     return make(json.loads(V2.read_text()))
 
 
+def v_c_level() -> Spec:
+    """v2 plus a permissive policy on `level` alone: the migration from v1 creates an index
+    (`mls_ix_docs_level`) concurrently, and the migration back drops it.  (v2's policy on
+    `owner_id` needs no index of its own: v1's inclusion index (owner_id, tenant_id) covers it.)"""
+    d = json.loads(V2.read_text())
+    d["rules"].append({"id": "R16", "kind": "policy", "name": "low_level_read", "table": "docs",
+                       "role": "authenticated", "command": "select", "mode": "permissive",
+                       "using": {"cmp": [{"col": "level"}, "<=", {"const": 0}]}})
+    return make(d)
+
+
 def v_d() -> Spec:
     """v2 plus: archived becomes NOT NULL, level becomes nullable, a unique (tenant_id, id), an FK."""
     d = json.loads(V2.read_text())

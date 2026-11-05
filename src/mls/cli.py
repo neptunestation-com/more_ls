@@ -510,7 +510,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_drift)
 
-    p = sub.add_parser("import", help="write a spec from a live schema: every table adopted, every policy opaque (D45)")
+    p = sub.add_parser("import", help="write a spec from a live schema: tables adopted, policies lifted into the "
+                                      "fragment where the lifter reads them, opaque otherwise (D45, D46)")
     p.add_argument("--dsn", required=True)
     p.add_argument("--schema", default="public")
     p.add_argument("--role", action="append", help="app role (repeatable); default: the roles the policies and grants name")

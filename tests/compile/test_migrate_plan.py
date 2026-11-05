@@ -20,7 +20,7 @@ def sqls(m: Migration) -> list[str]:
 
 
 def test_phases_and_ordering():
-    m = migrate(specs.v_b(), specs.v_c())
+    m = migrate(specs.v_b(), specs.v_c_level())
     names = [p.name for p in m.phases]
     assert names == ["schema", "constraints", "indexes", "validate", "swap", "cleanup", "destructive"]
     assert [p.transactional for p in m.phases] == [True, True, False, False, True, False, True]
@@ -42,7 +42,7 @@ def test_phases_and_ordering():
 
 
 def test_destructive_is_gated():
-    old, new = specs.v_c(), specs.v_b()
+    old, new = specs.v_c_level(), specs.v_b()
     m = migrate(old, new)
     assert kinds(m, "destructive") == []
     assert any("destructive statements omitted" in n and 'drop table "tenant_settings"' in n for n in m.notes)

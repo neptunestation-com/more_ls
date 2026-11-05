@@ -13,7 +13,7 @@ from tests.templates import specs
 
 pytestmark = pytest.mark.pg
 
-CHAIN = ["a", "b", "c", "d", "a"]
+CHAIN = ["a", "b", "c_level", "d", "a"]  # c_level: v2 plus an index to create and then drop
 
 
 def test_documented_locks_are_observed(pg_dsn):

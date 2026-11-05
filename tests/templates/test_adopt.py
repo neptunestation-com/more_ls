@@ -1,8 +1,9 @@
 """Milestone 5 (D45) on real Postgres: an adopted table owned by an app role proves and drifts with
 the assumption stated; `check --dsn` verifies adopted tables against the catalog; `mls import` of
-the deployed example round-trips to a spec whose drift is clean; the hand-written Supabase-style
-fixture imports to a spec that checks, with every policy an opaque block carrying its signature,
-and proves conditionally on them."""
+the deployed example round-trips to a spec with no opaque block, clean drift and an empty
+behaviour diff (Milestone 5's first acceptance criterion); the hand-written Supabase-style
+fixture imports to a spec that checks, its policies lifted where the lifter reads them and opaque
+blocks carrying their signature where it does not."""
 from __future__ import annotations
 
 import json
@@ -17,6 +18,7 @@ from mls.errors import SpecError
 from mls.pg.adopt import import_schema, verify_adopted
 from mls.pg.drift import drift
 from mls.pg.harness import Harness, run_differential
+from mls.props.diff import behaviour_diff
 from mls.props.report import to_markdown
 from mls.props.runner import run_all
 from mls.spec import check_spec
@@ -132,7 +134,8 @@ def test_check_dsn_verifies_adopted_tables(adopted, tmp_path, capsys):
 # ----------------------------------------------------------------------------- mls import
 def test_import_of_the_deployed_example_round_trips(pg_dsn, example_spec, tmp_path, capsys):
     """Acceptance (ROADMAP M5): import the database `mls compile examples/tenant_docs.mls.json`
-    deploys; the spec checks and its drift is clean (opaque blocks until the lifter, #6)."""
+    deploys; the spec has 0 opaque blocks, its drift is clean and `behaviour_diff` against the
+    source is empty."""
     h = Harness(example_spec, compile_spec(example_spec), pg_dsn, "mls_import_rt")
     h.deploy()
     try:
@@ -146,20 +149,21 @@ def test_import_of_the_deployed_example_round_trips(pg_dsn, example_spec, tmp_pa
                                                                      "admins": "adopted"}
         assert imported.tables["docs"].columns == example_spec.tables["docs"].columns
         assert imported.tables["docs"].primary_key == ["id"]
-        assert {(r.table, r.key, r.value) for r in imported.relations.values()} == {
-            ("memberships", "user_id", "tenant_id"), ("admins", "user_id", "tenant_id")}
-        names = {p.name for p in imported.policies()}
-        assert {"member_read", "admin_read", "member_insert", "member_update", "not_archived"} <= names
-        assert any(r.kind == "inclusion" and r.name == "owner_in_tenant" for r in imported.rules)
-        assert any(r.kind == "column_rule" and r.table == "memberships" and r.columns == ["tenant_id", "user_id"]
-                   for r in imported.rules)
-        o = imported.opaques["member_read_using"]
-        assert (o.columns, o.context) == (["level", "tenant_id"], ["uid", "clearance"]) and o.relations == ["memberships"]
-        assert any("CHECK level_range" in n for n in res.notes) and any("trigger tenant_immutable" in n for n in res.notes)
+        # the relations get their names back from the compiler's relation-visibility policies
+        assert {n: (r.table, r.key, r.value) for n, r in imported.relations.items()} == {
+            "member_of": ("memberships", "user_id", "tenant_id"), "admin_of": ("admins", "user_id", "tenant_id")}
+        assert imported.opaques == {}, res.notes
+        src = {(r.kind, r.name) for r in example_spec.rules}
+        assert src == {(r.kind, r.name) for r in imported.rules}, res.notes
+        by_name = {r.name: r for r in imported.rules}
+        for r in example_spec.rules:
+            assert by_name[r.name].model_dump(exclude={"id", "requirement"}) == r.model_dump(exclude={"id", "requirement"})
+        assert any("relation-visibility policy" in n for n in res.notes)
+        assert any("relation grant" in n for n in res.notes)
         d = drift(h.conn, imported, compile_spec(imported))
-        assert d.ok, [str(i) for i in d.items]
-        assert {i.kind for i in d.items} == {"foreign"}
-        assert any("constraint level_range" in i.object for i in d.items)
+        assert d.ok and d.items == [], [str(i) for i in d.items]
+        bad = [c for c in behaviour_diff(example_spec, imported) if c.verdict != "PROVED"]
+        assert bad == [], [str(c) for c in bad]
         # the CLI: --out writes the spec, the notes go to stderr, and `check --dsn` accepts it
         dsn = psycopg.conninfo.make_conninfo(h.dsn, dbname=h.dbname)
         out = tmp_path / "imported.json"
@@ -188,8 +192,9 @@ def brownfield(pg_dsn):
 
 def test_import_of_the_brownfield_fixture(brownfield):
     """Acceptance (ROADMAP M5): the hand-written Supabase-style schema imports to a spec that
-    checks; every policy is an opaque block whose signature names the columns and context it
-    reads; a proof over it is conditional on those blocks."""
+    checks; the policies the lifter reads are in the fragment, every other one is an opaque
+    block whose signature names the columns and context it reads; a proof over a block is
+    conditional on it."""
     res = import_schema(brownfield)
     spec = check_spec(Spec.model_validate(res.spec))
     assert spec.identity.adapter == "supabase" and set(spec.identity.context) == {"uid", "role"}
@@ -201,23 +206,39 @@ def test_import_of_the_brownfield_fixture(brownfield):
     assert "credits" not in spec.tables["profiles"].columns and "id" not in spec.tables["tasks"].columns
     assert spec.tables["profiles"].columns["created_at"].type == "timestamp"
     assert spec.tables["tasks"].primary_key is None  # bigserial id is not modelled
-    # every policy is a rule whose predicates are opaque blocks with the catalog signature
+    # the lifted policies (bare auth.uid(), IN (subquery), EXISTS, a claim, a boolean column)
     by_name = {p.name: p for p in spec.policies()}
-    o = spec.opaques[by_name["tasks_of_my_projects"].using.opaque]
-    assert o.columns == ["project_id"] and o.context == ["uid"] and o.relations == ["project_members"]
-    assert "project_members" in o.sql
-    o = spec.opaques[by_name["assignee_updates"].using.opaque]
-    assert o.columns == ["assignee"] and o.context == ["uid", "role"]
-    o = spec.opaques[by_name["members_see_their_projects"].using.opaque]
-    assert o.columns == ["id"] and o.relations == ["project_members"]
+    pred = lambda p: p.model_dump(mode="json", by_alias=True, exclude_none=True)  # noqa: E731
+    member = {"member": {"relation": "project_members", "key": {"ctx": "uid"}, "value": {"col": "project_id"}}}
+    assert pred(by_name["tasks_of_my_projects"].using) == member
+    assert pred(by_name["members_see_their_projects"].using) == {
+        "member": {"relation": "project_members", "key": {"ctx": "uid"}, "value": {"col": "id"}}}
+    assert pred(by_name["assignee_updates"].using) == {"and": [
+        {"cmp": [{"col": "assignee"}, "=", {"ctx": "uid"}]}, {"cmp": [{"ctx": "role"}, "=", {"const": "editor"}]}]}
+    assert pred(by_name["no_deletes_of_done_tasks"].using) == {"not": {"cmp": [{"col": "done"}, "=", {"const": True}]}}
     assert by_name["no_deletes_of_done_tasks"].mode == "restrictive"
-    assert by_name["insert_into_own_projects"].command == "insert" and by_name["insert_into_own_projects"].using is None
-    assert by_name["users_update_own_profile"].check is None  # equal to using: one block, not two
+    assert pred(by_name["users_update_own_profile"].using) == {"cmp": [{"col": "id"}, "=", {"ctx": "uid"}]}
+    assert by_name["users_update_own_profile"].check is None  # equal to using: one predicate, not two
     two = [p for n, p in by_name.items() if n.startswith("members_see_memberships")]
     assert len(two) == 2 and {p.role for p in two} == {"anon", "authenticated"}
-    assert two[0].using == two[1].using  # one opaque block shared by the two rules
-    assert spec.relations["project_members"].model_dump() == {"table": "project_members", "key": "project_id",
-                                                               "value": "user_id"}
+    assert pred(two[0].using) == pred(two[1].using) == {"cmp": [{"col": "user_id"}, "=", {"ctx": "uid"}]}
+    assert spec.relations["project_members"].model_dump() == {"table": "project_members", "key": "user_id",
+                                                               "value": "project_id"}
+    # what stays opaque: (owner, id) is not a key of projects, so the lookup is not a relation
+    assert by_name["insert_into_own_projects"].command == "insert" and by_name["insert_into_own_projects"].using is None
+    o = spec.opaques[by_name["insert_into_own_projects"].check.opaque]
+    assert o.columns == ["project_id"] and o.context == ["uid"] and "projects" in o.sql
+    assert list(spec.opaques) == [by_name["insert_into_own_projects"].check.opaque]
+    assert any("insert into own projects" in n and "not a primary key or unique constraint of projects" in n
+               for n in res.notes)
+    assert any(n.startswith("lint:") and "auth.uid()" in n and "index-friendly" in n for n in res.notes)
+    assert any(n.startswith("lint:") and "correlated EXISTS" in n for n in res.notes)
+    # the CHECKs over NOT NULL columns are check rules; the trigger is listed
+    checks = {r.name: pred(r.predicate) for r in spec.checks()}
+    assert checks == {"projects_name_check": {"cmp": [{"col": "name"}, "<>", {"const": ""}]},
+                      "tasks_priority_check": {"and": [{"cmp": [{"col": "priority"}, ">=", {"const": 0}]},
+                                                       {"cmp": [{"col": "priority"}, "<=", {"const": 5}]}]}}
+    assert any("tasks_priority_check" in n and "drift reports the definition as differs" in n for n in res.notes)
     assert not any(r.kind == "inclusion" for r in spec.rules)  # single-column FKs are not inclusions
     cr = [r for r in spec.rules if r.kind == "column_rule"]
     assert [(r.table, r.role, r.access, r.columns) for r in cr] == [("profiles", "anon", "read", ["display_name", "id"])]
@@ -225,24 +246,26 @@ def test_import_of_the_brownfield_fixture(brownfield):
     assert any("has insert on project_members but no permissive insert policy" in n for n in res.notes)
     assert any("audit_log has row level security disabled: observed" in n for n in res.notes)
     assert any('"tasks of my projects" on tasks is imported as rule tasks_of_my_projects' in n for n in res.notes)
-    assert any("trigger tasks_touch" in n for n in res.notes) and any("CHECK" in n and "priority" in n for n in res.notes)
-    # proofs over the imported spec are conditional on the blocks and the report lists them
+    assert any("trigger tasks_touch" in n and "never inlined" in n for n in res.notes)
+    # proofs over the lifted policies are unconditional; one over the block is conditional on it
     d = dict(res.spec)
     d["properties"] = [
         {"id": "P1", "template": "write_subset_read", "table": "profiles"},
-        {"id": "P2", "template": "custom", "table": "tasks", "role": "authenticated", "command": "select",
-         "which": "old", "goal": {"opaque": by_name["tasks_of_my_projects"].using.opaque}},
-        # distinct blocks are distinct uninterpreted predicates: an insert admitted by one block is not
-        # shown readable by another, so this one is refuted, not conditional
+        {"id": "P2", "template": "tenant_isolation", "table": "tasks", "column": "project_id",
+         "relation": "project_members", "key": {"ctx": "uid"}, "commands": ["select"]},
+        # the insert policy is the opaque block: the written row is not shown readable
         {"id": "P3", "template": "write_subset_read", "table": "tasks"},
+        {"id": "P4", "template": "custom", "table": "tasks", "role": "authenticated", "command": "insert",
+         "goal": {"opaque": by_name["insert_into_own_projects"].check.opaque}},
     ]
     proved = check_spec(Spec.model_validate(d))
     results = {r.id: r for r in run_all(proved)}
-    assert results["P1"].verdict == "PROVED" and results["P1"].conditional_on == ["users_update_own_profile_using"]
-    assert results["P2"].verdict == "PROVED" and results["P2"].conditional_on == ["tasks_of_my_projects_using"]
+    assert results["P1"].verdict == "PROVED" and results["P1"].conditional_on == []
+    assert results["P2"].verdict == "PROVED" and results["P2"].conditional_on == []
     assert results["P3"].verdict == "REFUTED"
+    assert results["P4"].verdict == "PROVED" and results["P4"].conditional_on == ["insert_into_own_projects_check"]
     md = to_markdown(proved, list(results.values()))
-    assert "2 proved (2 conditional on opaque blocks), 1 refuted" in md
+    assert "3 proved (1 conditional on opaque blocks), 1 refuted" in md
     for r in results.values():
         for name in r.conditional_on:
             assert f"opaque block '{name}' on" in md  # the assumptions list it with its SQL
@@ -256,8 +279,11 @@ def test_import_of_the_brownfield_fixture(brownfield):
     dd = drift(brownfield, spec, compile_spec(spec))
     assert dd.by_kind("assumed") and not dd.by_kind("hardening"), [str(i) for i in dd.items]
     failing = [i for i in dd.items if i.kind not in ("foreign", "assumed")]
-    assert failing and all(i.kind in ("missing", "unexpected") and ("policy" in i.object or "privilege" in i.object)
-                           for i in failing), [str(i) for i in failing]
+    assert failing
+    for i in failing:  # renamed policies, the grants without a policy, the indexes and the CHECK form a deploy adds
+        assert (i.kind in ("missing", "unexpected") and ("policy" in i.object or "privilege" in i.object)) \
+            or (i.kind == "missing" and "index mls_ix_" in i.object) \
+            or (i.kind == "differs" and "constraint" in i.object and "IS TRUE" in i.expected), str(i)
     assert any("privilege INSERT on project_members for authenticated" in i.object for i in failing)
     assert any("has delete on tasks but no permissive delete policy" in n for n in res.notes)
 

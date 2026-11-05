@@ -48,8 +48,21 @@ def _json_path(loc: tuple) -> str:
     return "$" + "".join(f"[{p}]" if isinstance(p, int) else f".{p}" for p in parts)
 
 
+LIKE_OPS = ("like", "ilike", "~~", "~~*", "not like", "similar to")
+
+
 def pydantic_errors_to_mls(e: ValidationError) -> list[MlsError]:
-    return [MlsError(path=_json_path(err["loc"]), message=err["msg"], code="schema") for err in e.errors()]
+    out = []
+    for err in e.errors():
+        path, msg, fix = _json_path(err["loc"]), err["msg"], ""
+        if err["type"] == "literal_error" and str(err.get("input", "")).lower() in LIKE_OPS:
+            # `like` is accepted by the lifter only (D46): never authored
+            msg = (f"'{err['input']}' is not a comparison operator of the fragment (LIKE is not leakproof; a "
+                   f"pattern test cannot be index-driven below a policy)")
+            fix = ("compare with =, <>, <, <=, >, >=; a pattern test is an opaque block over the column "
+                   "(the leakproof lint reports it; `mls import` writes one from an existing policy)")
+        out.append(MlsError(path=path, message=msg, fix=fix, code="schema"))
+    return out
 
 
 @dataclass(frozen=True)

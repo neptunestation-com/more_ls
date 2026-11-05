@@ -32,7 +32,7 @@ error).  For the design: `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.
     uv run mls migrate examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json     # phased DDL with lock levels
     uv run mls preflight examples/tenant_docs_v2.mls.json --old examples/tenant_docs.mls.json --dsn $DSN
     uv run mls drift   examples/tenant_docs_v2.mls.json --dsn $DSN   # live catalog vs. a shadow deploy
-    uv run mls import  --dsn $DSN --out imported.mls.json   # a spec from a live schema: tables adopted, policies opaque
+    uv run mls import  --dsn $DSN --out imported.mls.json   # a spec from a live schema: tables adopted, policies lifted
     uv run mls schema                                       # JSON Schema of the spec language
     uv run mls eval    evals/cases                          # expected verdicts of the eval corpus
 
@@ -82,9 +82,11 @@ Alpha (0.1).  All four milestones of `docs/ROADMAP.md` are implemented:
 
 Milestone 5 (brownfield, the `pg_more_ls` graft) is in progress: `in` with a constant list, the
 `session_setting` adapter, ownership modes per table (`owned` / `adopted` / `observed`) with
-stated hardening assumptions, and `mls import` of a live schema (every policy an opaque block
-with its catalog signature) are done; the lifter, selectors, `mls status` and the lint pack are
-next (`docs/ROADMAP.md`).
+stated hardening assumptions, `mls import` of a live schema, and the lifter (D46: the policies
+MLS itself emits and the usual hand-written idioms read back into the verified fragment, the
+rest opaque blocks with their catalog signature; importing a deployed spec gives it back with
+no opaque block and an empty behaviour diff) are done; selectors, `mls status` and the lint
+pack are next (`docs/ROADMAP.md`).
 
 ### Measured with `claude-opus-5-5`
 

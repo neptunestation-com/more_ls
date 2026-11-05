@@ -465,12 +465,17 @@ To adopt a live schema, let MLS write the first version of the spec:
 
 Every table with row-level security becomes `adopted` (a table without it is `observed`: a
 policy on it would mean nothing), the identity adapter is guessed from what the policies read,
-relations are proposed from the foreign keys and the keys the policies look up, and every
-existing policy becomes a rule whose predicate is an `opaque` block carrying the columns,
-context values and relations the SQL reads.  The notes printed on stderr list what was left
-out: a column whose type MLS does not model, a CHECK or trigger (listed, not imported), a grant
-with no policy behind it, a policy whose name is not an identifier.  The hardening state is
-recorded as assumptions:
+relations are proposed from the foreign keys and the memberships the policies look up, and
+every existing policy becomes a rule.  The lifter reads the policy's SQL into the fragment when
+it is built from the shapes MLS itself emits or from the usual hand-written idioms (a bare
+`auth.uid()`, `col in (...)`, `col in (select ...)`, a correlated `exists`, a boolean column);
+what it cannot read, a call to a function of yours for instance, becomes an `opaque` block
+carrying the columns, context values and relations the SQL reads, and the notes say which part
+of which policy and why.  A CHECK it reads becomes a check rule.  The notes printed on stderr
+list what was left out: a column whose type MLS does not model, a trigger (listed, not
+imported), a grant with no policy behind it, a policy whose name is not an identifier; the ones
+prefixed `lint:` name shapes a deploy improves on.  The hardening state is recorded as
+assumptions:
 
     "tasks": {
       "columns": { ... },
@@ -486,13 +491,16 @@ and drift is clean; leave the assumption in and drift tells you it is no longer 
 table declared `owned` is refused by `mls check --dsn`, because the compiler never emits a
 hardening it then has to assume.
 
-The imported spec is a starting point.  It checks, compiles and proves as it is, but every
-proof over an imported policy is conditional on its opaque block, which says little a reviewer
-can act on.  The lifter (`docs/ROADMAP.md`, Milestone 5) turns the policies it can read into the
-fragment; until then, rewrite the ones that matter by hand in the fragment and let `mls diff`
-confirm the rewrite changes nothing.  From the import on, the spec is the source of truth:
-`mls check --dsn` verifies that the adopted tables still have the columns the spec declares,
-and `mls drift` says whether the database and the spec still agree.
+The imported spec is a starting point.  It checks, compiles and proves as it is.  A lifted
+policy is proved, diffed and explained like one MLS wrote; a proof over a policy that stayed
+opaque is conditional on its block, which says little a reviewer can act on, so rewrite the
+ones that matter by hand in the fragment and let `mls diff` confirm the rewrite changes
+nothing.  Importing the database that `mls compile` of a spec deployed gives that spec back:
+the same rules, no opaque block, an empty `mls diff`.  From the import on, the spec is the
+source of truth: `mls check --dsn` verifies that the adopted tables still have the columns the
+spec declares, and `mls drift` says whether the database and the spec still agree (a
+hand-written CHECK it imported shows as `differs` until a deploy rewrites it to the template's
+`IS TRUE` form).
 
 Keep the spec in version control next to the application.  The spec, not the SQL, is the source
 of truth; the SQL is a build artifact.
@@ -559,7 +567,7 @@ annotated with the lock it takes, from a table that the test suite observes on e
 version:
 
     alter table "docs" add column "title" text;  -- lock: AccessExclusiveLock on docs
-    create index concurrently "mls_ix_docs_owner_id" on "docs" ("owner_id");  -- lock: ShareUpdateExclusiveLock on docs
+    create index concurrently "mls_ix_docs_tenant_id_level" on "docs" ("tenant_id", "level");  -- lock: ShareUpdateExclusiveLock on docs
     alter table "docs" validate constraint "title_not_blank";  -- lock: ShareUpdateExclusiveLock on docs  -- R11
 
 Policies go live only after validation, because the proofs assume stored rows satisfy the
@@ -659,8 +667,9 @@ These are decisions, not gaps; `docs/DECISIONS.md` has the reasoning.
 - **Ownership is per table.**  MLS creates the tables it owns and adopts the ones it did not
   create (section 6.1), but it never silently applies to an adopted table a hardening it would
   have to assume: an app-role owner or unforced row-level security is stated in the spec and
-  repeated in every report, or it is drift.  A hand-written policy is adopted as an opaque block
-  (D45); turning it into the verified fragment is the lifter's job (Milestone 5).
+  repeated in every report, or it is drift.  A hand-written policy is lifted into the fragment
+  when the lifter reads it (D46) and adopted as an opaque block otherwise; a function of yours
+  in a policy is never inlined, however short its body (D34).
 - **The fragment.**  No joins, subqueries, arithmetic or functions in predicates.  Comparison
   right-hand sides are context or constants; membership keys are context, not columns; negated
   membership is rejected in policies (it is an anti-join the planner cannot drive from an

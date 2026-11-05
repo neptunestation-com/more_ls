@@ -7,12 +7,15 @@ primary key and unique constraints are read from the catalog (MLS types only; ot
 out and noted).  The identity adapter is guessed from the policy expressions and reported when
 ambiguous.  Relations are proposed for every (key, value) pair an inclusion-shaped foreign key
 targets, and for every two-column primary key a policy's SQL reads.  Every policy becomes a rule
-whose predicate is an opaque block with the policy's catalog signature: the columns it depends
-on (pg_depend) or names, the context values whose source it reads, the proposed relations whose
-table it names.  The lifter (D46) later turns the blocks it can read into the fragment.  Column
-privileges become column rules; a foreign key of the inclusion shape becomes an inclusion rule;
-CHECKs, triggers, other foreign keys and table-level grants with no policy are listed, not
-imported (ROADMAP M5: a CHECK is adopted as a stored-row assumption only once the lifter reads it).
+whose predicate the lifter (D46, `pg/lift.py`) reads into the fragment where it can; what it
+cannot read is an opaque block with the policy's catalog signature: the columns it depends on
+(pg_depend) or names, the context values whose source it reads, the proposed relations whose
+table it names.  A membership the lifter reads proposes its relation; the compiler's own
+relation-visibility policies and relation grants are recognized and not imported as rules (the
+compiler regenerates them from the lifted memberships).  A CHECK the lifter reads becomes a
+check rule (a stored-row assumption); one it cannot read is listed.  Column privileges become
+column rules; a foreign key of the inclusion shape becomes an inclusion rule; triggers, other
+foreign keys and table-level grants with no policy are listed, not imported.
 """
 from __future__ import annotations
 
@@ -27,14 +30,12 @@ from psycopg import sql as psql
 from mls.compile.internal import INTERNAL_ROLE
 from mls.errors import MlsError, SpecError
 from mls.pg.catalog import _strip_schema
-from mls.spec.check import IDENT
-from mls.spec.model import ColType, Spec
+from mls.pg.lift import (
+    CAST_TO_MLS, PG_TO_MLS, Env, Unreadable, lift, nullable_columns, parse, strip_check, transition_expr,
+)
+from mls.pg.lift import IsTrue as _IsTrue
+from mls.spec.model import Spec
 
-PG_TO_MLS: dict[str, ColType] = {"integer": "int", "text": "text", "boolean": "bool",
-                                 "timestamp with time zone": "timestamp", "uuid": "uuid"}
-CAST_TO_MLS: dict[str, ColType] = {"uuid": "uuid", "integer": "int", "int": "int", "int4": "int", "text": "text",
-                                   "boolean": "bool", "bool": "bool", "timestamptz": "timestamp",
-                                   "timestamp with time zone": "timestamp"}
 CMD = {"*": "all", "r": "select", "a": "insert", "w": "update", "d": "delete"}
 MARKERS = {"supabase": re.compile(r"\bauth\.(uid|jwt)\(\)"),
            "session_setting": re.compile(r"current_setting\('app\."),
@@ -81,10 +82,11 @@ def _read(conn: psycopg.Connection, schema: str) -> dict[str, Any]:
                            order by a.attnum""", (oid,))
             t["columns"] = [{"num": r[0], "name": r[1], "type": r[2], "notnull": r[3]} for r in cur.fetchall()]
             cur.execute("""select conname, contype, pg_get_constraintdef(oid), conkey, confrelid, confkey,
-                                  confupdtype, confdeltype, confmatchtype
+                                  confupdtype, confdeltype, confmatchtype, convalidated
                            from pg_constraint where conrelid = %s order by conname""", (oid,))
             t["constraints"] = [{"name": r[0], "type": r[1], "def": _strip_schema(r[2], schema), "cols": list(r[3] or []),
-                                 "ref": r[4], "refcols": list(r[5] or []), "upd": r[6], "del": r[7], "match": r[8]}
+                                 "ref": r[4], "refcols": list(r[5] or []), "upd": r[6], "del": r[7], "match": r[8],
+                                 "validated": r[9]}
                                 for r in cur.fetchall()]
             cur.execute("""select p.oid, p.polname, p.polcmd, p.polpermissive,
                                   array(select rolname from pg_roles where oid = any (p.polroles) order by 1),
@@ -97,9 +99,11 @@ def _read(conn: psycopg.Connection, schema: str) -> dict[str, Any]:
             t["policies"] = [{"name": r[1], "cmd": CMD[r[2]], "permissive": r[3], "roles": list(r[4]), "public": r[5],
                               "using": _strip_schema(r[6], schema), "check": _strip_schema(r[7], schema),
                               "depcols": list(r[8])} for r in cur.fetchall()]
-            cur.execute("""select t.tgname from pg_trigger t where t.tgrelid = %s and not t.tgisinternal order by 1""",
-                        (oid,))
-            t["triggers"] = [r[0] for r in cur.fetchall()]
+            cur.execute("""select t.tgname, pg_get_triggerdef(t.oid), p.proname, p.prosrc
+                           from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+                           where t.tgrelid = %s and not t.tgisinternal order by 1""", (oid,))
+            t["triggers"] = [{"name": r[0], "def": _strip_schema(r[1], schema), "function": r[2], "body": r[3]}
+                             for r in cur.fetchall()]
             cur.execute("""select coalesce(nullif(x.grantee, 0)::regrole::text, 'public'), x.privilege_type
                            from pg_class c, aclexplode(c.relacl) x where c.oid = %s""", (oid,))
             t["acl"] = [(r[0].strip('"'), r[1].lower(), None) for r in cur.fetchall()]
@@ -161,11 +165,9 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
             notes.append(f"identity: ambiguous, policies read " + ", ".join(f"{a} ({n})" for n, a in ranked[::-1])
                          + f"; the adapter is {adapter} (the most read); the others' policies stay opaque")
     context: dict[str, dict] = {}
-    markers: dict[str, re.Pattern] = {}  # context name -> what a policy text must contain to read it
     if adapter == "supabase":
         if any("auth.uid()" in e for e in texts):
             context["uid"] = {"source": "auth.uid", "type": "uuid"}
-            markers["uid"] = re.compile(r"auth\.uid\(\)")
         for e in texts:
             for claim, cast in JWT_CLAIM.findall(e):
                 name = ident(claim)
@@ -177,7 +179,6 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
                                      f"declared as text")
                 if name not in context:
                     context[name] = {"source": f"jwt.claims.{claim}", "type": ty}
-                    markers[name] = re.compile(r"auth\.jwt\(\)\s*->>\s*'" + re.escape(claim) + "'")
     elif adapter == "session_setting":
         for e in texts:
             for name, cast in APP_SETTING.findall(e):
@@ -188,10 +189,8 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
                         notes.append(f"identity: app.{name} is cast to {cast.strip()}, not an MLS type; declared as text")
                 if name not in context:
                     context[name] = {"source": f"app.{name}", "type": ty}
-                    markers[name] = re.compile(r"current_setting\('app\." + re.escape(name) + "'")
     else:
         context["role"] = {"source": "current_user", "type": "text"}
-        markers["role"] = MARKERS["pg_roles"]
 
     # --- tables
     spec_tables: dict[str, dict] = {}
@@ -248,9 +247,32 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
         tb = spec_tables[table]
         return ([tb["primary_key"]] if tb.get("primary_key") else []) + tb.get("unique", [])
 
-    # --- relations: inclusion-shaped foreign keys, and two-column keys a policy reads
+    # --- the lifter's view of the spec so far
+    env = Env(adapter=adapter, context={n: (cv["source"], cv["type"]) for n, cv in context.items()},
+              tables={t: {c: (col["type"], col["nullable"]) for c, col in tb["columns"].items()}
+                      for t, tb in spec_tables.items()},
+              governed=set(governed), roles=list(roles),
+              keys={t: [frozenset(k) for k in key_sets(t)] for t in spec_tables})
+
+    # --- relations: inclusion-shaped foreign keys, what the lifter reads as a membership, and (for
+    # the opaque blocks) two-column keys their SQL reads.  The compiler's relation-visibility
+    # policy `mls_rel_<relation>_<role>_<n>` (`key = <ctx>` on the relation's table) gives the
+    # relation its original name back.
     relations: dict[str, dict] = {}
     rel_by_pair: dict[tuple[str, str, str], str] = {}
+    rel_names: dict[tuple[str, str], str] = {}  # (table, key) -> the name the compiler's policy carries
+    for name, t in tables.items():
+        if name not in governed:
+            continue
+        for p in t["policies"]:
+            for role in roles:
+                m = re.fullmatch(r"mls_rel_(.+)_" + re.escape(role) + r"_\d+", p["name"])
+                if m and p["using"] and p["cmd"] == "select":
+                    r = lift(p["using"], name, env, "policy", lambda *a: "_", lambda *a: None)
+                    if r.kind == "lifted" and "cmp" in r.pred and r.pred["cmp"][1] == "=" \
+                            and "col" in r.pred["cmp"][0]:
+                        rel_names.setdefault((name, r.pred["cmp"][0]["col"]), m.group(1))
+                    break
 
     def propose(table: str, key: str, value: str, why: str) -> str | None:
         if table not in governed:
@@ -259,9 +281,13 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
         pair = (table, key, value)
         if pair in rel_by_pair:
             return rel_by_pair[pair]
-        name = ident(table) if ident(table) not in relations else ident(f"{table}_{key}_{value}")
+        name = rel_names.get((table, key))
+        if name is None or name in relations:
+            name = ident(table) if ident(table) not in relations else ident(f"{table}_{key}_{value}")
         relations[name] = {"table": table, "key": key, "value": value}
         rel_by_pair[pair] = name
+        env.relations[name] = pair
+        env.invalidate()
         notes.append(f"relation {name} proposed: ({key}, {value}) of {table} ({why})")
         return name
 
@@ -285,28 +311,40 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
                 continue
             inclusions.append({"kind": "inclusion", "name": ident(con["name"]), "table": name,
                                "columns": con["colnames"], "relation": rel, "on_delete": "restrict"})
-    for name, t in tables.items():
-        for p in t["policies"]:
-            for e in (p["using"], p["check"]):
-                if not e:
-                    continue
-                for other in tables:
-                    if other == name or not re.search(r'(?<![\w."])"?' + re.escape(other) + r'"?(?![\w"])', e):
-                        continue
-                    ks = key_sets(other) if other in spec_tables else []
-                    for k in ks:
-                        if len(k) == 2:
-                            propose(other, k[0], k[1], f"policy {p['name']} on {name} reads it")
-                            break
 
-    # --- policies as opaque blocks, column privileges as column rules
+    # --- policies through the lifter (D46); what it cannot read is an opaque block
     opaques: dict[str, dict] = {}
     rules: list[dict] = list(inclusions)
+    lifted_n = opaque_n = 0
+
+    def lift_expr(table: str, text: str, base: str, scope: str, depcols: list[str], top_is_true: bool = False):
+        parts = 0
+
+        def make_opaque(sql: str, cols: list[str], ctx: list[str], rels: list[str]) -> str:
+            nonlocal parts
+            parts += 1
+            whole = sql.strip() == text.strip()
+            oname = ident(base) if whole else ident(f"{base}_{parts}")
+            if whole:
+                cols = sorted(set(cols) | {c for c in depcols if c in modelled[table]})
+            opaques[oname] = {"table": table, "columns": cols, "context": ctx, "relations": rels, "sql": sql}
+            env.opaques[oname] = dict(opaques[oname])
+            env.invalidate()
+            return oname
+
+        def make_relation(rtable: str, key: str, value: str) -> str | None:
+            return propose(rtable, key, value, f"{scope} expression on {table} reads it as a membership")
+
+        return lift(text, table, env, scope, make_opaque, make_relation, top_is_true=top_is_true)
+
     for name, t in tables.items():
         if name not in governed:
             if t["policies"]:
                 notes.append(f"table {name} is observed: its {len(t['policies'])} policies are not imported")
             continue
+        depcols = {}
+        for p in t["policies"]:
+            depcols[p["name"]] = [t["colname"][n] for n in p["depcols"] if n in t["colname"]]
         for p in t["policies"]:
             pol_roles = list(p["roles"])
             if p["public"]:
@@ -323,22 +361,19 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
             for which, text in (("using", p["using"]), ("check", p["check"])):
                 if text is None:
                     continue
-                if text.strip().lower() in ("true", "false"):  # a literal needs no block
-                    preds[which] = {"lit": text.strip().lower() == "true"}
-                    continue
-                oname = ident(f"{p['name']}_{which}")
-                cols = sorted({t["colname"][n] for n in p["depcols"] if n in t["colname"]} |
-                              {c for c in t["colname"].values()
-                               if re.search(r'(?<![\w."])"?' + re.escape(c) + r'"?(?![\w"])', text)})
-                cols = [c for c in cols if c in modelled[name]]
-                ctx = [n for n, m in markers.items() if m.search(text)]
-                rels = [rn for rn, r in relations.items()
-                        if re.search(r'(?<![\w."])"?' + re.escape(r["table"]) + r'"?(?![\w"])', text)]
-                opaques[oname] = {"table": name, "columns": cols, "context": ctx, "relations": rels, "sql": text}
-                preds[which] = {"opaque": oname}
-            if p["cmd"] in ("update", "all") and p["check"] is not None and p["check"] == p["using"]:
-                del preds["check"]
-                opaques.pop(ident(f"{p['name']}_check"), None)
+                if which == "check" and p["cmd"] in ("update", "all") and text == p["using"]:
+                    continue  # equal to USING: one predicate, as the compiler writes it
+                r = lift_expr(name, text, f"{p['name']}_{which}", "policy", depcols[p["name"]])
+                preds[which] = r.pred
+                what = f"policy {p['name']} on {name}, {'with check' if which == 'check' else 'using'}"
+                if r.kind == "lifted":
+                    lifted_n += 1
+                else:
+                    opaque_n += len(r.opaques)
+                    notes.append(f"{what}: " + ("an opaque block" if r.kind == "opaque" else "partly opaque")
+                                 + " (" + "; ".join(r.reasons) + ")")
+                for h in r.hints:
+                    notes.append(f"lint: {what}: {h}")
             if p["cmd"] != "insert" and "using" not in preds:
                 preds["using"] = {"lit": True}
             if p["cmd"] == "insert" and "check" not in preds:
@@ -380,30 +415,147 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
                 continue
             rules.append({"kind": "column_rule", "name": ident(f"{name}_{role}_{access}"), "table": name,
                           "role": role, "columns": sorted(cols), "access": access})
+        # CHECKs: a stored-row assumption when the lifter reads one (ROADMAP M5), else listed
         for con in t["constraints"]:
-            if con["type"] == "c":
-                notes.append(f"CHECK {con['name']} on {name} is listed, not imported: {con['def']}")
+            if con["type"] != "c":
+                continue
+            what = f"CHECK {con['name']} on {name}"
+            if not con["validated"]:
+                notes.append(f"{what} is NOT VALID (rows may violate it): listed, not imported: {con['def']}")
+                continue
+            try:
+                expr = strip_check(con["def"])
+                tree = parse(expr)
+            except Unreadable as e:
+                notes.append(f"{what} is listed, not imported ({e}): {con['def']}")
+                continue
+            is_true = isinstance(tree, _IsTrue) and tree.value and not tree.negated
+            if not is_true:
+                nullable = nullable_columns(expr, env.tables[name]) or set()
+                if nullable:
+                    notes.append(f"{what} is listed, not imported: it passes when {', '.join(sorted(nullable))} is "
+                                 f"NULL, where an MLS check rule (`(p) is true`) rejects the row: {con['def']}")
+                    continue
+            r = lift_expr(name, expr, con["name"], "check", [], top_is_true=is_true)
+            if r.kind == "opaque" or (r.kind == "partial" and not is_true):
+                for o in r.opaques:
+                    opaques.pop(o, None)
+                    env.opaques.pop(o, None)
+                env.invalidate()
+                notes.append(f"{what} is listed, not imported ({'; '.join(r.reasons)}): {con['def']}")
+                continue
+            try:
+                env.validate(r.pred, name, "check", False)
+            except Unreadable as e:
+                for o in r.opaques:
+                    opaques.pop(o, None)
+                    env.opaques.pop(o, None)
+                env.invalidate()
+                notes.append(f"{what} is listed, not imported ({e}): {con['def']}")
+                continue
+            rules.append({"kind": "check", "name": ident(con["name"]), "table": name, "predicate": r.pred})
+            if r.kind == "partial":
+                opaque_n += len(r.opaques)
+                notes.append(f"{what} is imported as a check rule, partly opaque (" + "; ".join(r.reasons) + ")")
+            else:
+                lifted_n += 1
+            if not is_true:
+                notes.append(f"{what} is imported as check rule {ident(con['name'])}: its columns are NOT NULL, so "
+                             f"it means what MLS's `(p) is true` form means; a deploy rewrites it to that form, "
+                             f"and drift reports the definition as differs until then")
+            if ident(con["name"]) != con["name"]:
+                notes.append(f"{what} is imported as rule {ident(con['name'])} (MLS names are identifiers)")
+        # triggers: the compiler's own transition template is read back; any other trigger is listed
         for tg in t["triggers"]:
-            notes.append(f"trigger {tg} on {name} is listed, not imported")
-    for i, r in enumerate(rules, 1):
-        r_ = {"id": f"R{i}"}
-        r_.update(r)
-        rules[i - 1] = r_
+            what = f"trigger {tg['name']} on {name}"
+            expr = transition_expr(tg["def"], tg["function"], tg["body"])
+            if expr is None:
+                notes.append(f"{what} is listed, not imported (only the transition template MLS emits is read back; "
+                             f"a hand-written trigger is never inlined)")
+                continue
+            r = lift_expr(name, expr, tg["name"], "transition", [])
+            if r.kind != "lifted":
+                for o in r.opaques:
+                    opaques.pop(o, None)
+                    env.opaques.pop(o, None)
+                env.invalidate()
+                notes.append(f"{what} is listed, not imported ({'; '.join(r.reasons)})")
+                continue
+            try:
+                env.validate(r.pred, name, "transition", False)
+            except Unreadable as e:
+                notes.append(f"{what} is listed, not imported ({e})")
+                continue
+            rules.append({"kind": "transition", "name": ident(tg["name"]), "table": name, "predicate": r.pred})
+            lifted_n += 1
+
+    # --- an opaque block's signature names every relation on the tables its SQL reads; a table it
+    # reads that has a two-column key and no relation yet gets one (the block depends on that state)
+    for oname, o in opaques.items():
+        for other in tables:
+            if other == o["table"] or not re.search(r'(?<![\w."])"?' + re.escape(other) + r'"?(?![\w"])', o["sql"]):
+                continue
+            if other in governed and not any(r["table"] == other for r in relations.values()):
+                for k in key_sets(other):
+                    if len(k) == 2:
+                        propose(other, k[0], k[1], f"opaque block {oname} reads it")
+                        break
+            o["relations"] = sorted(set(o["relations"]) | {rn for rn, r in relations.items() if r["table"] == other})
+
+    # --- what the compiler regenerates from the lifted memberships is not a rule of the spec
+    def finish(rules: list[dict]) -> Spec:
+        for i, r in enumerate(rules, 1):
+            r.pop("id", None)
+            rules[i - 1] = {"id": f"R{i}", **r}
+        spec = {"mls_version": "0.1", "identity": {"adapter": adapter, "context": context},
+                "roles": roles, "tables": spec_tables, "relations": relations, "opaques": opaques, "rules": rules,
+                "properties": []}
+        from mls.spec.check import check_spec
+
+        try:
+            return check_spec(Spec.model_validate(spec))
+        except SpecError as e:
+            raise SpecError([MlsError(x.path, f"the imported spec does not check (an import bug): {x.message}",
+                                      x.fix, "import") for x in e.errors]) from None
+
+    from mls.compile.column import relations_in
+    from mls.props.effective import implicit_policies
+
+    checked = finish(rules)
+    implicit = {(p.name, p.table, p.role, p.command, p.mode): p.using for p in implicit_policies(checked)}
+    drop: set[str] = set()
+    for p in checked.policies():
+        key = (p.name, p.table, p.role, p.command, p.mode)
+        if key in implicit and p.check is None and p.using == implicit[key]:
+            drop.add(p.id)
+            notes.append(f"policy {p.name} on {p.table} is the compiler's relation-visibility policy: not imported "
+                         f"as a rule (the compiler regenerates it from the lifted membership)")
+    rel_reads: dict[tuple[str, str], set[str]] = {}  # (role, table) -> columns the relation grants read
+    for p in checked.policies():
+        if p.id in drop:
+            continue
+        for rn in relations_in(p.using, relations_in(p.check, set())):
+            rel = checked.relations[rn]
+            rel_reads.setdefault((p.role, rel.table), set()).update((rel.key, rel.value))
+    for r in checked.column_rules():
+        if r.access == "read" and rel_reads.get((r.role, r.table)) == set(r.columns) and not any(
+                p.role == r.role and p.table == r.table and p.mode == "permissive" and p.command in ("select", "all")
+                for p in checked.policies() if p.id not in drop):
+            drop.add(r.id)
+            notes.append(f"column grant select ({', '.join(r.columns)}) on {r.table} to {r.role} is the compiler's "
+                         f"relation grant: not imported as a column rule (regenerated from the lifted membership)")
+    if drop:
+        rules = [r for r in rules if r["id"] not in drop]
+        checked = finish(rules)
+    spec = {"mls_version": "0.1", "identity": {"adapter": adapter, "context": context}, "roles": roles,
+            "tables": spec_tables, "relations": relations, "opaques": opaques, "rules": rules, "properties": []}
 
     n_adopted = len(governed)
     comment = (f"imported by mls import from schema '{schema}' on {dt.date.today().isoformat()}: "
                f"{len(spec_tables)} tables ({n_adopted} adopted, {len(spec_tables) - n_adopted} observed), "
-               f"{len(opaques)} policy expressions as opaque blocks; see the import notes for what was left out")
-    spec = {"$comment": comment, "mls_version": "0.1", "identity": {"adapter": adapter, "context": context},
-            "roles": roles, "tables": spec_tables, "relations": relations, "opaques": opaques, "rules": rules,
-            "properties": []}
-    from mls.spec.check import check_spec
-
-    try:
-        check_spec(Spec.model_validate(spec))
-    except SpecError as e:
-        raise SpecError([MlsError(x.path, f"the imported spec does not check (an import bug): {x.message}",
-                                  x.fix, "import") for x in e.errors]) from None
+               f"{lifted_n} policy and CHECK expressions lifted into the fragment, {opaque_n} opaque blocks; "
+               f"see the import notes for what was left out")
+    spec = {"$comment": comment, **spec}
     return ImportResult(spec, notes)
 
 

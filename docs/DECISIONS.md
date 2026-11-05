@@ -494,6 +494,22 @@ the function is a one-line SQL wrapper — the lifter reads `pg_proc` only to bu
 never to inline (a SECURITY DEFINER body is exactly the object D34 says must be visible, not
 trusted). Rejected: lifting through `pg_node_tree` (`polqual`) instead of the deparsed text —
 version-specific and undocumented; a `--lift-functions` option — reopens D3.
+*Implementation defaults (2026-11-05):* the lifter works at the boolean connectives — a
+conjunct, disjunct or negand it cannot read becomes an opaque block of its own text, so a
+single user function does not hide the rest of the policy; every lifted atom is validated with
+the spec checker before it is kept. The compiler's own transition trigger (`mls_tr_<table>_
+<name>`, the fixed body of `compile/transition.py`) is read back as a transition rule, because
+the acceptance criterion (an empty `behaviour_diff` against the source) needs the transition
+layer; any other trigger is listed. A CHECK is a check rule when it is the template's `(p) IS
+TRUE` or when it is bare over NOT NULL columns only (then the two forms mean the same; drift
+reports `differs` until a deploy rewrites it); a bare CHECK over a nullable column is listed,
+since it passes on NULL where a check rule rejects. The compiler's relation-visibility
+policies give an imported relation its name back, and those policies and the relation grants
+are not imported as rules (the compiler regenerates them). A membership proposes its relation
+only when the pair is a key of a governed table. `NOT IN (c1, ...)` deparses as `<> ALL`, read
+as the negated `in`. The generated index set is made order-independent (a key that is a prefix
+of another wanted key is dropped) so that an imported spec, whose rules are in catalog order,
+compiles to the indexes of the source.
 
 **D47. `session_setting` identity adapter (amends D1).** `current_setting('app.<name>', true)`
 as a context source, typed by the spec, wrapped `(select … ::t)` for InitPlan evaluation, NULL

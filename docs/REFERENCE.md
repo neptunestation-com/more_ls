@@ -543,7 +543,8 @@ All names are deterministic functions of the spec, so `mls drift` can match them
 Indexes (D14): one composite index per conjunctive group of a permissive policy (membership
 columns first, then comparison columns), one on each foreign key's referencing columns, and a
 key-leading one on each relation table (its primary key or unique constraint usually supplies
-it).
+it).  A key that is a prefix of another wanted key is covered by it, whatever order the rules
+name them in, so the index set does not depend on rule order.
 
 Hardening (D13), on every deployment: the preamble refuses to run as an app role; app roles
 lose `BYPASSRLS`, `SUPERUSER`, `CREATEDB`, `CREATEROLE` and `SET` on `session_replication_role`;
@@ -639,7 +640,9 @@ Shadow-deploys the spec in a transaction it rolls back, then compares catalogs. 
 `<kind>: <object> (expected ..., found ...)` with kinds `missing`, `unexpected`, `differs`,
 `hardening` (drift), `assumed` (hardening the spec's `assume` accounts for, §5) and `foreign`
 (an object on an adopted table that the spec does not declare and that cannot grant access: a
-constraint, trigger, index or column).  Prints `drift: none, the live schema matches the spec`
+constraint, trigger, index or column).  An imported CHECK written without `IS TRUE` is
+`differs` until a deploy rewrites it to the check template's form (the notes of `mls import`
+say so).  Prints `drift: none, the live schema matches the spec`
 or the count of drift items, followed by the counts of assumed and foreign items in parentheses.
 Exit 1 if any drift item; `assumed` and `foreign` items are the expected state of an adopted
 table and do not fail.
@@ -657,17 +660,50 @@ is guessed from the policy expressions (`auth.uid()`/`auth.jwt()` → `supabase`
 `current_setting('app.*')` → `session_setting`, `current_user` → `pg_roles`) with the context
 values they read, and reported when ambiguous.  A relation is proposed for every `(key, value)`
 pair an inclusion-shaped foreign key targets and for every two-column key a policy's SQL
-reads.  Every policy becomes a rule, one per role it applies to, whose `using` and `check` are
-opaque blocks with the policy's catalog signature: the columns it depends on or names, the
-context values whose source it reads, the proposed relations whose table it names (a literal
-`true`/`false` is a `lit`); the lifter (D46) later turns the blocks it can read into the
-fragment.  A foreign key of the inclusion shape (two columns onto a key pair, `MATCH SIMPLE`,
-`ON UPDATE/DELETE RESTRICT`) becomes an inclusion rule; column-level grants become column
-rules.  Listed in the notes and not imported: CHECKs, triggers, other foreign keys, grants
-with no permissive policy, policies for no app role, policies whose names are not identifiers
-(the rule gets the identifier; a deploy renames the policy).  The spec goes to stdout or `--out`,
-the notes to stderr; `--json` prints `{"ok", "spec", "notes"}`.  Exit 1 with the errors when no
-app role is found or the schema has no tables.
+reads.  Every policy becomes a rule, one per role it applies to, whose `using` and `check` the
+lifter reads (below); what it cannot read is an opaque block with the policy's catalog
+signature: the columns it depends on or names, the context values whose source it reads, the
+relations on the tables it names.  A foreign key of the inclusion shape (two columns onto a key
+pair, `MATCH SIMPLE`, `ON UPDATE/DELETE RESTRICT`) becomes an inclusion rule; column-level
+grants become column rules; a CHECK the lifter reads becomes a check rule; a trigger of the
+transition template MLS itself emits becomes a transition rule.  The compiler's own relation
+policies (`mls_rel_<relation>_<role>_<n>`, which give the relation its name back) and relation
+grants are recognized and not imported as rules.  Listed in the notes and not imported: other
+triggers, other foreign keys, a CHECK the lifter cannot read or that is `NOT VALID`, a CHECK
+over nullable columns written without `IS TRUE` (it passes on NULL where a check rule rejects),
+grants with no permissive policy, policies for no app role, policies whose names are not
+identifiers (the rule gets the identifier; a deploy renames the policy).  Notes prefixed
+`lint:` name hand-written shapes a deploy improves on (a bare `auth.uid()` evaluated per row,
+a correlated `EXISTS`).  The spec goes to stdout or `--out`, the notes to stderr; `--json`
+prints `{"ok", "spec", "notes"}`.  Exit 1 with the errors when no app role is found or the
+schema has no tables.
+
+**The lifter** (D46, `pg/lift.py`) parses the deparsed text of an expression and reads:
+
+| Shape in the catalog | Lifted to |
+|---|---|
+| `col op (select <ctx>)`, `col op const`, `(select <ctx>) op const` | `cmp` (the column on the left; `<` and `>` flip) |
+| `col = any (array[c1, ...])`, `col in (c1, ...)`, `col <> all (array[...])` | `in` (negated: `not` of `in`) |
+| `col = any (array(select value from rel where key = <ctx>))` | `member` |
+| `col in (select value from rel where key = <ctx>)` | `member` (noted as lifted; the compiler writes the array shape) |
+| `exists (select 1 from rel where rel.key = <ctx> and rel.value = t.col)` | `member` (noted as the slow per-row shape of FINDINGS) |
+| `col = any ((select mls_reach_<h>(<ctx>))::t[])` | `in_group`, when the spec declares hierarchy `h` |
+| `col is [not] null`, `and`, `or`, `not`, `true`, `false` | the same |
+| `(f is null or f <= (select now())) and (u is null or (select now()) < u)` | `now_between` |
+| a bare boolean column `b` | `b = true` |
+| `(p) is true` at the top of a CHECK | `p` |
+| the adapter's identity expression, with or without the `(select ...)` wrapper | `ctx` (without the wrapper a `lint:` note names the index-friendly form) |
+
+A `(key, value)` membership proposes the relation when the pair is a primary key or unique
+constraint of a governed table, else the lookup stays opaque with the reason.  The lifter
+works at the boolean connectives: a conjunct, disjunct or negand it cannot read becomes an
+opaque block of its own text (an expression it cannot parse at all is one block), so a lifted
+spec always checks.  Never read: a call to any function that is not an identity source or a
+compiler helper (a one-line SQL wrapper included: user functions are never inlined, D34),
+`like` (an opaque block over the column, which the leakproof lint reports), a negated
+membership (an anti-join), a membership subquery over more than one table, `IS TRUE` inside an
+expression (the fragment is three-valued), `CASE`, arithmetic.  The notes say which part of
+which policy stayed opaque and why.
 
 ### `mls schema`
 

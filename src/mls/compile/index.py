@@ -66,10 +66,14 @@ def index_specs(spec: Spec) -> list[tuple[str, str, tuple[str, ...]]]:
     wanted: dict[str, list[tuple[str, ...]]] = {}
 
     def want(table: str, cols: list[str]) -> None:
+        """One index per distinct key; a key that is a prefix of another is covered by it,
+        whichever order the rules name them in (an imported spec lists policies by name)."""
         key = tuple(cols)
         lst = wanted.setdefault(table, [])
-        if key not in lst and not any(existing[:len(key)] == key for existing in lst):
-            lst.append(key)
+        if any(existing[:len(key)] == key for existing in lst):
+            return
+        lst[:] = [existing for existing in lst if key[:len(existing)] != existing]
+        lst.append(key)
 
     for p in spec.policies():
         if p.mode != "permissive":

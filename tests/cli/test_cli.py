@@ -59,7 +59,9 @@ def test_explain_diff_migrate(tmp_path, capsys):
     assert json.loads((tmp_path / "d.json").read_text())["summary"]["access_changes"] == 2
     assert main(["migrate", str(EXAMPLE), str(V2)]) == 0
     out = capsys.readouterr().out
-    assert "phase 4: validate" in out and 'create index concurrently "mls_ix_docs_owner_id"' in out
+    assert "phase 4: validate" in out
+    # v2's policy on owner_id needs no index of its own: v1's inclusion index (owner_id, tenant_id) covers it
+    assert "mls_ix_docs_owner_id" not in out
     assert main(["migrate", str(V2), str(EXAMPLE), "--format", "json"]) == 0
     assert "destructive statements omitted" in json.loads(capsys.readouterr().out)["notes"][0]
 

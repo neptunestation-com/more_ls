@@ -109,11 +109,19 @@ code or a generated object name, update them in the same change.
   it from the spec, reports undeclared constraints/triggers/indexes/columns on it as `foreign`
   (non-failing) and the `assume` entries as `assumed` (non-failing; a stale one is a note). The
   assumptions are rendered once (`english.assumption_lines`) for the proof report, explain, diff
-  and the script header. `pg/adopt.py` is `mls import` (every policy an opaque block with its
-  catalog signature; `true`/`false` as `lit`; inclusion-shaped FKs as inclusion rules; column
-  grants as column rules; hardening state as `assume`) and `verify_adopted` (`check --dsn`). The
-  harness creates adopted tables itself before the script (`Harness.pre_existing_sql`).
-  `tests/brownfield/supabase_schema.sql` is the hand-written acceptance fixture.
+  and the script header. `pg/adopt.py` is `mls import` (policies through the lifter; what it
+  cannot read an opaque block with its catalog signature; inclusion-shaped FKs as inclusion
+  rules; column grants as column rules; readable CHECKs as check rules; the compiler's own
+  transition triggers as transition rules; hardening state as `assume`; the compiler's
+  `mls_rel_*` policies and relation grants recognized, not imported) and `verify_adopted`
+  (`check --dsn`). `pg/lift.py` is the lifter (D46): a tokenizer and recursive-descent parser for
+  the deparsed text, an `Env` (the spec so far) and a `Lifter` that reads the compiler's shapes
+  and the hand-written idioms at the boolean connectives, validating every atom with
+  `spec/check.py` before keeping it; `tests/pg/test_lift.py` pins every shape (fast, no Docker),
+  `tests/templates/test_lift.py` is the per-template round trip (deploy, import, drift clean,
+  `behaviour_diff` empty) on PG 15–18. The harness creates adopted tables itself before the
+  script (`Harness.pre_existing_sql`). `tests/brownfield/supabase_schema.sql` is the hand-written
+  acceptance fixture.
 - Lean track (D11, D41): `lean/` is a Lake project (core Lean 4, no Mathlib; pinned in
   `lean/lean-toolchain`). `cd lean && lake build` checks it; CI does, and `uv run pytest -m lean`
   does when `lake` is on PATH (skipped otherwise). `lean/MLS/Pred.lean` is `logic/tvl.py`
@@ -142,7 +150,7 @@ src/mls/
   props/       property templates + custom properties, proof runner, reports
   compile/     one module per template: policy, check, fk, transition, time, column, index, hardening
   identity/    adapters: supabase, pg_roles, session_setting (D47)
-  pg/          catalog introspection, EXPLAIN checks, differential test harness, import (adopt.py)
+  pg/          catalog introspection, EXPLAIN checks, differential test harness, import (adopt.py), lifter (lift.py)
   cli.py
 tests/
   templates/   per-template differential + mutation tests (parametrized over PG versions)
