@@ -28,6 +28,8 @@ error).  For the design: `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.
     uv run mls lint    examples/tenant_docs.mls.json        # leakproof warnings and policy-set findings (hygiene, exit 0)
     uv run mls explain examples/tenant_docs.mls.json        # the rules and properties in plain English
     uv run mls explain examples/tenant_docs.mls.json --terse   # the whole spec in the terse syntax (D50), one line per item
+    uv run mls fmt     examples/tenant_docs.mls.json        # convert to the terse syntax (and back from a .mls file)
+    uv run mls check   examples/tenant_docs.mls             # every command reads .mls (terse) or .mls.json by extension
     uv run mls diff    examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json     # access diff with scenarios
     uv run mls migrate examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json     # phased DDL with lock levels
     uv run mls preflight examples/tenant_docs_v2.mls.json --old examples/tenant_docs.mls.json --dsn $DSN

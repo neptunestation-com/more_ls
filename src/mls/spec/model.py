@@ -23,6 +23,8 @@ Terms are single-key objects: {"col": c}, {"ctx": name}, {"const": v}, {"old": c
 from __future__ import annotations
 
 import json
+
+from mls.errors import MlsError as MlsErrorRef
 from pathlib import Path
 from typing import Annotated, Any, Literal, Union
 
@@ -532,17 +534,36 @@ class Spec(Strict):
         return cv.type if cv else None
 
 
+def is_terse(path: str | Path) -> bool:
+    """`.mls` is the terse syntax, anything else (`.mls.json`, `.json`) is JSON (D50)."""
+    return Path(path).suffix == ".mls"
+
+
 def load_spec(path: str | Path) -> Spec:
-    """Parse and validate a spec file (schema level only; run check_spec for types/fragment)."""
+    """Parse and validate a spec file (schema level only; run check_spec for types/fragment).
+    The syntax is chosen by extension: `.mls` is terse (`spec/syntax.py`), otherwise JSON."""
     from mls.spec.check import pydantic_errors_to_mls
     from mls.errors import SpecError
     from pydantic import ValidationError
 
-    data = json.loads(Path(path).read_text())
+    text = Path(path).read_text()
+    if is_terse(path):
+        from mls.spec.syntax import parse
+
+        return parse(text, str(path))
     try:
-        return Spec.model_validate(data)
+        return Spec.model_validate(json.loads(text))
+    except json.JSONDecodeError as e:
+        raise SpecError([MlsErrorRef(path="$", message=f"{path}:{e.lineno}:{e.colno}: not JSON: {e.msg}",
+                                     fix="a spec is one JSON object (or terse syntax in a .mls file)",
+                                     code="syntax")]) from None
     except ValidationError as e:
         raise SpecError(pydantic_errors_to_mls(e)) from None
+
+
+def spec_to_json(spec: Spec) -> str:
+    """The canonical serialization (D15): the JSON of the model, aliases, no nulls."""
+    return json.dumps(spec.model_dump(by_alias=True, exclude_none=True), indent=1) + "\n"
 
 
 def spec_json_schema() -> dict:

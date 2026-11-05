@@ -1,0 +1,53 @@
+mls 0.1
+comment 'The tenant_docs example on the pg_roles adapter: identity is the session role; no JWT claims, so no clearance levels.'
+
+identity pg_roles { uid: current_user text }
+roles authenticated
+
+table memberships owned {
+  user_id text not null,
+  tenant_id int not null;
+  primary_key (user_id, tenant_id)
+}
+
+table admins owned {
+  user_id text not null,
+  tenant_id int not null;
+  primary_key (user_id, tenant_id)
+}
+
+table docs owned {
+  id int not null,
+  tenant_id int not null,
+  owner_id text,
+  level int not null,
+  archived int;
+  primary_key (id)
+}
+
+relation member_of = memberships(user_id, tenant_id)
+relation admin_of = admins(user_id, tenant_id)
+
+rules {
+  R1 policy member_read on docs: authenticated select permissive using member_of(@uid, tenant_id) requirement 'REQ-1'
+  R2 policy admin_read on docs: authenticated select permissive using admin_of(@uid, tenant_id) requirement 'REQ-2'
+  R3 policy member_insert on docs: authenticated insert permissive check member_of(@uid, tenant_id) requirement 'REQ-3'
+  R4 policy member_update on docs: authenticated update permissive using member_of(@uid, tenant_id) check member_of(@uid, tenant_id) requirement 'REQ-3'
+  R5 policy not_archived on docs: authenticated all restrictive using not archived = 1 requirement 'REQ-4'
+  R6 check level_range on docs: level >= 0 and level <= 3 requirement 'REQ-5'
+  R7 inclusion owner_in_tenant on docs: (owner_id, tenant_id) in member_of on_delete restrict requirement 'REQ-6'
+  R8 inclusion admin_is_member on admins: (user_id, tenant_id) in member_of on_delete restrict requirement 'REQ-6'
+  R9 transition tenant_immutable on docs: new.tenant_id = old.tenant_id requirement 'REQ-7'
+}
+
+properties {
+  P1 tenant_isolation docs: tenant_id in member_of(@uid) for select, insert, update description 'a user only touches docs of tenants they belong to'
+  P2 column_immutable docs: tenant_id description 'a doc never changes tenant'
+  P3 monotone_in: member_of description 'removing a membership never grants access'
+  P4 invariant_preserved: R6; R7; R8 description 'levels stay in range, owners stay members, admins stay members'
+  P5 write_subset_read docs description 'whatever a user writes, they can read back'
+  P6 least_privilege: authenticated docs[select, insert, update]; authenticated memberships[select]; authenticated admins[select]
+  P7 must_allow docs authenticated select: member_of(@uid, tenant_id) and (not archived is null and archived <> 1) description 'a member reads the unarchived documents of their tenants'
+  P8 must_allow docs authenticated insert: member_of(@uid, tenant_id) and level >= 0 and level <= 3 and owner_id is null and archived = 0 description 'a member creates an unarchived document in their tenant'
+  P9 must_allow docs authenticated update: member_of(@uid, old.tenant_id) and old.archived = 0 and new.archived = 0 and new.tenant_id = old.tenant_id and new.id = old.id and new.owner_id is null and new.level >= 0 and new.level <= 3 description 'a member updates an unarchived document of their tenant, keeping its tenant'
+}

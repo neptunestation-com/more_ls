@@ -1,0 +1,61 @@
+mls 0.1
+comment 'Version 2 of tenant_docs: a nullable title, a looser level range, owner-immutable rows, owners may delete, and a per-tenant settings table. Used by `mls diff | migrate | preflight`.'
+
+identity supabase { uid: auth.uid uuid; clearance: jwt.claims.clearance int }
+roles authenticated
+
+table memberships owned {
+  user_id uuid not null,
+  tenant_id int not null;
+  primary_key (user_id, tenant_id)
+}
+
+table admins owned {
+  user_id uuid not null,
+  tenant_id int not null;
+  primary_key (user_id, tenant_id)
+}
+
+table docs owned {
+  id int not null,
+  tenant_id int not null,
+  owner_id uuid,
+  level int not null,
+  archived int,
+  title text;
+  primary_key (id)
+}
+
+table tenant_settings owned {
+  tenant_id int not null,
+  max_level int not null;
+  primary_key (tenant_id)
+}
+
+relation member_of = memberships(user_id, tenant_id)
+relation admin_of = admins(user_id, tenant_id)
+
+rules {
+  R1 policy member_read on docs: authenticated select permissive using member_of(@uid, tenant_id) and level <= @clearance requirement 'REQ-1'
+  R2 policy admin_read on docs: authenticated select permissive using admin_of(@uid, tenant_id) requirement 'REQ-2'
+  R3 policy member_insert on docs: authenticated insert permissive check member_of(@uid, tenant_id) and level <= @clearance requirement 'REQ-3'
+  R4 policy member_update on docs: authenticated update permissive using member_of(@uid, tenant_id) check member_of(@uid, tenant_id) and level <= @clearance requirement 'REQ-3'
+  R5 policy not_archived on docs: authenticated all restrictive using not archived = 1 requirement 'REQ-4'
+  R6 check level_range on docs: level >= 0 and level <= 4 requirement 'REQ-5'
+  R7 inclusion owner_in_tenant on docs: (owner_id, tenant_id) in member_of on_delete restrict requirement 'REQ-6'
+  R8 inclusion admin_is_member on admins: (user_id, tenant_id) in member_of on_delete restrict requirement 'REQ-6'
+  R9 transition tenant_immutable on docs: new.tenant_id = old.tenant_id and (old.owner_id is null or new.owner_id = old.owner_id) requirement 'REQ-7'
+  R10 policy owner_delete on docs: authenticated delete permissive using owner_id = @uid requirement 'REQ-8'
+  R11 check title_not_blank on docs: title is null or title <> '' requirement 'REQ-9'
+  R12 policy settings_member_read on tenant_settings: authenticated select permissive using member_of(@uid, tenant_id) requirement 'REQ-10'
+  R13 check max_level_range on tenant_settings: max_level >= 0 and max_level <= 4 requirement 'REQ-10'
+}
+
+properties {
+  P1 tenant_isolation docs: tenant_id in member_of(@uid) for select, insert, update, delete description 'a user only touches docs of tenants they belong to'
+  P2 column_immutable docs: tenant_id description 'a doc never changes tenant'
+  P3 monotone_in: member_of description 'removing a membership never grants access'
+  P4 invariant_preserved: R6; R7; R8; R11 description 'levels stay in range, owners stay members, admins stay members'
+  P5 write_subset_read docs description 'whatever a user writes, they can read back'
+  P6 least_privilege: authenticated docs[select, insert, update, delete]; authenticated memberships[select]; authenticated admins[select]; authenticated tenant_settings[select]
+}

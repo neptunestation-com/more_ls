@@ -26,7 +26,10 @@ Contents
 
 ## 1. The spec file
 
-A spec is one JSON object.  Keys in order of appearance; the JSON Schema is `mls schema`.
+A spec is one JSON object (a `.mls.json` or `.json` file) or the same spec in the terse syntax
+(a `.mls` file, §13); every command reads either, by extension, and `mls fmt` converts between
+them.  The JSON is the canonical serialization: its keys, in order of appearance, are below,
+and the JSON Schema is `mls schema`.
 
 | Key | Required | Value |
 |---|---|---|
@@ -535,15 +538,18 @@ tenant_id: docs, files*, with its expansion as an indented list of concrete rule
 The terse syntax (D44, completed to the whole spec by D50) is the second concrete syntax of
 the same model: `mls explain --terse` prints the whole spec in it (`src/mls/terse.py:render`),
 the `before`/`after` lines of `mls diff` and the `spec_terse` field of LLM transcripts use its
-predicate and rule forms, and the parser reads `.mls` files back (D50; the JSON stays the
-canonical serialization).  The grammar:
+predicate and rule forms, and the parser (`src/mls/spec/syntax.py`) reads `.mls` files back,
+with a source span per node (D50; the JSON stays the canonical serialization).  The round trip
+`parse(render(spec)) == spec` holds for every example and every eval case and is tested; a
+one-element `and`/`or` is the one shape it cannot keep (it reads back as its element).  The
+grammar:
 
     spec       := 'mls' VERSION [comment] identity roles table* relation* hierarchy* opaque*
                   'rules' '{' rule* '}' 'properties' '{' property* '}'
     comment    := 'comment' STRING                               (the spec's $comment)
     identity   := 'identity' ADAPTER '{' [ctx (';' ctx)*] '}'    ctx := NAME ':' SOURCE TYPE
     roles      := 'roles' NAME (',' NAME)*
-    table      := 'table' NAME MODE '{' [column (',' column)*] (';' option)* '}'
+    table      := 'table' NAME MODE '{' [column (',' column)* [';']] [option (';' option)*] '}'
     column     := NAME TYPE ['not null']                          (a bare column is nullable)
     option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
                 | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced')
@@ -557,15 +563,20 @@ canonical serialization).  The grammar:
     term       := column | old.column | new.column | @context | 'text' | 123 | true | false
     atom       := term op term | term in (const, ...) | term is null | relation(key, value)
                 | in_group(h, key, value) | now_between(from | -, until | -) | opaque(name) | true | false
-    pred       := atom | not pred | pred and pred | pred or pred   (not > and > or; minimal parens)
+    pred       := atom | not pred | pred and pred | pred or pred   (not > and > or; a nested same-
+                                                                   connective group keeps its parens)
+    least_privilege body := grant (';' grant)* | '[]'   grant := ROLE TABLE '[' [commands] ']' | ROLE '[]'
 
 `# comments` run to the end of the line.  Keywords are reserved (the section, clause, kind,
 template, command, mode and predicate words; `terse.RESERVED`): a name spelled like one, or
 that is not an identifier, is written `"quoted"`; `'strings'` double their quotes; the SQL of
 an opaque block is dollar-quoted as in Postgres, with a tag (`$mls$`) when it contains `$$`.
 Every item is one line, except a table, whose columns and options are one per line, so a diff
-shows one changed rule or column as one changed line.  A rule's `applies_to` is shown on the
-selector rule; after `mls check` expands it, each expansion shows its table and `from`.  An
+shows one changed rule or column as one changed line.  A nested group of the same connective
+keeps its parentheses (`a and (b and c)`), so the text reads back as the tree it was.  The
+parser accepts the sections in any order (`identity`, `roles`, `rules` and `properties` at
+most once each) and any whitespace; the formatter writes them in the order above.  A rule's
+`applies_to` is shown on the selector rule; after `mls check` expands it, each expansion shows its table and `from`.  An
 `in` list is shown as written before `check` and as its expansion (`level = 2 or level = 3`)
 after.
 
@@ -655,9 +666,11 @@ revoke or reset something MLS did not create.
 
     uv run mls <command> [options]
 
-Every command reads specs as JSON files.  Commands that load a spec exit 1 with the checker's
-errors if it does not check.  Commands that need a database take `--dsn`; `mls test` can start
-Docker containers instead.
+Every command reads a spec in either syntax, by extension (`.mls` is terse, anything else is
+JSON; §1, §13).  Commands that load a spec exit 1 with the checker's errors if it does not
+check (a syntax error is `syntax at <path>: <file>:<line>:<col>: expected ..., found ...`
+followed by the offending line).  Commands that need a database take `--dsn`; `mls test` can
+start Docker containers instead.
 
 ### `mls check SPEC [--dsn DSN [--schema NAME]] [--json]`
 
@@ -836,6 +849,15 @@ compiler helper (a one-line SQL wrapper included: user functions are never inlin
 membership (an anti-join), a membership subquery over more than one table, `IS TRUE` inside an
 expression (the fragment is three-valued), `CASE`, arithmetic.  The notes say which part of
 which policy stayed opaque and why.
+
+### `mls fmt SPEC [--to json|terse] [--out FILE]`
+
+Converts a spec between the two syntaxes (D50): to the other one by default, so `mls fmt
+spec.mls.json` prints the terse form and `mls fmt spec.mls` the JSON; `--to terse` on a `.mls`
+file is the formatter (the renderer: its output is idempotent).  The JSON written is the
+model's canonical serialization (aliases, no nulls, the defaults spelled out).  Exit 1 with
+the errors when the input does not parse or validate; the fragment is not checked (`mls
+check` is).
 
 ### `mls schema`
 

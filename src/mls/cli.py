@@ -1,4 +1,4 @@
-"""mls: check | prove | compile | test | diff | migrate | preflight | drift | import | status | explain | lint | schema | eval"""
+"""mls: check | prove | compile | test | diff | migrate | preflight | drift | import | status | explain | fmt | lint | schema | eval"""
 from __future__ import annotations
 
 import argparse
@@ -46,6 +46,25 @@ def cmd_check(a) -> int:
         _print_errors(CompileError(errs), a.json)
         return 1
     print(json.dumps({"ok": True}) if a.json else f"{a.spec}: OK")
+    return 0
+
+
+def cmd_fmt(a) -> int:
+    """Convert between the two syntaxes (D50); `fmt` of a .mls file to terse is the formatter."""
+    from mls.spec import is_terse, load_spec, spec_to_json
+    from mls.terse import render
+
+    try:
+        spec = load_spec(a.spec)
+    except SpecError as e:
+        _print_errors(e, False)
+        return 1
+    to = a.to or ("json" if is_terse(a.spec) else "terse")
+    text = render(spec) if to == "terse" else spec_to_json(spec)
+    if a.out:
+        Path(a.out).write_text(text)
+    else:
+        print(text, end="")
     return 0
 
 
@@ -471,6 +490,13 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--schema", default="public")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_check)
+
+    p = sub.add_parser("fmt", help="convert a spec between the JSON and the terse syntax (D50); the other syntax "
+                                   "by default, `--to terse` on a .mls file formats it")
+    p.add_argument("spec")
+    p.add_argument("--to", choices=["json", "terse"])
+    p.add_argument("--out")
+    p.set_defaults(fn=cmd_fmt)
 
     p = sub.add_parser("schema", help="print the JSON Schema of the spec language")
     p.set_defaults(fn=cmd_schema)

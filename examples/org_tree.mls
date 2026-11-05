@@ -1,0 +1,55 @@
+mls 0.1
+comment 'Milestone 3 example: a group hierarchy (D5) and a per-tenant cardinality limit (D4). Users belong to groups; a group tree is at most 3 levels deep; a user sees the files of their groups and of every group below them; a tenant holds at most 5 files.'
+
+identity supabase { uid: auth.uid uuid }
+roles authenticated
+
+table tenants owned {
+  id int not null;
+  primary_key (id)
+}
+
+table groups owned {
+  id int not null,
+  parent_id int,
+  depth int not null,
+  tenant_id int not null;
+  primary_key (id)
+}
+
+table group_members owned {
+  user_id uuid not null,
+  group_id int not null;
+  primary_key (user_id, group_id)
+}
+
+table files owned {
+  id int not null,
+  group_id int not null,
+  tenant_id int,
+  size int not null;
+  primary_key (id)
+}
+
+relation group_member = group_members(user_id, group_id)
+
+hierarchy org = groups id id parent parent_id depth depth max_depth 3 members group_member
+
+rules {
+  R1 policy group_read on files: authenticated select permissive using in_group(org, @uid, group_id) requirement 'REQ-1'
+  R2 policy group_insert on files: authenticated insert permissive check in_group(org, @uid, group_id) requirement 'REQ-2'
+  R3 policy group_update on files: authenticated update permissive using in_group(org, @uid, group_id) requirement 'REQ-2'
+  R4 policy own_groups_read on groups: authenticated select permissive using in_group(org, @uid, id) requirement 'REQ-3'
+  R5 cardinality files_per_tenant on files: tenant_id -> tenants max 5 requirement 'REQ-4'
+  R6 check size_positive on files: size >= 0 requirement 'REQ-5'
+}
+
+properties {
+  P1 custom files authenticated select new: in_group(org, @uid, group_id) description 'a user only reads files of groups they belong to or that lie below them'
+  P2 monotone_in: group_member description 'leaving a group never grants access'
+  P3 invariant_preserved: R5; R6 description 'a tenant never holds more than 5 files; sizes stay non-negative'
+  P4 write_subset_read files description 'whatever a user writes, they can read back'
+  P5 least_privilege: authenticated files[select, insert, update]; authenticated groups[select]
+  P6 must_allow files authenticated select: group_member(@uid, group_id) description 'a user reads the files of the groups they belong to'
+  P7 must_allow files authenticated insert: group_member(@uid, group_id) and size >= 0 description 'a user adds a file to a group they belong to'
+}

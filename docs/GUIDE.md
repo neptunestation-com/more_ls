@@ -179,8 +179,8 @@ when quoting rules.  The example above, rendered:
 The two are views of one model: a construct exists when the model has it, and both syntaxes
 get it in the same change.  The JSON stays the canonical serialization (what `mls schema`
 describes, what the eval cases and every program hold); the terse form is what a person reads
-in a diff or a transcript, and what the parser (`.mls` files, `mls fmt`) reads back.  The
-grammar is in the reference, §13.
+in a diff or a transcript, and what `mls` reads from a `.mls` file (`mls fmt` converts either
+way; every example has its `.mls` twin).  The grammar is in the reference, §13.
 
 ## 4. Walkthrough: tenant-scoped documents
 
@@ -290,6 +290,8 @@ how the NULL question in 4.1 gets answered and recorded.
     $ uv run mls check examples/tenant_docs.mls.json
     examples/tenant_docs.mls.json: OK
 
+The same spec in the terse syntax is `examples/tenant_docs.mls`; every command reads it the same
+way (`uv run mls check examples/tenant_docs.mls`), and `uv run mls fmt` converts either way.
 `check` validates the JSON against the pydantic model, type-checks every predicate, and enforces
 the fragment (which predicate forms are allowed where).  It also runs the compiler's soundness
 obligations, so a spec that passes `check` compiles.  Errors name the JSON path and, where

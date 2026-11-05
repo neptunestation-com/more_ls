@@ -1,10 +1,12 @@
 """The terse syntax is a fixed function of the model and covers every construct of the whole
-spec (D44, D50): one golden line per construct, and a check that the model has nothing the
-renderer does not know (a construct without a terse form fails here)."""
+spec (D44, D50): one golden line per construct, a check that the model has nothing the
+renderer does not know (a construct without a terse form fails here), and the round trip
+`parse(render(spec)) == spec` over every example and every eval case."""
 from __future__ import annotations
 
 import json
 import typing
+from pathlib import Path
 
 from pydantic import TypeAdapter
 
@@ -48,7 +50,7 @@ def test_precedence_and_minimal_parentheses():
     assert pred({"not": {"and": [a, b]}}) == "not (a = 1 and b is null)"
     assert pred({"not": b}) == "not b is null"
     assert pred({"and": [{"not": {"or": [a, b]}}, c]}) == "not (a = 1 or b is null) and true"
-    assert pred({"and": [{"and": [a, b]}, c]}) == "a = 1 and b is null and true"
+    assert pred({"and": [{"and": [a, b]}, c]}) == "(a = 1 and b is null) and true"  # the tree, not flattened
     assert pred({"and": [{"or": [a]}]}) == "a = 1"      # single-element lists add no parentheses
 
 
@@ -219,6 +221,53 @@ def test_the_renderer_covers_the_whole_model():
     for cls in _members(Rule):
         kind = typing.get_args(cls.model_fields["kind"].annotation)[0]
         assert set(cls.model_fields) - terse.RENDERED_FIELDS[terse.RuleBase] == own[kind], cls.__name__
+
+
+def _corpus() -> list[tuple[str, dict]]:
+    from mls.evals import case_files, load_case
+    from tests.conftest import ROOT
+
+    out = [(str(f), json.loads(f.read_text())) for f in sorted((ROOT / "examples").glob("*.mls.json"))]
+    for f in case_files([ROOT / "evals" / "cases"]):
+        ref = load_case(f)["reference_spec"]
+        out.append((str(f), json.loads((f.parent / ref).read_text()) if isinstance(ref, str) else ref))
+    return out
+
+
+def test_round_trip_of_every_example_and_eval_case():
+    """D50's evidence: parse(render(spec)) == spec, and render(parse(text)) == text."""
+    from mls.spec.syntax import parse
+
+    corpus = _corpus()
+    assert len(corpus) >= 260
+    for name, d in corpus:
+        spec = Spec.model_validate(d)
+        text = terse.render(spec)
+        back = parse(text)
+        assert back == spec, name
+        assert terse.render(back) == text, name
+
+
+def test_committed_mls_twins_are_current():
+    """Each example has a `.mls` twin: the renderer's output, byte for byte, and the same spec."""
+    from mls.spec import load_spec
+    from tests.conftest import ROOT
+
+    for f in sorted((ROOT / "examples").glob("*.mls.json")):
+        twin = Path(str(f)[:-len(".json")])
+        assert twin.exists(), f"{twin} is missing: uv run mls fmt {f.name} --out {twin.name}"
+        spec = load_spec(f)
+        assert twin.read_text() == terse.render(spec), f"{twin} is stale: uv run mls fmt {f.name} --out {twin.name}"
+        assert load_spec(twin) == spec
+
+
+def test_nested_groups_keep_their_parentheses():
+    """`a and (b and c)` reads back as the tree it was (the round trip needs it); a one-element
+    group is its element and cannot be told apart, which no spec of the corpus relies on."""
+    a, b, c = {"cmp": [{"col": "a"}, "=", {"const": 1}]}, {"is_null": {"col": "b"}}, {"lit": True}
+    assert pred({"and": [a, {"and": [b, c]}]}) == "a = 1 and (b is null and true)"
+    assert pred({"or": [{"or": [a, b]}, c]}) == "(a = 1 or b is null) or true"
+    assert pred({"and": [{"or": [a]}]}) == "a = 1"
 
 
 def test_scenario():

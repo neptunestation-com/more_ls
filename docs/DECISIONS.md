@@ -664,6 +664,16 @@ command, mode and predicate words (`terse.RESERVED`). `in` renders as written on
 spec and as its expansion after `check`. `tests/test_terse.py` compares the model's fields and
 union members with what the renderer declares it covers (`RENDERED_FIELDS`, `RENDERED_CLASSES`),
 which is how a construct without a terse form fails the fast suite.
+*Implementation defaults (2026-11-05, the parser):* `spec/syntax.py` builds the JSON shape and
+validates it with the model, so a schema error from a `.mls` input has the same JSON path as
+from JSON; a syntax error is `syntax at <partial path>: file:line:col: expected ..., found
+...` with the offending line. Spans are recorded per JSON path (`parse_data`) for the
+source-span errors. Sections may come in any order; the formatter (`mls fmt --to terse`, the
+renderer) writes the fixed order. The round trip is exact except for a one-element `and`/`or`
+(it reads back as its element; nothing in the corpus has one), and a nested group of the same
+connective keeps its parentheses so that it does. `mls fmt` to JSON writes the model's dump
+(aliases, no nulls, defaults spelled out). Every example has a committed `.mls` twin, checked
+against the renderer by the fast suite.
 
 Why not JSON alone: the schema in the prompt is several times the grammar; a spec is three
 lines per atom, resent on every repair round; structural slips in nested single-key objects

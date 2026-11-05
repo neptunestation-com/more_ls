@@ -11,7 +11,7 @@ approval artifact (D10, D33).  The grammar:
     comment    := 'comment' STRING                               ($comment, an author's note)
     identity   := 'identity' ADAPTER '{' [ctx (';' ctx)*] '}'    ctx := NAME ':' SOURCE TYPE
     roles      := 'roles' NAME (',' NAME)*
-    table      := 'table' NAME MODE '{' [column (',' column)*] (';' option)* '}'
+    table      := 'table' NAME MODE '{' [column (',' column)* [';']] [option (';' option)*] '}'
     column     := NAME TYPE ['not null']                          (a bare column is nullable)
     option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
                 | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced')
@@ -26,7 +26,9 @@ approval artifact (D10, D33).  The grammar:
     term       := column | old.column | new.column | @context | 'text' | 123 | true | false
     atom       := term op term | term in (const, ...) | term is null | relation(key, value)
                 | in_group(h, key, value) | now_between(from | -, until | -) | opaque(name) | true | false
-    pred       := atom | not pred | pred and pred | pred or pred   (not > and > or; minimal parens)
+    pred       := atom | not pred | pred and pred | pred or pred   (not > and > or; a nested same-
+                                                                   connective group keeps its parens)
+    least_privilege body := grant (';' grant)* | '[]'   grant := ROLE TABLE '[' [commands] ']' | ROLE '[]'
 
 `# comments` to the end of a line.  Keywords (`RESERVED`) are reserved: a name spelled like one,
 or not an identifier, is written `"quoted"`; `'strings'` double their quotes.  Every item is one
@@ -166,8 +168,13 @@ def _pred(p: Pred) -> tuple[str, int]:
 
 
 def _sub(p: Pred, context: int) -> str:
+    """A sub-predicate, parenthesized when its precedence is lower, and also when it is a
+    connective group nested in a group of the same kind (`a and (b and c)`): the tree reads
+    back as written, which the round trip needs (D50); `and`/`or` are associative, so the
+    meaning is the same either way."""
     s, prec = _pred(p)
-    return f"({s})" if prec < context else s
+    same = prec == context and ((isinstance(p, And) and len(p.and_) > 1) or (isinstance(p, Or) and len(p.or_) > 1))
+    return f"({s})" if prec < context or same else s
 
 
 def pred(p: Pred) -> str:
@@ -246,9 +253,9 @@ def prop(p: Property) -> str:
     elif isinstance(p, WriteSubsetRead):
         s = f"{pid} write_subset_read {ident(p.table)}"
     elif isinstance(p, LeastPrivilege):
-        parts = [f"{ident(role)} {ident(table)}[{', '.join(cmds)}]"
-                 for role, tables in p.allowed.items() for table, cmds in tables.items()]
-        s = f"{pid} least_privilege: " + "; ".join(parts)
+        parts = [f"{ident(role)} {ident(table)}[{', '.join(cmds)}]" if tables else f"{ident(role)} []"
+                 for role, tables in p.allowed.items() for table, cmds in (tables.items() or [(None, None)])]
+        s = f"{pid} least_privilege: " + ("; ".join(parts) or "[]")
     elif isinstance(p, InvariantPreserved):
         parts = [ident(inv.rule, dotted=True) if inv.rule is not None else f"{ident(inv.table)}: {pred(inv.predicate)}"
                  for inv in p.invariants]

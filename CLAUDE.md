@@ -92,10 +92,14 @@ union member the renderer does not cover.
   `before`/`after` lines and the transcripts' `spec_terse` use `mls/terse.py` (D44, D50):
   `terse.render` is the whole spec in the terse syntax (sections `mls`, `comment`, `identity`,
   `roles`, `table` blocks, `relation`, `hierarchy`, `opaque` with `$$` SQL, `rules {}`,
-  `properties {}`; the grammar is the module docstring and REFERENCE §13). D50 makes it a
-  second concrete syntax (`.mls` by extension, `mls fmt`, round trip `parse(render(spec)) ==
-  spec` as the evidence; the parser is the next step); the JSON stays canonical (D15) and the
-  English (`english.py`, D33) stays the approval artifact. Migrations are phased; every statement
+  `properties {}`; the grammar is the module docstring and REFERENCE §13). `spec/syntax.py` is
+  the parser (`parse`, `parse_data` with a span per JSON path); `load_spec` dispatches on the
+  extension (`.mls` terse, else JSON), `mls fmt` converts, every example has a committed `.mls`
+  twin that `tests/test_terse.py` checks is the renderer's output, and the round trip
+  `parse(render(spec)) == spec` over every example and eval case (plus hypothesis specs in
+  `tests/spec/test_syntax.py`) is the evidence; the JSON stays canonical (D15) and the English
+  (`english.py`, D33) stays the approval artifact. A one-element `and`/`or` is the one shape
+  the round trip cannot keep; a nested same-connective group keeps its parentheses. Migrations are phased; every statement
   kind has a lock mode in `compile/migrate.py:LOCKS` that `tests/templates/test_locks.py` observes
   on every PG version — add the kind and its mode when you add a migration statement.
 - `tests/templates/test_migrate.py` is the migration acceptance test: deploy v1 + data, migrate,
