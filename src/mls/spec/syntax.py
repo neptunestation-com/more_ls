@@ -12,9 +12,10 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
-from mls.errors import MlsError, SpecError
+from mls.errors import MlsError, Span, SpecError
 from mls.spec.model import Spec
 
 KINDS = ("policy", "check", "inclusion", "transition", "cardinality", "column_rule")
@@ -51,6 +52,29 @@ class ParseError(Exception):
     def __init__(self, message: str, line: int, col: int, path: str):
         super().__init__(message)
         self.message, self.line, self.col, self.path = message, line, col, path
+
+
+def _positioned(production):
+    """Record the start token of the node a production returns (by identity; the JSON path of a
+    predicate or selector node is only known once the tree is built, see `_assign_spans`)."""
+    def wrapper(self, *args):
+        t = self.tok
+        node = production(self, *args)
+        if isinstance(node, dict):
+            self.pos[id(node)] = (t.line, t.col)
+        return node
+    return wrapper
+
+
+def _assign_spans(node, path: str, pos: dict[int, tuple[int, int]], spans: dict[str, tuple[int, int]]) -> None:
+    if isinstance(node, dict):
+        if id(node) in pos:
+            spans.setdefault(path, pos[id(node)])
+        for k, v in node.items():
+            _assign_spans(v, f"{path}.{k}", pos, spans)
+    elif isinstance(node, list):
+        for i, v in enumerate(node):
+            _assign_spans(v, f"{path}[{i}]", pos, spans)
 
 
 def tokenize(text: str) -> list[Tok]:
@@ -105,6 +129,7 @@ class Parser:
         self.toks = tokenize(text)
         self.i = 0
         self.spans: dict[str, tuple[int, int]] = {}
+        self.pos: dict[int, tuple[int, int]] = {}  # id(node) -> start, for nodes without a path yet
         self.path = "$"
 
     # ------------------------------------------------------------------ token helpers
@@ -447,6 +472,7 @@ class Parser:
             r["requirement"] = self.string()
         return r
 
+    @_positioned
     def selector(self) -> dict[str, Any]:
         w = self.word("has_column", "named", "tagged", "all", "and", "or")
         if w == "all":
@@ -512,32 +538,29 @@ class Parser:
         elif t == "least_privilege":
             self.eat(":")
             allowed: dict[str, dict[str, list[str]]] = {}
-            if self.at("["):  # no role at all
+            if self.at("["):  # `[]`: no role at all
                 self.advance()
                 self.eat("]")
-            while self.tok.kind in ("ident", "qident") and not self.at_word("description"):
-                role = self.name("a role")
-                if self.at("["):  # a role with no table
-                    self.advance()
-                    self.eat("]")
-                    allowed.setdefault(role, {})
-                    if self.at(";"):
+            else:
+                while True:
+                    role = self.name("a role")
+                    if self.at("["):  # `role []`: a role with no table
                         self.advance()
-                        continue
-                    break
-                table = self.name("a table")
-                self.eat("[")
-                cmds: list[str] = []
-                while not self.at("]"):
-                    cmds.append(self.word(*COMMANDS[:4]))
-                    if self.at(","):
-                        self.advance()
-                self.eat("]")
-                allowed.setdefault(role, {})[table] = cmds
-                if self.at(";"):
+                        self.eat("]")
+                        allowed.setdefault(role, {})
+                    else:
+                        table = self.name("a table")
+                        self.eat("[")
+                        cmds: list[str] = []
+                        while not self.at("]"):
+                            cmds.append(self.word(*COMMANDS[:4]))
+                            if self.at(","):
+                                self.advance()
+                        self.eat("]")
+                        allowed.setdefault(role, {})[table] = cmds
+                    if not self.at(";"):
+                        break
                     self.advance()
-                else:
-                    break
             p["allowed"] = allowed
         elif t == "invariant_preserved":
             self.eat(":")
@@ -585,6 +608,7 @@ class Parser:
         self.spans.setdefault(path, (self.tok.line, self.tok.col))
         return self.or_expr(path)
 
+    @_positioned
     def or_expr(self, path: str) -> dict[str, Any]:
         parts = [self.and_expr(path)]
         while self.at_word("or"):
@@ -592,6 +616,7 @@ class Parser:
             parts.append(self.and_expr(path))
         return parts[0] if len(parts) == 1 else {"or": parts}
 
+    @_positioned
     def and_expr(self, path: str) -> dict[str, Any]:
         parts = [self.not_expr(path)]
         while self.at_word("and"):
@@ -599,12 +624,14 @@ class Parser:
             parts.append(self.not_expr(path))
         return parts[0] if len(parts) == 1 else {"and": parts}
 
+    @_positioned
     def not_expr(self, path: str) -> dict[str, Any]:
         if self.at_word("not"):
             self.advance()
             return {"not": self.not_expr(path)}
         return self.atom(path)
 
+    @_positioned
     def atom(self, path: str) -> dict[str, Any]:
         t = self.tok
         if self.at("("):
@@ -656,7 +683,7 @@ class Parser:
         if self.at_word("in"):
             self.advance()
             self.eat("(")
-            consts = [self.const()]
+            consts = [] if self.at(")") else [self.const()]  # empty is the checker's error, with its path
             while self.at(","):
                 self.advance()
                 consts.append(self.const())
@@ -683,6 +710,7 @@ class Parser:
             raise ParseError("an in-list holds constants only", self.tok.line, self.tok.col, self.path)
         return t
 
+    @_positioned
     def term(self, path: str) -> dict[str, Any]:
         t = self.tok
         if t.kind == "str":
@@ -712,26 +740,80 @@ class Parser:
         raise self.fail("a term (column, old.column, new.column, @context, 'text', a number, true, false)")
 
 
+@dataclass
+class Source:
+    """A terse text with its spans: where an error's JSON path is in the file (invariant 7)."""
+    filename: str
+    text: str
+    spans: dict[str, tuple[int, int]] = field(default_factory=dict)
+
+    def line_text(self, line: int) -> str:
+        lines = self.text.split("\n")
+        return lines[line - 1] if 0 < line <= len(lines) else ""
+
+    def at(self, line: int, col: int) -> Span:
+        return Span(self.filename, line, col, self.line_text(line))
+
+    def span(self, path: str) -> Span | None:
+        """The span of the longest recorded path that `path` is or lies under."""
+        best = None
+        for k in self.spans:
+            if (path == k or path.startswith(k + ".") or path.startswith(k + "[")) and \
+                    (best is None or len(k) > len(best)):
+                best = k
+        return self.at(*self.spans[best]) if best is not None else None
+
+    def locate(self, errors: list[MlsError]) -> list[MlsError]:
+        """Attach a span to every error that has none and whose path the source knows."""
+        for e in errors:
+            if e.span is None:
+                e.span = self.span(e.path)
+        return errors
+
+
 def parse_data(text: str, filename: str = "<terse>") -> Parsed:
-    """The JSON shape and the spans; syntax errors as SpecError with file:line:col."""
+    """The JSON shape and the spans; syntax errors as SpecError with a span (file:line:col and the
+    offending line) and the expected tokens as the message."""
     try:
         p = Parser(text)
         data = p.spec()
     except ParseError as e:
-        line = text.split("\n")[e.line - 1] if 0 < e.line <= text.count("\n") + 1 else ""
-        raise SpecError([MlsError(path=e.path, message=f"{filename}:{e.line}:{e.col}: {e.message}\n  {line.rstrip()}",
-                                  fix="see the grammar (REFERENCE §13)", code="syntax")]) from None
+        raise SpecError([MlsError(path=e.path, message=e.message, fix="see the grammar (REFERENCE §13)",
+                                  code="syntax", span=Source(filename, text).at(e.line, e.col))]) from None
+    _assign_spans(data, "$", p.pos, p.spans)
     return Parsed(data, p.spans)
 
 
-def parse(text: str, filename: str = "<terse>") -> Spec:
-    """A terse spec, validated at the schema level (run check_spec for types and the fragment)."""
+def parse_source(text: str, filename: str = "<terse>") -> tuple[Spec, Source]:
+    """A terse spec, validated at the schema level, with its source for locating later errors
+    (`check_spec` does not see the text: locate its errors with `source.locate`)."""
     from pydantic import ValidationError
 
     from mls.spec.check import pydantic_errors_to_mls
 
     parsed = parse_data(text, filename)
+    source = Source(filename, text, parsed.spans)
     try:
-        return Spec.model_validate(parsed.data)
+        return Spec.model_validate(parsed.data), source
     except ValidationError as e:
-        raise SpecError(pydantic_errors_to_mls(e)) from None
+        raise SpecError(source.locate(pydantic_errors_to_mls(e))) from None
+
+
+def parse(text: str, filename: str = "<terse>") -> Spec:
+    """A terse spec, validated at the schema level (run check_spec for types and the fragment)."""
+    return parse_source(text, filename)[0]
+
+
+def locate(path: str | Path, errors: list[MlsError]) -> list[MlsError]:
+    """Attach spans to `errors` when `path` is a terse file (re-read and re-parsed: the error path
+    is the rare one); JSON input leaves them as they are."""
+    from mls.spec.model import is_terse
+
+    if not is_terse(path):
+        return errors
+    text = Path(path).read_text()
+    try:
+        parsed = parse_data(text, str(path))
+    except SpecError:
+        return errors
+    return Source(str(path), text, parsed.spans).locate(errors)

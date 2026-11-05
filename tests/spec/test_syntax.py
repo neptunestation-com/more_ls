@@ -209,9 +209,10 @@ def test_syntax_errors_name_the_place(text, where, msg, tmp_path):
     with pytest.raises(SpecError) as ei:
         load_spec(p)
     e = ei.value.errors[0]
-    assert e.code == "syntax" and f"{p}:{where}" in e.message and msg in e.message
-    assert e.path.startswith("$")
-    assert "\n  " in e.message  # the offending line is quoted
+    assert e.code == "syntax" and msg in e.message and e.path.startswith("$")
+    assert f"{p}:{where}" in str(e.span) and e.span.text == text.split("\n")[e.span.line - 1]
+    assert f"({p}:{where}" in str(e) and f"\n    {e.span.text.strip()}\n" in str(e)  # the offending line
+    assert e.to_dict()["span"]["line"] == e.span.line
 
 
 def test_schema_errors_keep_the_json_path(tmp_path):
@@ -226,8 +227,10 @@ def test_schema_errors_keep_the_json_path(tmp_path):
                                         "parent": "p", "max": 0}], "properties": []}))
     with pytest.raises(SpecError) as ej:
         load_spec(j)
-    assert ei.value.errors[0] == ej.value.errors[0]  # the model's error (max >= 1), the same path and text as from JSON
-    assert ei.value.errors[0].path == "$.rules[0].max"
+    et, ej = ei.value.errors[0], ej.value.errors[0]
+    assert (et.path, et.message, et.fix, et.code) == (ej.path, ej.message, ej.fix, ej.code)  # the model's error
+    assert et.path == "$.rules[0].max" and ej.span is None
+    assert et.span.line == 6 and et.span.text.strip().startswith("R1 cardinality")  # located at the rule
     d = parse_data("mls 0.1\nroles a\nrules {\n  R1 check c on t: x = 1\n}")
     assert d.spans["$.rules[0]"] == (4, 3) and d.spans["$.rules[0].predicate"] == (4, 20)
     assert d.spans["$.roles"] == (2, 1)
@@ -238,7 +241,41 @@ def test_json_syntax_errors_name_the_place_too(tmp_path):
     p.write_text('{"mls_version": "0.1",')
     with pytest.raises(SpecError) as ei:
         load_spec(p)
-    assert ei.value.errors[0].code == "syntax" and f"{p}:1:" in ei.value.errors[0].message
+    e = ei.value.errors[0]
+    assert e.code == "syntax" and f"{p}:1:" in str(e.span) and e.span.text == '{"mls_version": "0.1",'
+
+
+def test_check_errors_on_terse_input_carry_spans(tmp_path):
+    """#15: a checker error from a `.mls` input has the JSON path, `file:line:col` at the node
+    and the offending line; the same spec as JSON has the same path and message and no span."""
+    from mls.llm.prompts import errors_text
+    from mls.spec import load_checked, locate, spec_to_json
+
+    text = EXAMPLE.with_suffix("").read_text().replace("level <= @clearance", "nope <= @clearance", 1)
+    p = tmp_path / "s.mls"
+    p.write_text(text)
+    with pytest.raises(SpecError) as ei:
+        load_checked(p)
+    e = ei.value.errors[0]
+    assert e.path == "$.rules[0].using.and[1].cmp[0]" and "unknown column 'nope'" in e.message
+    assert e.span.file == str(p) and e.span.text == text.split("\n")[e.span.line - 1]
+    assert e.span.text[e.span.col - 1:].startswith("nope <= @clearance")  # the atom, not just the rule
+    assert str(e).startswith(f"error at {e.path} ({p}:{e.span.line}:{e.span.col}): unknown column")
+    assert errors_text([e]).startswith(f"- at {e.path} ({e.span.line}:{e.span.col}: R1 policy member_read")
+    j = tmp_path / "s.mls.json"
+    j.write_text(spec_to_json(parse(text)))
+    with pytest.raises(SpecError) as ej:
+        load_checked(j)
+    f = ej.value.errors[0]
+    assert (f.path, f.message, f.fix, f.code) == (e.path, e.message, e.fix, e.code) and f.span is None
+    assert errors_text([f]) == f"- at {f.path}: {f.message} (fix: {f.fix})"
+    assert locate(j, [f])[0].span is None  # JSON input: nothing to locate
+    assert locate(p, [MlsErrorForTest("$.roles")])[0].span.text == "roles authenticated"  # any path the source knows
+
+
+class MlsErrorForTest:
+    def __init__(self, path):
+        self.path, self.span = path, None
 
 
 def test_the_schema_is_untouched():

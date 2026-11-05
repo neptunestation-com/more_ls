@@ -674,6 +674,15 @@ renderer) writes the fixed order. The round trip is exact except for a one-eleme
 connective keeps its parentheses so that it does. `mls fmt` to JSON writes the model's dump
 (aliases, no nulls, defaults spelled out). Every example has a committed `.mls` twin, checked
 against the renderer by the fast suite.
+*Implementation defaults (2026-11-05, source spans):* `MlsError.span` (`errors.Span`: file,
+line, col, the source line) is optional and never part of the key; `__str__` prints it after
+the path and quotes the line, `--json` has `span` (`null` for JSON input). The parser records
+positions per node (predicate and selector nodes by identity, assigned a path once the tree
+is built) and `syntax.Source.locate` attaches the span of the longest recorded path an error
+lies under; `spec.load_checked` is `load_spec` + `check_spec` with that, `spec.locate(path,
+errors)` re-parses a terse file for errors raised later (the compiler's soundness
+obligations). The checker never sees the text: `tests/spec/test_check.py` runs every error
+fixture through both syntaxes and requires the same errors, each located.
 
 Why not JSON alone: the schema in the prompt is several times the grammar; a spec is three
 lines per atom, resent on every repair round; structural slips in nested single-key objects

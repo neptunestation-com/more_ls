@@ -1,7 +1,23 @@
-"""Errors are written for an LLM to act on: what is wrong, where (JSON path), and the fix."""
+"""Errors are written for an LLM to act on: what is wrong, where (JSON path), and the fix.
+When the input was terse (`.mls`, D50) the error also carries a source span: file, line, column
+and the offending line, looked up from the JSON path; the path stays the key."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+
+
+@dataclass
+class Span:
+    file: str
+    line: int
+    col: int
+    text: str = ""  # the source line
+
+    def __str__(self) -> str:
+        return f"{self.file}:{self.line}:{self.col}"
+
+    def to_dict(self) -> dict:
+        return {"file": self.file, "line": self.line, "col": self.col, "text": self.text}
 
 
 @dataclass
@@ -10,15 +26,20 @@ class MlsError:
     message: str
     fix: str = ""
     code: str = "error"
+    span: Span | None = None
 
     def __str__(self) -> str:
-        s = f"{self.code} at {self.path}: {self.message}"
+        where = f"{self.path} ({self.span})" if self.span else self.path
+        s = f"{self.code} at {where}: {self.message}"
+        if self.span and self.span.text.strip():
+            s += f"\n    {self.span.text.strip()}"
         if self.fix:
             s += f"\n  fix: {self.fix}"
         return s
 
     def to_dict(self) -> dict:
-        return {"code": self.code, "path": self.path, "message": self.message, "fix": self.fix}
+        return {"code": self.code, "path": self.path, "message": self.message, "fix": self.fix,
+                "span": self.span.to_dict() if self.span else None}
 
 
 class SpecError(Exception):

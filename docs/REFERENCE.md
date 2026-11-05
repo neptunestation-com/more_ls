@@ -898,11 +898,29 @@ loop): what is wrong, where, and the allowed alternative.
     error at $.rules[0].using.and[1].cmp[0]: unknown column 'nope' of table 'docs'
       fix: one of: id, tenant_id, owner_id, level, archived
 
-The path is a JSONPath into the spec file.  With `--json`:
+The path is a JSONPath into the spec file.  When the input was terse (a `.mls` file, §13) the
+same error also says where in the text, `file:line:col` at the node the path names (the atom
+of a predicate, the rule, the column, ...) and the offending line; the path and the message
+are the ones the JSON form of the spec gives:
+
+    error at $.rules[0].using.and[1].cmp[0] (docs.mls:32:103): unknown column 'nope' of table 'docs'
+        R1 policy member_read on docs: authenticated select permissive using member_of(@uid, tenant_id) and nope <= @clearance
+      fix: one of: id, tenant_id, owner_id, level, archived
+
+A syntax error (the text does not parse) names the position, what was expected and what was
+found, with the path of the item being read; exit code 1, as for a shape error on JSON:
+
+    syntax at $.rules[0] (docs.mls:4:52): expected a term (column, old.column, new.column, @context, 'text', a number, true, false), found '='
+        R1 policy p on t: a select permissive using id = = 1
+      fix: see the grammar (REFERENCE §13)
+
+With `--json` every error carries `span` (`null` for JSON input):
 
     {"ok": false, "errors": [{"code": "error", "path": "$.rules[0].using.and[1].cmp[0]",
                               "message": "unknown column 'nope' of table 'docs'",
-                              "fix": "one of: id, tenant_id, owner_id, level, archived"}]}
+                              "fix": "one of: id, tenant_id, owner_id, level, archived",
+                              "span": {"file": "docs.mls", "line": 32, "col": 103,
+                                       "text": "  R1 policy member_read on docs: ..."}}]}
 
 Classes of error, with the typical message:
 

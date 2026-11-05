@@ -10,11 +10,9 @@ from mls.errors import CompileError, SpecError
 
 
 def _load(path: str):
-    from mls.spec import check_spec, load_spec
+    from mls.spec import load_checked
 
-    spec = load_spec(path)
-    spec = check_spec(spec)
-    return spec
+    return load_checked(path)
 
 
 def _print_errors(e: Exception, as_json: bool) -> None:
@@ -43,7 +41,9 @@ def cmd_check(a) -> int:
         with psycopg.connect(a.dsn) as conn:
             errs = verify_adopted(conn, spec, schema=a.schema)
     if errs:
-        _print_errors(CompileError(errs), a.json)
+        from mls.spec import locate
+
+        _print_errors(CompileError(locate(a.spec, errs)), a.json)
         return 1
     print(json.dumps({"ok": True}) if a.json else f"{a.spec}: OK")
     return 0

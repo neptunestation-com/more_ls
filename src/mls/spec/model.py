@@ -554,9 +554,13 @@ def load_spec(path: str | Path) -> Spec:
     try:
         return Spec.model_validate(json.loads(text))
     except json.JSONDecodeError as e:
-        raise SpecError([MlsErrorRef(path="$", message=f"{path}:{e.lineno}:{e.colno}: not JSON: {e.msg}",
-                                     fix="a spec is one JSON object (or terse syntax in a .mls file)",
-                                     code="syntax")]) from None
+        from mls.errors import Span
+
+        lines = text.split("\n")
+        raise SpecError([MlsErrorRef(path="$", message=f"not JSON: {e.msg}",
+                                     fix="a spec is one JSON object (or terse syntax in a .mls file)", code="syntax",
+                                     span=Span(str(path), e.lineno, e.colno,
+                                               lines[e.lineno - 1] if 0 < e.lineno <= len(lines) else ""))]) from None
     except ValidationError as e:
         raise SpecError(pydantic_errors_to_mls(e)) from None
 

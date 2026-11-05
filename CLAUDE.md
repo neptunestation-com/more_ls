@@ -99,7 +99,10 @@ union member the renderer does not cover.
   `parse(render(spec)) == spec` over every example and eval case (plus hypothesis specs in
   `tests/spec/test_syntax.py`) is the evidence; the JSON stays canonical (D15) and the English
   (`english.py`, D33) stays the approval artifact. A one-element `and`/`or` is the one shape
-  the round trip cannot keep; a nested same-connective group keeps its parentheses. Migrations are phased; every statement
+  the round trip cannot keep; a nested same-connective group keeps its parentheses. Errors on
+  terse input carry a span (`MlsError.span`, `syntax.Source.locate`; the JSON path stays the
+  key): the CLI loads through `spec.load_checked`, later errors go through `spec.locate(path,
+  errors)`, and `tests/spec/test_check.py` runs every error fixture through both syntaxes. Migrations are phased; every statement
   kind has a lock mode in `compile/migrate.py:LOCKS` that `tests/templates/test_locks.py` observes
   on every PG version — add the kind and its mode when you add a migration statement.
 - `tests/templates/test_migrate.py` is the migration acceptance test: deploy v1 + data, migrate,

@@ -108,7 +108,12 @@ def user_requirements(requirements: str) -> str:
 
 
 def errors_text(errors: list[MlsError]) -> str:
-    return "\n".join(f"- at {e.path}: {e.message}" + (f" (fix: {e.fix})" if e.fix else "") for e in errors)
+    """One line per error: the path (and the source position when the answer was terse), the
+    message, the fix."""
+    def where(e: MlsError) -> str:
+        return f"{e.path} ({e.span.line}:{e.span.col}: {e.span.text.strip()})" if e.span else e.path
+
+    return "\n".join(f"- at {where(e)}: {e.message}" + (f" (fix: {e.fix})" if e.fix else "") for e in errors)
 
 
 def user_repair(requirements: str, previous: dict | list, feedback: str, key: str) -> str:

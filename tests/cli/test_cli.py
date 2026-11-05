@@ -93,8 +93,24 @@ def test_terse_input_and_fmt(tmp_path, capsys):
     bad.write_text("mls 0.1\nroles a\nrules {\n  R1 policy p on t: a select permissive using id = = 1\n}\n")
     assert main(["check", str(bad), "--json"]) == 1
     err = json.loads(capsys.readouterr().out)["errors"][0]
-    assert err["code"] == "syntax" and f"{bad}:4:" in err["message"]
+    assert err["code"] == "syntax" and err["span"] == {"file": str(bad), "line": 4, "col": 52,
+                                                      "text": "  R1 policy p on t: a select permissive using id = = 1"}
+    assert main(["check", str(bad)]) == 1
+    assert f"syntax at $.rules[0] ({bad}:4:52): expected a term" in capsys.readouterr().err
     assert main(["fmt", str(bad)]) == 1
+    capsys.readouterr()
+    # a checker error on terse input: the JSON path, file:line:col and the offending line (#15);
+    # the same spec as JSON: the same path and message, no span, the same exit code
+    worse = tmp_path / "worse.mls"
+    worse.write_text(mls.read_text().replace("level <= @clearance", "nope <= @clearance", 1))
+    assert main(["check", str(worse)]) == 1
+    err_text = capsys.readouterr().err
+    assert f"error at $.rules[0].using.and[1].cmp[0] ({worse}:32:103): unknown column 'nope' of table 'docs'\n" \
+           "    R1 policy member_read on docs:" in err_text and "\n  fix: one of: id, tenant_id" in err_text
+    assert main(["fmt", str(worse), "--out", str(tmp_path / "worse.mls.json")]) == 0
+    assert main(["check", str(tmp_path / "worse.mls.json"), "--json"]) == 1
+    err = json.loads(capsys.readouterr().out)["errors"][0]
+    assert err["path"] == "$.rules[0].using.and[1].cmp[0]" and err["span"] is None
 
 
 def test_org_tree_example(tmp_path, capsys):

@@ -18,8 +18,22 @@ def base() -> dict:
 
 
 def errors(d: dict):
+    """The checker's errors on `d`, and the same fixture through the terse syntax (#15): the same
+    errors, path for path and message for message, each with a source span."""
+    from mls.spec.syntax import parse_source
+    from mls.terse import render
+
     spec = Spec.model_validate(d)
-    return Checker(spec).run()
+    errs = Checker(spec).run()
+    tspec, source = parse_source(render(spec), "fixture.mls")
+    assert tspec == spec
+    terrs = source.locate(Checker(tspec).run())
+    key = [(e.path, e.message, e.fix, e.code) for e in errs]
+    assert [(e.path, e.message, e.fix, e.code) for e in terrs] == key
+    assert all(e.span is not None and e.span.file == "fixture.mls" and e.span.text for e in terrs), \
+        [e.path for e in terrs if e.span is None]
+    assert all(e.span is None for e in errs)
+    return errs
 
 
 def has(errs, path: str, text: str) -> bool:
