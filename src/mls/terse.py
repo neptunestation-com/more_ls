@@ -347,4 +347,11 @@ def render(spec: Spec) -> str:
     return "\n".join(out) + "\n"
 
 
+def section(key: str, items) -> str:
+    """One `rules { ... }` or `properties { ... }` section from model objects (what the LLM loop
+    quotes back as the previous answer when it has no text of the model's own)."""
+    fn = rule if key == "rules" else prop
+    return "\n".join([f"{key} {{"] + [f"  {fn(x)}" for x in items] + ["}"])
+
+
 spec_listing = render  # the D44 name

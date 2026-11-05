@@ -6,6 +6,7 @@ from __future__ import annotations
 import json
 
 from mls.errors import MlsError
+from mls.llm.terse_prompt import LANGUAGE_TERSE, terse_output_reference
 
 LANGUAGE = """
 # MLS in brief
@@ -84,6 +85,25 @@ must be TRUE to hold, so guard nullable columns: an optional owner that must be 
 "description" of each property so a product owner can verify it against the requirements.  Put any
 doubt about the requirements in "notes".  Answer with JSON only, matching the output schema."""
 
+ANSWER_TERSE = {
+    "properties": "Answer with one `properties { ... }` section in the MLS terse syntax below (in a ```mls fence, "
+                  "one property per line); any doubt about the requirements goes in prose outside the fence.  "
+                  "Do not write rules.",
+    "rules": "Answer with one `rules { ... }` section in the MLS terse syntax below (in a ```mls fence, one rule "
+             "per line); any doubt about the requirements goes in prose outside the fence.",
+}
+
+
+def role_text(role: str, syntax: str) -> str:
+    """The role paragraph for the syntax: JSON asks for JSON under the schema, terse for a section."""
+    if syntax == "json":
+        return role
+    key = "properties" if role is ROLE_PROPERTIES else "rules"
+    return (role.replace('{"or": [{"is_null": {"col": "owner_id"}}, {"member": ...}]}', "`owner_id is null or R(@uid, ...)`")
+                .replace('Put any\ndoubt about the requirements in "notes".  Answer with JSON only, matching the output schema.',
+                         ANSWER_TERSE[key])
+                .replace('"description"', "description").replace('"id"', "id"))
+
 ROLE_RULES = """You write the RULES (policies, checks, inclusions, transitions, cardinality limits, column
 rules) of a database access-control spec from business requirements, for the given schema.  Cover
 every requirement exactly: nothing more permissive, nothing more restrictive.  Give each rule a
@@ -92,14 +112,28 @@ policies: make membership columns and comparisons NULL-safe where the requiremen
 doubt about the requirements in "notes".  Answer with JSON only, matching the output schema."""
 
 
-def system_prompt(role: str, skeleton: dict, schema: dict) -> str:
+def system_prompt(role: str, skeleton: dict, schema: dict, syntax: str = "json") -> str:
+    """Role, language reference, the fixed skeleton, and the output contract: the JSON Schema
+    of the pass, or (terse, D50) the grammar and three examples."""
+    # `$comment` is the author's note on the spec, not part of the schema: in the eval corpus it
+    # names the case (and, for a bad reference, the planted defect), so the model never sees it.
+    skel = {k: v for k, v in skeleton.items() if k != "$comment"}
+    if syntax == "json":
+        return "\n\n".join([
+            role, LANGUAGE,
+            "# The schema (tables, relations, hierarchies, identity, roles) is fixed:\n" + json.dumps(skel, indent=1),
+            "# Output JSON Schema:\n" + json.dumps(schema, separators=(",", ":")),
+        ])
+    from mls.spec.model import Spec
+    from mls.terse import render
+
+    skel_text = render(Spec.model_validate({**skel, "rules": [], "properties": []}))
+    skel_text = skel_text[:skel_text.index("\nrules {")].rstrip()
     return "\n\n".join([
-        role, LANGUAGE,
-        "# The schema (tables, relations, hierarchies, identity, roles) is fixed:\n"
-        # `$comment` is the author's note on the spec, not part of the schema: in the eval corpus it
-        # names the case (and, for a bad reference, the planted defect), so the model never sees it.
-        + json.dumps({k: v for k, v in skeleton.items() if k != "$comment"}, indent=1),
-        "# Output JSON Schema:\n" + json.dumps(schema, separators=(",", ":")),
+        role_text(role, syntax), LANGUAGE_TERSE,
+        "# The schema (identity, roles, tables, relations, hierarchies) is fixed; your section completes it:\n"
+        + skel_text,
+        terse_output_reference(),
     ])
 
 
@@ -116,10 +150,15 @@ def errors_text(errors: list[MlsError]) -> str:
     return "\n".join(f"- at {where(e)}: {e.message}" + (f" (fix: {e.fix})" if e.fix else "") for e in errors)
 
 
-def user_repair(requirements: str, previous: dict | list, feedback: str, key: str) -> str:
+def user_repair(requirements: str, previous: dict | list | str, feedback: str, key: str) -> str:
+    """`previous` is the JSON of the last answer, or (terse) its section text as the model wrote
+    it, so that the line:col of the feedback point into what is quoted."""
+    quoted = previous if isinstance(previous, str) else json.dumps(previous, indent=1)
+    ask = (f"Return the complete corrected `{key} {{ ... }}` section (all {key}, not a diff)." if isinstance(previous, str)
+           else f"Return the complete corrected answer (all {key}, not a diff).")
     return "\n\n".join([
         user_requirements(requirements),
-        f"# Your previous answer ({key})\n" + json.dumps(previous, indent=1),
+        f"# Your previous answer ({key})\n" + quoted,
         "# Problems found by the checker\n" + feedback,
-        f"Return the complete corrected answer (all {key}, not a diff).  Keep ids stable where the item is unchanged.",
+        ask + "  Keep ids stable where the item is unchanged.",
     ])

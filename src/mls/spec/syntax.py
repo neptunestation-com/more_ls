@@ -784,6 +784,26 @@ def parse_data(text: str, filename: str = "<terse>") -> Parsed:
     return Parsed(data, p.spans)
 
 
+def parse_section(text: str, key: str, filename: str = "<terse>") -> Parsed:
+    """One `rules { ... }` or `properties { ... }` section alone (what an LLM pass answers with,
+    D50): the JSON shape `{key: [...]}` with spans under `$.<key>[i]`, and nothing else in the
+    text.  Syntax errors as `parse_data` reports them."""
+    assert key in ("rules", "properties")
+    try:
+        p = Parser(text)
+        if not p.at_word(key):
+            raise p.fail(f"a '{key} {{ ... }}' section")
+        items = p.rules() if key == "rules" else p.properties()
+        if p.tok.kind != "eof":
+            raise p.fail(f"nothing after the '{key}' section")
+    except ParseError as e:
+        raise SpecError([MlsError(path=e.path, message=e.message, fix="see the grammar (REFERENCE §13)",
+                                  code="syntax", span=Source(filename, text).at(e.line, e.col))]) from None
+    data = {key: items}
+    _assign_spans(data, "$", p.pos, p.spans)
+    return Parsed(data, p.spans)
+
+
 def parse_source(text: str, filename: str = "<terse>") -> tuple[Spec, Source]:
     """A terse spec, validated at the schema level, with its source for locating later errors
     (`check_spec` does not see the text: locate its errors with `source.locate`)."""

@@ -1,7 +1,7 @@
 {
  "id": "st_files_forgotten",
  "origin": "seed",
- "requirements": "Users belong to tenants (memberships). Docs are tenant-scoped: members of a tenant see, add and change its docs; files are not exposed to users yet, and a row never moves into a tenant the user does not belong to. Nobody deletes. Memberships are read-only to users. A file's size is never negative. The tenants table itself is not exposed to users.",
+ "requirements": "Users belong to tenants (memberships). Docs are tenant-scoped: members of a tenant see, add and change its docs; files are not exposed to users yet, and a row never moves into a tenant the user does not belong to. Nobody deletes. Users never change memberships, and there is no membership listing: the membership lookup is all they get. A file's size is never negative. The tenants table itself is not exposed to users.",
  "expected_properties": [
   "Docs are only seen, added and changed by members of their tenant.",
   "Files are only seen, added and changed by members of their tenant.",

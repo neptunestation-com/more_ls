@@ -644,6 +644,11 @@ test. The remaining distance is a parser. So:
   `docs/LLM.md`. The default becomes terse only if proved and net-equivalent rates are not worse
   by more than the run-to-run spread already recorded there; token reduction alone does not
   decide. Transcripts keep `spec_terse` either way.
+  *Amended 2026-11-05:* the corpus was run with both syntaxes (`docs/LLM.md`, "The two
+  syntaxes"): the same rates on the seed cases, better on the repair benchmark, a third fewer
+  output tokens, no repair round spent on syntax. **The default syntax of `mls generate` and
+  `mls eval --llm` is `terse`** (`llm/loop.py:DEFAULT_SYNTAX`); `--syntax json` keeps the JSON
+  Schema prompt.
 - **What does not change.** D10: the English is the approval artifact; nobody is asked to read
   terse to approve anything. D15: the JSON Schema is still exported and still what tools
   constrain against. D33/D44: the renderers are fixed functions of the model. The Lean track

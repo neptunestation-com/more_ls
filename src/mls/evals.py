@@ -95,7 +95,8 @@ def generation_case(case: dict, repair: bool) -> str | None:
     return None
 
 
-def run_llm_case(path: Path, client, max_repairs: int = 3, timeout_ms: int = 20000, repair_from_reference: bool = False):
+def run_llm_case(path: Path, client, max_repairs: int = 3, timeout_ms: int = 20000, repair_from_reference: bool = False,
+                 syntax: str | None = None):
     """Run the loop on a case and grade it.  With `repair_from_reference` the rules pass is skipped
     and the loop starts from the case's `start_rules` (a synthetic case: the mutant rules) or else
     from the reference rules: a repair benchmark."""
@@ -111,7 +112,10 @@ def run_llm_case(path: Path, client, max_repairs: int = 3, timeout_ms: int = 200
     start_rules = None
     if repair_from_reference:
         start_rules = case.get("start_rules") or [r.model_dump(by_alias=True, exclude_none=True) for r in ref.rules]
-    result = generate(case["requirements"], skeleton, client, max_repairs, timeout_ms, start_rules=start_rules)
+    from mls.llm.loop import DEFAULT_SYNTAX
+
+    result = generate(case["requirements"], skeleton, client, max_repairs, timeout_ms, start_rules=start_rules,
+                      syntax=syntax or DEFAULT_SYNTAX)
     return grade(case, result, ref, timeout_ms), result
 
 

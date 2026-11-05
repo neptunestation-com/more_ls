@@ -158,3 +158,15 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
   families all pass (one repair round for the mutants, none for the seeds).  Same lesson as the
   seed corpus: a run's failures are read before they are counted, and the fix goes into the text,
   not the model.
+- The corpus with both syntaxes (2026-11-05, D50; `docs/LLM.md`, "The two syntaxes"): JSON and
+  terse score the same on the 35 seed cases (32 each, the same three failures) and terse scores
+  better on the 221 mutants (218 against 213), with a third fewer output tokens and no repair
+  round spent on syntax: the model wrote parseable sections at the first attempt in every case,
+  so the grammar plus three examples is enough of an output contract.  The failures were the
+  texts' again: "Memberships are read-only to users" read as a grant of a membership listing
+  (now "no membership listing: the membership lookup is all they get"; both seed cases pass
+  reworded), and the self-grant leak of `st_self_grant`, which the model declines to reproduce
+  in either syntax (it denies the insert and update that the text asks for), like the classroom
+  leak above: a bad-reference case whose text states the defect as a requirement measures the
+  model's willingness to write a leak, not the loop.  One JSON-only failure was a one-off
+  invention the model named in its notes (an id-immutability transition); left alone.

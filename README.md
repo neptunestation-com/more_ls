@@ -22,7 +22,7 @@ error).  For the design: `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.
     uv run mls compile examples/tenant_docs.mls.json        # DDL
     uv run mls test    examples/tenant_docs.mls.json        # differential test on Postgres 15–18 (Docker)
     uv run mls explain examples/org_tree.mls.json           # group hierarchy + per-tenant limit, in English
-    uv run mls generate req.txt --skeleton skel.json        # LLM loop: requirements -> proved spec (docs/LLM.md)
+    uv run mls generate req.txt --skeleton skel.json        # LLM loop: requirements -> proved spec (docs/LLM.md; --syntax json|terse)
     uv run mls eval evals/cases [--llm] [--mutate DIR]      # grade the corpus; run the loop on it; make mutants
     uv run mls test    examples/tenant_docs.mls.json --versions 16 --explain   # + EXPLAIN checks at 1M rows
     uv run mls lint    examples/tenant_docs.mls.json        # leakproof warnings and policy-set findings (hygiene, exit 0)
@@ -93,7 +93,9 @@ no opaque block and an empty behaviour diff), and selectors (`applies_to`, D48: 
 every table a selector matches, expanded by `check`), `mls status` (per table: ungoverned, refuted,
 opaque, unproved, proved) and the lint pack (D49: coverage, contradiction, subsumption and
 redundancy as findings, never verdicts, plus the `role_separation` template) are done, which
-closes Milestone 5; the terse syntax (D50) is next (`docs/ROADMAP.md`).
+closes Milestone 5.  The terse syntax (D50) is done: a second concrete syntax (`.mls`, `mls
+fmt`, round trip as the evidence), errors with source spans, and `--syntax` for the LLM loop,
+whose default became terse after a corpus run with both syntaxes (`docs/LLM.md`).
 
 ### Measured with `claude-opus-5-5`
 

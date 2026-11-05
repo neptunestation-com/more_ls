@@ -28,6 +28,23 @@ how well it does that on the corpus in `evals/cases`.
 Prompts: `src/mls/llm/prompts.py`.  The stable part (role, language reference, skeleton, schema) is
 the system prompt and is cached; requirements and feedback follow.
 
+## The syntax flag (D50)
+
+`--syntax json|terse` on `mls generate` and `mls eval --llm` chooses what the passes answer in.
+With `terse` the system prompt carries the language reference in terse notation, the grammar and
+three complete examples (`src/mls/llm/terse_prompt.py`; they parse, check and prove, and share no
+table with the corpus) instead of the JSON Schema; the skeleton is shown in terse; the answer is
+one `rules { ... }` or `properties { ... }` section, read with the same tolerance as JSON (a
+fenced block, else the first section at a line start with balanced braces, else the whole text;
+the prose outside it is the notes).  Repair requests quote the section as the model wrote it
+and every checker error names the line and column in it and the offending line (#15), so a
+syntax error reads `at $.rules[0] (2:111: R1 policy ...): expected a term ..., found '='`.
+Counterexample feedback is unchanged: English and scenarios (D10, D37).  The grader sees the
+same JSON shape either way; transcripts keep `spec_terse` either way; `--out x.mls` writes the
+terse spec.  The default is `terse` since the corpus run of 2026-11-05 (below; D50 as amended):
+the same rates as JSON on the seed corpus, better on the repair benchmark, a third fewer output
+tokens.
+
 Decoding is not constrained by the schema: the API's structured outputs reject recursive schemas
 (the predicate grammar is one) and a free-form envelope forces nested values to scalars (D37).  The
 answer is parsed tolerantly (bare JSON, a ```json``` fence, or the first JSON object in prose) and
@@ -44,6 +61,7 @@ would only repeat the exchange.
                                                            # (each transcript carries the generated spec as
                                                            # `spec_terse`, one line per rule and property, D44)
     uv run mls eval evals/cases --llm --repair             # start from each case's (mutated) rules
+    uv run mls eval evals/cases --llm --syntax terse       # the passes answer in the terse syntax (D50)
     uv run mls eval evals/cases --mutate evals/cases/synthetic   # regenerate solver-graded mutants
 
 The default model is `claude-opus-5-5` with effort `high`; server-side refusal fallbacks are on
@@ -150,6 +168,47 @@ bound that did not restate them was refuted by a CHECK and the rules pass escala
 the CHECK (FINDINGS) — one was the primary-key judgement call of the repair benchmark, and one a
 reading of "may move it to any project".  D40 was amended (the written row is assumed valid) and
 the corpus re-measured: the table above; then the repair benchmark, also above.
+
+### The two syntaxes, 2026-11-05 (`claude-opus-5-5`, effort high, max 3 repairs)
+
+The whole corpus run once with each syntax on the same day, the same model and settings, the
+same requirement texts (the selector family `st_*` had been added since the runs above, so the
+corpus is 35 seed cases and 221 mutants):
+
+| Metric | Seed, JSON | Seed, terse | Repair benchmark, JSON | Repair benchmark, terse |
+|---|---|---|---|---|
+| cases | 35 | 35 | 221 (220 measured) | 221 |
+| outcome_match_rate | 1.0 | 1.0 | 0.995 | 0.995 |
+| spec_correctness_rate | 0.914 (32/35) | 0.914 (32/35) | 0.968 (213/220) | 0.986 (218/221) |
+| net_equivalence_rate | 0.914 | 0.914 | 0.973 | 0.991 |
+| reference_properties_hold_rate | 1.0 | 1.0 | 1.0 | 1.0 |
+| mean_repair_rounds | 0.23 (8 cases one round) | 0.26 (9 cases one round) | 1.02 (217 one, 3 two, 1 three) | 1.05 (212 one, 8 two, 1 three) |
+| human_escalation_rate | 0.0 | 0.0 | 0.005 (1 case) | 0.005 (1 case) |
+| API calls | 78 | 79 | 446 | 452 |
+| output tokens | 248k | 163k | 1.41M | 0.90M |
+| input tokens (uncached + cache reads) | 34k + 467k | 23k + 235k | 457k + 4.07M | 279k + 1.97M |
+
+The seed failures are the same three cases in both syntaxes, and none is about the syntax:
+`st_good` and `st_files_forgotten` because "Memberships are read-only to users" was read as a
+grant (the model wrote a select policy on memberships where the reference has only the implicit
+membership lookup), and `st_self_grant`, a bad-reference case whose text asks for self-granted
+memberships and whose leak the model declines to reproduce in both syntaxes (it denies the
+insert and update instead), the same behaviour as the classroom leak of 2026-11-03.  The
+sentence now says "Users never change memberships, and there is no membership listing: the
+membership lookup is all they get"; the two reworded seed cases pass in both syntaxes with no
+repair round.  The repair benchmark's extra JSON failures are three mutants of those two cases
+(the old sentence; their files are reworded too and their rerun is pending), the three
+`st_self_grant` mutants in both syntaxes, one JSON-only judgement call (`sd_good__drop_R2`: the
+model added an id-immutability transition "read into the requirement", named as such in its
+notes; left alone), and one JSON case that did not run at all (an API credit error; "220
+measured").  In terse the model wrote valid sections at the first attempt in every case; no
+repair round was spent on syntax.
+
+Decision (D50): the default syntax is `terse`.  The proved and net-equivalent rates are not
+worse than JSON's on either corpus (equal on the seed cases, 4 cases better on the benchmark,
+of which 3 are the reworded family and 1 a judgement call), well inside the run-to-run spread
+recorded above (two to four cases between runs of the same corpus), and the token cost is a
+third lower.  The run cost about 2.7M output tokens in all; the transcripts are not committed.
 
 Seed run: 63 API calls, about 158k output tokens and 87k input tokens (most of them cache reads).
 This is the third run: the first two found a schema-decoding problem (D37), ambiguous requirement

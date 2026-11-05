@@ -83,7 +83,13 @@ union member the renderer does not cover.
   fails, read its transcript first (`--transcripts DIR`): the model's notes usually name the real
   cause, and so far that was an ambiguous requirement sentence or a reference bug as often as the
   model. Live runs need `ANTHROPIC_API_KEY`; decoding is unconstrained (the API rejects recursive
-  schemas), answers are validated locally.
+  schemas), answers are validated locally. `--syntax terse` (D50, #16) swaps the JSON Schema
+  for the grammar and the three proved examples of `llm/terse_prompt.py` (the fast suite keeps
+  them parsing, canonical, proved and disjoint from the corpus's tables); the answer is a
+  section read by `syntax.parse_section` (`loop._terse_answer` finds it in a fence or prose),
+  repair quotes the model's own text with line:col feedback; the grader sees the JSON shape.
+  Terse is the default (`loop.DEFAULT_SYNTAX`, D50 as amended after the 2026-11-05 corpus run
+  in LLM.md); tests that script JSON answers pass `syntax="json"` / `--syntax json`.
 - M3: hierarchies and cardinality limits compile to SECURITY DEFINER helpers owned by `mls_internal`
   (compile/internal.py, hierarchy.py, cardinality.py). The parent-row lock is only testable with
   parallel writers (`tests/templates/test_cardinality.py`); `-m cvc5` cross-checks the org_tree

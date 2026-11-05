@@ -388,6 +388,7 @@ def cmd_eval(a) -> int:
         from mls.llm.grade import CaseGrade, expected_status
 
         grades = []
+        tokens = {"api_calls": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0}
         for f in case_files(paths):
             case = load_case(f)
             why = generation_case(case, a.repair)
@@ -396,12 +397,16 @@ def cmd_eval(a) -> int:
                 continue
             client = client_from_env(a.model, a.effort)
             try:
-                g, result = run_llm_case(f, client, a.max_repairs, repair_from_reference=a.repair)
+                g, result = run_llm_case(f, client, a.max_repairs, repair_from_reference=a.repair, syntax=a.syntax)
             except Exception as e:  # noqa: BLE001 - one case must not end the run
                 g = CaseGrade(case["id"], expected_status(case), "failed", False, False, False,
                               differences=[f"{type(e).__name__}: {e}"])
                 result = None
             grades.append(g)
+            for x in getattr(client, "exchanges", []):
+                tokens["api_calls"] += 1
+                for k in ("input_tokens", "output_tokens", "cache_read_input_tokens"):
+                    tokens[k] += x.usage.get(k) or 0
             mark = "ok" if g.correct else "FAIL"
             print(f"{mark}: {g.case_id} — {g.status} (expected {g.expected_status}), "
                   f"{g.repair_rounds} repair round(s), net_equivalent={g.net_equivalent}, "
@@ -419,7 +424,7 @@ def cmd_eval(a) -> int:
                      "exchanges": [{"name": x.request.name, "user": x.request.user, "response": x.response,
                                     "usage": x.usage} for x in getattr(client, "exchanges", [])]},
                     indent=1, default=str))
-        summary = summarize(grades)
+        summary = {"syntax": a.syntax, **summarize(grades), "tokens": tokens}
         print(json.dumps(summary, indent=1) if a.json else
               "\n".join(f"{k}: {v}" for k, v in summary.items()))
         return 0 if all(g.correct for g in grades) else 1
@@ -448,7 +453,7 @@ def cmd_generate(a) -> int:
     requirements = sys.stdin.read() if a.requirements == "-" else Path(a.requirements).read_text()
     skeleton = skeleton_of(json.loads(Path(a.skeleton).read_text()))
     client = client_from_env(a.model, a.effort)
-    result = generate(requirements, skeleton, client, a.max_repairs)
+    result = generate(requirements, skeleton, client, a.max_repairs, syntax=a.syntax)
     if a.transcript:
         Path(a.transcript).write_text(json.dumps(
             {"result": result.to_dict(), "spec_terse": _terse_lines(result.spec),
@@ -456,7 +461,10 @@ def cmd_generate(a) -> int:
                             "response": x.response, "usage": x.usage} for x in getattr(client, "exchanges", [])]},
             indent=1, default=str))
     if a.out and result.spec is not None:
-        Path(a.out).write_text(json.dumps(result.spec.model_dump(by_alias=True, exclude_none=True), indent=1) + "\n")
+        from mls.spec import is_terse, spec_to_json
+        from mls.terse import render
+
+        Path(a.out).write_text(render(result.spec) if is_terse(a.out) else spec_to_json(result.spec))
     if a.json:
         print(json.dumps(result.to_dict(), indent=1, default=str))
         return 0 if result.status == "proved" else 1
@@ -597,6 +605,8 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--model", default="claude-opus-5-5")
     p.add_argument("--effort", default="high")
     p.add_argument("--max-repairs", type=int, default=3)
+    p.add_argument("--syntax", choices=["json", "terse"], default="terse",
+                   help="with --llm: what the passes answer in (D50; terse: the prompt carries the grammar, json: the JSON Schema)")
     p.add_argument("--transcripts", metavar="DIR", help="with --llm: write one transcript per case")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_eval)
@@ -604,10 +614,12 @@ def main(argv: list[str] | None = None) -> int:
     p = sub.add_parser("generate", help="write a spec from requirements with the LLM loop (D16)")
     p.add_argument("requirements", help="text file of business requirements, or - for stdin")
     p.add_argument("--skeleton", required=True, help="spec (or skeleton) JSON giving identity, roles, tables, relations")
-    p.add_argument("--out", help="write the generated spec here")
+    p.add_argument("--out", help="write the generated spec here (.mls for the terse syntax, else JSON)")
     p.add_argument("--model", default="claude-opus-5-5")
     p.add_argument("--effort", default="high")
     p.add_argument("--max-repairs", type=int, default=3)
+    p.add_argument("--syntax", choices=["json", "terse"], default="terse",
+                   help="what the passes answer in (D50; terse: the prompt carries the grammar, json: the JSON Schema)")
     p.add_argument("--transcript", help="write the full prompt/answer transcript here")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_generate)

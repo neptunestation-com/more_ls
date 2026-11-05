@@ -792,8 +792,9 @@ ST_PROPS = [
 ]
 ST_REQ = ("Users belong to tenants (memberships). Every table tagged tenant (docs and files today, and any table "
           "tagged later) is tenant-scoped the same way: members of a tenant see, add and change its rows, and a "
-          "row never moves into a tenant the user does not belong to. Nobody deletes. Memberships are read-only "
-          "to users. A file's size is never negative. The tenants table itself is not exposed to users.")
+          "row never moves into a tenant the user does not belong to. Nobody deletes. Users never change "
+          "memberships, and there is no membership listing: the membership lookup is all they get. A file's size "
+          "is never negative. The tenants table itself is not exposed to users.")
 ST_ENG = ["Docs are only seen, added and changed by members of their tenant.",
           "Files are only seen, added and changed by members of their tenant.",
           "Leaving a tenant never grants access.", "Whatever is written to docs can be read back.",
@@ -815,7 +816,8 @@ case("st_files_forgotten",
 case("st_self_grant",
      ST_REQ.replace("Every table tagged tenant (docs and files today, and any table tagged later)",
                     "Every table with a tenant_id column (memberships, docs and files, and any table added later)")
-           .replace(" Memberships are read-only to users.", ""), ST_ENG,
+           .replace(" Users never change memberships, and there is no membership listing: the membership lookup "
+                    "is all they get.", ""), ST_ENG,
      spec("the selector matches by column, so it also governs memberships: a member adds and changes memberships of "
           "their own tenants (self-grant into any tenant via update)", ST_TABLES, ST_REL,
           [x if x["id"] == "R4" else {**x, "applies_to": {"has_column": ["tenant_id", "int"]}} for x in ST_RULES],

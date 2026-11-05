@@ -863,23 +863,29 @@ check` is).
 
 The JSON Schema of the spec language (draft 2020-12, from the pydantic model).
 
-### `mls generate REQUIREMENTS --skeleton SKELETON [--out FILE] [--model M] [--effort E] [--max-repairs N] [--transcript FILE] [--json]`
+### `mls generate REQUIREMENTS --skeleton SKELETON [--out FILE] [--syntax json|terse] [--model M] [--effort E] [--max-repairs N] [--transcript FILE] [--json]`
 
 The LLM loop (`docs/LLM.md`).  `REQUIREMENTS` is a text file or `-` for stdin; `SKELETON` is a
-spec or a spec without rules and properties.  Defaults: model `claude-opus-5-5`, effort
-`high`, 3 repairs.  Prints the status, the stages, the properties with their verdicts for
-approval, any errors, any escalations, and the model's notes.  `--out` writes the spec.  Exit
-0 when the status is `proved`, 1 otherwise.  Needs `ANTHROPIC_API_KEY` unless
+spec or a spec without rules and properties (either syntax, by extension).  Defaults: model
+`claude-opus-5-5`, effort `high`, 3 repairs, syntax `terse` (D50 as amended).  With `terse`
+the passes answer with `rules { ... }` / `properties { ... }` sections: the prompt carries the
+grammar and three examples instead of the JSON Schema, the skeleton is shown in terse, and
+the checker's feedback names the line and column in the model's own text; `--syntax json`
+gives the passes the JSON Schema and has them answer in JSON.  Prints the status,
+the stages, the properties with their verdicts for approval, any errors, any escalations, and
+the model's notes.  `--out` writes the spec (terse when the file name ends in `.mls`, else
+JSON).  Exit 0 when the status is `proved`, 1 otherwise.  Needs `ANTHROPIC_API_KEY` unless
 `MLS_LLM_SCRIPT` is set.
 
-### `mls eval CASES... [--llm [--repair]] [--mutate DIR] [--model M] [--effort E] [--max-repairs N] [--transcripts DIR] [--json]`
+### `mls eval CASES... [--llm [--repair] [--syntax json|terse]] [--mutate DIR] [--model M] [--effort E] [--max-repairs N] [--transcripts DIR] [--json]`
 
 Over the eval corpus (`evals/cases`, case files or directories).  Without flags: proves every
 case's reference spec and checks the expected verdicts (`ok: <id> — <n> properties as
 expected`).  `--llm`: runs the loop on every generation case and grades the result against the
-reference (metrics in `docs/LLM.md`); `--repair` starts from each synthetic case's mutated
-rules.  `--mutate DIR`: writes solver-graded mutants of the cases to `DIR` and prints the
-mutation score.  Exit 1 if any case fails.
+reference (metrics in `docs/LLM.md`; the summary also says the syntax and totals the API
+calls and tokens); `--repair` starts from each synthetic case's mutated rules; `--syntax` as
+for `generate`.  `--mutate DIR`: writes solver-graded mutants of the cases to `DIR` and prints
+the mutation score.  Exit 1 if any case fails.
 
 ## 16. Environment variables
 
