@@ -25,8 +25,9 @@ Contents
 
 ## 1. What MLS is and is not
 
-An MLS spec is a JSON file that says, for a set of tables, who may see and change which rows and
-which invariants the stored data must satisfy.  The `mls` tool does three things with it:
+An MLS spec is a file that says, for a set of tables, who may see and change which rows and
+which invariants the stored data must satisfy.  It is written in JSON (`.mls.json`) or in an
+equivalent terse syntax (`.mls`, one line per rule).  The `mls` tool does three things with it:
 
 - **checks** it: JSON shape, column types, and that every predicate stays inside the fragment the
   prover and the compiler support;
@@ -48,8 +49,10 @@ What MLS is not:
   predicates in a small language with SQL's three-valued meaning, and the compiler emits the one
   policy shape it can prove and index.  Raw SQL is allowed only in an explicit `opaque` block,
   and every proof that depends on one says so.
-- **Not an importer.**  MLS owns the tables it creates (greenfield, D8).  You can deploy it next
-  to other schemas, but it does not read existing policies.
+- **Not only greenfield.**  MLS creates and owns the tables of a new schema, and it can also
+  adopt an existing one: `mls import` reads the live tables and policies into a spec, lifting
+  the policies it can read into the verified fragment and keeping the rest as opaque blocks
+  (section 6.1, D45, D46).
 
 The intended workflow (D10) is that an LLM writes the spec from business requirements and a
 human approves the *properties* and the *scenarios* in plain English.  Nobody has to read MLS
@@ -301,8 +304,17 @@ there is one, the fix:
     error at $.rules[0].using.and[1].cmp[0]: unknown column 'nope' of table 'docs'
       fix: one of: id, tenant_id, owner_id, level, archived
 
-`--json` gives the same as a list of `{code, path, message, fix}` objects.  The messages are
-written so that a program (an LLM in the generation loop) can act on them.
+The same mistake in a terse file also says where in the text it is, at the atom, and quotes
+the line; the path and the message are the ones the JSON gives:
+
+    $ uv run mls check broken.mls
+    error at $.rules[0].using.and[1].cmp[0] (broken.mls:32:103): unknown column 'nope' of table 'docs'
+        R1 policy member_read on docs: authenticated select permissive using member_of(@uid, tenant_id) and nope <= @clearance
+      fix: one of: id, tenant_id, owner_id, level, archived
+
+`--json` gives the same as a list of `{code, path, message, fix, span}` objects (`span` is null
+for JSON input).  The messages are written so that a program (an LLM in the generation loop)
+can act on them.
 
 ### 4.4 Prove
 
@@ -668,7 +680,8 @@ migrations, on every Postgres version.
     uv run mls generate requirements.txt --skeleton skeleton.json --out spec.mls.json --transcript t.json
 
 The skeleton is a spec without rules and properties (identity, roles, tables, relations,
-hierarchies, opaques).  The requirements are plain prose.  The loop:
+hierarchies, opaques), in either syntax.  The requirements are plain prose.  `--out` writes the
+spec in the syntax its extension names (`spec.mls` for terse).  The loop:
 
 1. asks the model for the *properties* and their plain-English descriptions (the approval
    artifact), from the requirements;
@@ -690,9 +703,15 @@ The output ends with the properties for approval, each with its verdict:
     - P2 (PROVED): ...
 
 Approve the sentences.  If one is wrong, the requirements were ambiguous or wrong; fix the text
-and rerun rather than editing the JSON.  The transcript (`--transcript`) records every prompt
+and rerun rather than editing the spec.  The transcript (`--transcript`) records every prompt
 and answer, the generated spec in terse form, and the model's notes, which usually name the
 ambiguity.
+
+The model writes its answers in the terse syntax by default: the prompt carries the grammar and
+three worked examples, and a checker error points at the line and column of the model's own
+text.  `--syntax json` gives it the JSON Schema instead.  Both were measured on the whole corpus
+and scored the same or better in terse, at a third fewer tokens, which is why terse is the
+default (D50).
 
 The eval corpus (`evals/cases`) and `mls eval` measure the loop; `docs/LLM.md` explains the
 case format, the metrics and the measured numbers.  Tests never call the API: setting
@@ -778,5 +797,7 @@ These are decisions, not gaps; `docs/DECISIONS.md` has the reasoning.
 - `docs/LLM.md`: the generation loop, the eval corpus and the measured results.
 - `docs/FINDINGS.md`: what the experiments on real Postgres established (performance tiers,
   leakproofness, NULL and UPDATE semantics, what the live LLM runs found).
+- `docs/BACKGROUND.md`: what `pg_more_ls`, the project MLS grew out of, established: the
+  undecidability result that motivates the fragment and the survey of authorization languages.
 - `lean/`: the Lean 4 formalization of the logic, the policy combination, the normalization and
   the templates, checked against the Python by generated test vectors.

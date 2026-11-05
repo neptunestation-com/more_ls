@@ -7,11 +7,12 @@ how well it does that on the corpus in `evals/cases`.
 
 1. **Pass 1 — properties.** The model gets the language reference, the fixed skeleton (identity,
    roles, tables, relations, hierarchies, opaques; the spec's `$comment` is an author's note and is
-   not shown) and the JSON Schema of `{"properties": [...],
-   "notes": ""}`, then the requirements.  It answers with properties and their plain-English
+   not shown) and the output contract, then the requirements.  The contract is the grammar of a
+   `properties { ... }` section and three examples (the default, terse syntax; below) or, with
+   `--syntax json`, the JSON Schema of `{"properties": [...], "notes": ""}`.  It answers with properties and their plain-English
    descriptions: the approval artifact (D10).
-2. **Pass 2 — rules.** Same material, the schema of `{"rules": [...], "notes": ""}`, the same
-   requirements; it never sees pass 1.
+2. **Pass 2 — rules.** Same material, the contract of the rules (a `rules { ... }` section, or the
+   schema of `{"rules": [...], "notes": ""}`), the same requirements; it never sees pass 1.
 3. **Check.** Skeleton + rules + properties are validated (pydantic), checked (`mls check`:
    types, fragment, relation shapes) and the compiler's soundness obligations are run.  Every error
    carries a JSON path and a fix; errors under `$.properties` go back to pass 1, the rest to pass 2.
@@ -61,7 +62,7 @@ would only repeat the exchange.
                                                            # (each transcript carries the generated spec as
                                                            # `spec_terse`, one line per rule and property, D44)
     uv run mls eval evals/cases --llm --repair             # start from each case's (mutated) rules
-    uv run mls eval evals/cases --llm --syntax terse       # the passes answer in the terse syntax (D50)
+    uv run mls eval evals/cases --llm --syntax json        # the passes answer in JSON (the default is terse, D50)
     uv run mls eval evals/cases --mutate evals/cases/synthetic   # regenerate solver-graded mutants
 
 The default model is `claude-opus-5-5` with effort `high`; server-side refusal fallbacks are on
@@ -99,9 +100,10 @@ check (`expected_check_errors`) are checker cases and are skipped by `--llm`.
 | mean_repair_rounds | repair requests per case |
 | human_escalation_rate | cases ending with at least one escalation |
 
-The corpus: 33 seed cases in 11 schema families (`evals/make_cases.py`; 32 are generation cases,
-one is a checker case) and the solver-graded mutants of every seed case (`evals/cases/synthetic`,
-213 cases, mutation score 75 %; a mutant counts as detected when a property the base proves no
+The corpus: 36 seed cases in 15 schema families (`evals/make_cases.py` plus the hand-written
+originals; 35 are generation cases, one is a checker case) and the solver-graded mutants of every
+seed case (`evals/cases/synthetic`, 221 cases; mutation score 75 %, 221 of 295 mutants detected,
+2026-11-05; a mutant counts as detected when a property the base proves no
 longer proves — the lower-bound template `must_allow` (D40) is what makes a dropped grant count).
 
 ## Measured (`claude-opus-5-5`, effort high, max 3 repairs)

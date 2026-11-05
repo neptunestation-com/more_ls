@@ -58,7 +58,9 @@ Acceptance:
   outputs — recursive schema — so decoding is unconstrained and validated locally; D37.)
 
 Implemented (D37–D39, `docs/LLM.md`) and measured live: 30/30 seed generation cases correct
-after the first run's findings were fixed in the corpus (`docs/LLM.md`, FINDINGS).  Open: replace
+after the first run's findings were fixed in the corpus (`docs/LLM.md`, FINDINGS); the latest
+measurement (2026-11-05, 35 generation cases and 221 repair benchmarks, both syntaxes) is in
+`docs/LLM.md`.  Open (issue #1, on hold): replace
 the author's seed cases with David's anonymized corpus (the measured number is bounded by the
 quality of the author's requirement texts).  Done since the first measurement: `must_allow`,
 the lower-bound template (D40, amended after its first live run), in every reference — mutation
@@ -123,6 +125,12 @@ Acceptance:
   the (T, F) encoding and `tests/logic` has a case a two-valued check gets wrong.
 - The Lean track is untouched (no new construct reaches `Pred`); `in` is expanded before encoding.
 
+Done (2026-11-05, issues #5–#12): every item above and every acceptance criterion, on PG
+15–18.  Two scope changes from the plan: `mls import` lifts what it can read (D46) rather than
+importing every policy as opaque, and readable CHECKs, inclusion-shaped FKs, column grants and
+the compiler's own transition triggers are imported as rules; `in_schema` selectors are not
+implemented (tables carry no schema).
+
 Not in scope: reparenting (still v2), importing triggers or CHECKs into anything but opaque
 assumptions (an existing CHECK is adopted as a stored-row assumption only if the lifter can read
 it; otherwise it is listed and not assumed), a UI.
@@ -157,6 +165,13 @@ Acceptance:
   run-to-run spread. Token reduction alone does not decide.
 - `mls schema`, the eval cases, the mutator, the Lean vectors generator and the Lean track are
   unchanged.
+
+Done (2026-11-05, issues #13–#16).  The round trip holds for every example, all 257 eval
+reference specs and hypothesis-generated specs; a one-element `and`/`or` is the one shape it
+cannot keep (none occurs).  Errors on terse input carry `file:line:col` at the node the JSON
+path names.  The corpus run with both syntaxes scored the same on the seed cases and better in
+terse on the repair benchmark, at a third fewer output tokens, so terse became the default of
+the LLM loop (D50 as amended; `docs/LLM.md`).
 
 ## Parallel track — Lean 4
 

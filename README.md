@@ -1,7 +1,7 @@
 # MLS — "More LS": RLS more-or-less
 
 A specification language and verified compiler for PostgreSQL access-control and data-integrity
-rules. A spec (JSON) says who may see and change which rows and which invariants the data must
+rules. A spec (JSON, or the equivalent terse `.mls` syntax) says who may see and change which rows and which invariants the data must
 satisfy. `mls` proves properties about the spec with an SMT solver, then compiles it to Postgres
 primitives (RLS policies, `CHECK ((p) IS TRUE)`, composite foreign keys, trigger templates, column
 privileges, indexes, grants, hardening), and differential-tests the result against real Postgres.
@@ -55,56 +55,60 @@ refuted or, with `--dsn`, a governed table is missing or has lost row-level secu
 
 ## Layout
 
-    src/mls/spec      pydantic models, JSON Schema, typechecker + fragment checker
+    src/mls/spec      pydantic models, JSON Schema, typechecker + fragment checker, selectors,
+                      the terse parser (syntax.py)
     src/mls/logic     term AST, 3VL encoding, Z3 backend, SMT-LIB2 printer, cvc5 cross-check
     src/mls/props     policy combination, property templates as obligations, scenarios, reports, access diff
     src/mls/compile   one module per template + indexes, grants, hardening, plan, objects, migrate
     src/mls/identity  supabase, pg_roles, session_setting adapters
     src/mls/pg        concrete oracle, differential harness, EXPLAIN checks, leakproof lint,
                       pre-flight, catalog snapshots, drift, lock observation, import (adopt.py)
+    src/mls/pg        (also) the lifter (lift.py)
+    src/mls/llm       the generation loop, prompts (JSON and terse), grader, mutator
     src/mls/english.py  plain-English rendering of rules, properties, scenarios (the approval artifact)
+    src/mls/terse.py  the terse renderer (also the formatter)
+    src/mls/status.py governance status per table
     tests/            spec, logic, props, cli (no Postgres); templates (Postgres 15–18, Docker);
                       brownfield/ a hand-written Supabase-style schema `mls import` adopts
-    evals/cases       eval case format and the first cases (the prototype's three corpora)
+    evals/cases       the eval corpus: seed cases (evals/make_cases.py) and solver-graded mutants (synthetic/)
     examples/         tenant_docs (supabase), tenant_docs_v2 (its next version), pg_roles_docs (pg_roles),
                       session_docs (session_setting), org_tree (hierarchy with in_group policies and a
-                      cardinality limit)
+                      cardinality limit); each as .mls.json and as its .mls twin
     prototype/        the throwaway Python + Z3 prototype this grew from
     docs/             GUIDE (user guide), REFERENCE (language and CLI), SEMANTICS, DECISIONS,
                       ROADMAP, FINDINGS, BACKGROUND (what pg_more_ls established), MIGRATION, LLM
 
 ## Status
 
-Alpha (0.1).  All four milestones of `docs/ROADMAP.md` are implemented:
+Alpha (0.1).  Every milestone of `docs/ROADMAP.md` is implemented:
 
 1. the core loop: check, prove, compile, differential test, with no LLM;
 2. evolution: `diff`, `migrate`, `preflight`, `drift`, and the English rendering;
 3. the harder constructs: group hierarchies with `in_group`, cardinality limits with a
    parent-row lock, full opaque-block reporting;
 4. the LLM loop with bounded repair and human escalation, and the evaluation corpus with
-   solver-graded mutants (`docs/LLM.md`).
+   solver-graded mutants (`docs/LLM.md`);
+5. brownfield (the `pg_more_ls` graft): ownership modes per table (`owned` / `adopted` /
+   `observed`) with stated hardening assumptions, `mls import` of a live schema, the lifter
+   (D46: the policies MLS itself emits and the usual hand-written idioms read back into the
+   verified fragment, the rest opaque blocks with their catalog signature), the
+   `session_setting` adapter, `in` with a constant list, selectors (`applies_to`, D48), `mls
+   status`, and the lint pack with `role_separation` (D49);
+6. the terse syntax (D50): a second concrete syntax of the same model (`.mls`, `mls fmt`, the
+   round trip as the evidence), errors with source spans, and `--syntax` for the LLM loop, whose
+   default became terse after a corpus run with both syntaxes.
 
-Milestone 5 (brownfield, the `pg_more_ls` graft) is in progress: `in` with a constant list, the
-`session_setting` adapter, ownership modes per table (`owned` / `adopted` / `observed`) with
-stated hardening assumptions, `mls import` of a live schema, and the lifter (D46: the policies
-MLS itself emits and the usual hand-written idioms read back into the verified fragment, the
-rest opaque blocks with their catalog signature; importing a deployed spec gives it back with
-no opaque block and an empty behaviour diff), and selectors (`applies_to`, D48: one rule for
-every table a selector matches, expanded by `check`), `mls status` (per table: ungoverned, refuted,
-opaque, unproved, proved) and the lint pack (D49: coverage, contradiction, subsumption and
-redundancy as findings, never verdicts, plus the `role_separation` template) are done, which
-closes Milestone 5.  The terse syntax (D50) is done: a second concrete syntax (`.mls`, `mls
-fmt`, round trip as the evidence), errors with source spans, and `--syntax` for the LLM loop,
-whose default became terse after a corpus run with both syntaxes (`docs/LLM.md`).
+Open: a real seed corpus to replace the author's cases (issue #1, on hold).
 
-### Measured with `claude-opus-5-5`
+### Measured with `claude-opus-5-5` (2026-11-05, terse syntax, the default)
 
-- **Seed corpus, 30 generation cases:** 28 end proved, net-equivalent to their reference and with
-  the reference properties' expected verdicts.  4 cases needed one repair round; none was
-  escalated.
-- **Repair benchmark, 194 synthetic cases** (the loop starts from mutated rules): 187 end proved
-  and net-equivalent after about one repair round.
-- **Mutation score of the corpus's property sets: 75 %.**  Properties state both bounds: the
+- **Seed corpus, 35 generation cases:** 32 end proved, net-equivalent to their reference and with
+  the reference properties' expected verdicts; the two reworded selector cases then passed too.
+  9 cases needed one repair round; none was escalated.
+- **Repair benchmark, 221 synthetic cases** (the loop starts from mutated rules): 218 end proved
+  and net-equivalent after about one repair round.  JSON answers scored 217 at a third more
+  output tokens.
+- **Mutation score of the corpus's property sets: 75 %** (221 of 295 mutants detected).  Properties state both bounds: the
   safety templates say what a role may never do, `must_allow` says what it must be able to do
   (D40).
 

@@ -22,7 +22,7 @@ Read before writing code, in this order:
 User-facing documentation is `docs/GUIDE.md` (user guide) and `docs/REFERENCE.md` (language and
 CLI reference). When you add or change a construct, a property template, a CLI flag, an exit
 code or a generated object name, update them in the same change. A construct lives in both
-syntaxes (D50): give it its terse form in `terse.py` (and, once the parser exists, its parse)
+syntaxes (D50): give it its terse form in `terse.py` and its parse in `spec/syntax.py`
 in the same change; `tests/test_terse.py` fails the fast suite when the model has a field or a
 union member the renderer does not cover.
 
@@ -54,12 +54,14 @@ union member the renderer does not cover.
   Postgres 15–18 in CI.
 - Parse `EXPLAIN (FORMAT JSON)`, never text plans (InitPlan display differs across versions).
 - License: Apache-2.0. Personal open-source project.
-- Package name `mls`; CLI `mls` with subcommands (`check`, `prove`, `compile`, `test`, `diff`,
-  `migrate`, `preflight`, `drift`, `import`, `status`).
+- Package name `mls`; CLI `mls` with subcommands (`check`, `prove`, `compile`, `test`, `lint`,
+  `explain`, `fmt`, `schema`, `diff`, `migrate`, `preflight`, `drift`, `import`, `status`,
+  `generate`, `eval`).
 
 ## Running things
 
-- `uv sync --all-extras`; `uv run mls <check|prove|compile|test|lint|schema|eval> ...`.
+- `uv sync --all-extras`; `uv run mls <check|prove|compile|test|lint|fmt|schema|eval> ...` (a spec
+  is `.mls` terse or JSON, by extension).
 - `uv run pytest -m "not pg"` is fast and needs no Docker. `uv run pytest -m pg` starts
   `postgres:15..18` containers (set `MLS_PG_VERSIONS=16` for one, `MLS_PG_DSN=...` for an existing
   server). `-m slow` runs the EXPLAIN checks at 1M rows.

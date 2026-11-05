@@ -85,7 +85,7 @@ adapter maps each source to SQL and declares the trust assumption the proof repo
 |---|---|---|---|---|
 | `supabase` | `auth.uid` | `(select auth.uid())` | must be `uuid` | clients reach the database only through Supabase's API layer, which verifies the JWT before setting `request.jwt.claims` |
 | `supabase` | `jwt.claims.<claim>` | `(select (auth.jwt() ->> '<claim>')::<type>)` | any | same |
-| `pg_roles` | `current_user` | `current_user` | must be `text` | none |
+| `pg_roles` | `current_user` | `(select current_user::text)` | must be `text` | none |
 | `session_setting` | `app.<name>` | `(select nullif(current_setting('app.<name>', true), '')::<type>)` | any | clients cannot execute `SET` on `app.*`; the setting is established by a trusted path (a pooler, a `SET LOCAL` inside a `SECURITY DEFINER` entry point, or the application's connection layer) that no untrusted client reaches (D47) |
 
 `now` is a built-in context value in every adapter (the transaction start time, compiled as

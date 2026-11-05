@@ -120,7 +120,8 @@ For a table, role and command:
 An adapter maps context names to SQL expressions and declares its trust assumption.
 - `supabase`: `uid → (select auth.uid())`, claims → `(select auth.jwt() ->> 'claim')`.
   Assumption: claims are set only by the API layer after JWT verification.
-- `pg_roles`: `role → current_user`, membership via `pg_has_role`. No external assumption.
+- `pg_roles`: `current_user → (select current_user::text)`; memberships are ordinary relations
+  keyed by the role name. No external assumption: Postgres authenticated the session.
 - `session_setting` (D47): `name → (select nullif(current_setting('app.name', true), '')::type)`.
   A missing or empty setting is NULL, so every comparison with it is UNKNOWN and the row is
   denied. Assumption: clients cannot execute `SET` on `app.*`; a trusted path (pooler,
