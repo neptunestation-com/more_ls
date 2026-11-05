@@ -511,6 +511,19 @@ spec declares, and `mls drift` says whether the database and the spec still agre
 hand-written CHECK it imported shows as `differs` until a deploy rewrites it to the template's
 `IS TRUE` form).
 
+`mls status` is the overview while the rewrite is under way: one line per table, `proved` when
+every property about it holds outright, `opaque` with the blocks its proofs still depend on,
+`unproved` when no property mentions it yet, `refuted`, and `ungoverned` for an observed
+table.  With `--dsn` it also reads the live catalog, so a table that lost row-level security or
+a table nobody has added to the spec shows up as `ungoverned`:
+
+    $ uv run mls status spec.mls.json --dsn "$DSN"
+    projects: proved (P1, P3)
+    tasks: opaque (conditional on insert_into_own_projects_check)
+    project_members: unproved (no property mentions it)
+    audit_log: ungoverned (not in the spec)
+    status: 1 ungoverned, 1 opaque, 1 unproved, 1 proved
+
 Keep the spec in version control next to the application.  The spec, not the SQL, is the source
 of truth; the SQL is a build artifact.
 

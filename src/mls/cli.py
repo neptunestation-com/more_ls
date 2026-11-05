@@ -1,4 +1,4 @@
-"""mls: check | prove | compile | test | diff | migrate | preflight | drift | import | explain | lint | schema | eval"""
+"""mls: check | prove | compile | test | diff | migrate | preflight | drift | import | status | explain | lint | schema | eval"""
 from __future__ import annotations
 
 import argparse
@@ -285,6 +285,30 @@ def cmd_drift(a) -> int:
     return 0 if res.ok else 1
 
 
+def cmd_status(a) -> int:
+    from mls.props.runner import run_all
+    from mls.status import failing, table_statuses, to_json, to_text
+
+    try:
+        spec = _load(a.spec)
+    except (SpecError, CompileError) as e:
+        _print_errors(e, a.json)
+        return 1
+    results = run_all(spec, timeout_ms=a.timeout * 1000)
+    snap = None
+    if a.dsn:
+        import psycopg
+
+        from mls.pg.catalog import snapshot
+        from mls.pg.drift import _observed, _roles
+
+        with psycopg.connect(a.dsn) as conn:
+            snap = snapshot(conn, a.schema, list(spec.governed()), _roles(spec), _observed(spec))
+    statuses = table_statuses(spec, results, snap)
+    print(json.dumps(to_json(statuses), indent=2) if a.json else to_text(statuses))
+    return 2 if failing(statuses) else 0
+
+
 def cmd_import(a) -> int:
     import psycopg
 
@@ -509,6 +533,14 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--schema", default="public")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_drift)
+
+    p = sub.add_parser("status", help="governance status per table: ungoverned, refuted, opaque, unproved or proved")
+    p.add_argument("spec")
+    p.add_argument("--dsn", help="also read the live catalog: RLS state, missing tables, tables outside the spec")
+    p.add_argument("--schema", default="public")
+    p.add_argument("--timeout", type=int, default=20, help="per-obligation solver timeout in seconds")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_status)
 
     p = sub.add_parser("import", help="write a spec from a live schema: tables adopted, policies lifted into the "
                                       "fragment where the lifter reads them, opaque otherwise (D45, D46)")

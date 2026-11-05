@@ -33,12 +33,14 @@ error).  For the design: `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.
     uv run mls preflight examples/tenant_docs_v2.mls.json --old examples/tenant_docs.mls.json --dsn $DSN
     uv run mls drift   examples/tenant_docs_v2.mls.json --dsn $DSN   # live catalog vs. a shadow deploy
     uv run mls import  --dsn $DSN --out imported.mls.json   # a spec from a live schema: tables adopted, policies lifted
+    uv run mls status  examples/tenant_docs.mls.json [--dsn $DSN]   # per table: ungoverned, refuted, opaque, unproved, proved
     uv run mls schema                                       # JSON Schema of the spec language
     uv run mls eval    evals/cases                          # expected verdicts of the eval corpus
 
 Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 on mismatches,
 `diff` 2 if anything changed, `preflight` and `drift` 1 when they find something (`drift` lists an
-adopted table's foreign objects and assumed hardening without failing).
+adopted table's foreign objects and assumed hardening without failing), `status` 2 when a table is
+refuted or, with `--dsn`, a governed table is missing or has lost row-level security.
 `docs/MIGRATION.md` describes the migration phases and the observed lock levels.
 
 ## Test

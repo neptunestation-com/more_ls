@@ -679,7 +679,28 @@ or the count of drift items, followed by the counts of assumed and foreign items
 Exit 1 if any drift item; `assumed` and `foreign` items are the expected state of an adopted
 table and do not fail.
 
-### `mls import --dsn DSN [--schema NAME] [--role ROLE ...] [--out FILE] [--json]`
+### `mls status SPEC [--dsn DSN [--schema NAME]] [--timeout SECONDS] [--json]`
+
+The governance status of every table, as data (`src/mls/status.py`): the red, yellow and
+green of a schema overlay.  Runs the proofs (`mls prove`) and prints one line per table of the
+spec, in declaration order, `<table>: <status> (<detail>)`:
+
+| Status | Meaning | Detail |
+|---|---|---|
+| `ungoverned` | no row-level security from the spec: an `observed` table; with `--dsn` also a governed table that is missing or has RLS disabled, and a table of the schema the spec does not mention | the reason |
+| `refuted` | a property that mentions the table is not proved | the property ids |
+| `opaque` | every proof about the table holds, but one is conditional on an opaque block, or a rule on the table reads one | the block names |
+| `unproved` | governed, and no property mentions it | |
+| `proved` | every property that mentions the table is proved unconditionally | the property ids |
+
+A property *mentions* the tables it names (`table`, an invariant's rules); `least_privilege`
+mentions every governed table and `monotone_in` every table an obligation of it ranges over.
+The last line is a count per status.  `--json` prints `{"ok", "tables": [{"table", "status",
+"detail", "opaques", "properties"}]}`.  Exit 2 when a table is `refuted` or, with `--dsn`, a
+governed table is missing or has RLS disabled; `opaque`, `unproved` and observed or
+unmentioned tables are information, exit 0.
+
+
 
 Writes a spec from a live schema (D45): a starting point the human or the loop edits; from then
 on the spec is the source of truth and `mls drift` says whether the database still agrees.

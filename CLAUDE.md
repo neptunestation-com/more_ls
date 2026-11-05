@@ -52,7 +52,7 @@ code or a generated object name, update them in the same change.
 - Parse `EXPLAIN (FORMAT JSON)`, never text plans (InitPlan display differs across versions).
 - License: Apache-2.0. Personal open-source project.
 - Package name `mls`; CLI `mls` with subcommands (`check`, `prove`, `compile`, `test`, `diff`,
-  `migrate`, `preflight`, `drift`).
+  `migrate`, `preflight`, `drift`, `import`, `status`).
 
 ## Running things
 
@@ -125,7 +125,10 @@ code or a generated object name, update them in the same change.
   `spec/selectors.py:expand_selectors` first (one rule per governed table, id `<id>.<table>`,
   `from`, the selector kept on the expansion for `english.selector_line`), then the checker
   with the original rule paths; nothing downstream sees a selector. `in_schema` is not
-  implemented (tables carry no schema).
+  implemented (tables carry no schema). `mls status` (`status.py`) is the per-table overlay:
+  `ungoverned` / `refuted` / `opaque` / `unproved` / `proved` from the proof results (global
+  properties attributed per obligation through `Obligation.rows`) plus, with `--dsn`, the live
+  RLS state and the tables outside the spec; `tests/props/test_status.py` pins the output.
 - Lean track (D11, D41): `lean/` is a Lake project (core Lean 4, no Mathlib; pinned in
   `lean/lean-toolchain`). `cd lean && lake build` checks it; CI does, and `uv run pytest -m lean`
   does when `lake` is on PATH (skipped otherwise). `lean/MLS/Pred.lean` is `logic/tvl.py`
