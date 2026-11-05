@@ -94,6 +94,13 @@ def opaque_impl():
 
 
 PG_ROLES = EXAMPLE.parent / "pg_roles_docs.mls.json"
+SESSION = EXAMPLE.parent / "session_docs.mls.json"
+
+
+def session_spec() -> Spec:
+    """The example on the session_setting adapter (D47): the harness sets app.uid and
+    app.clearance with set_config inside the transaction."""
+    return make(json.loads(SESSION.read_text()))
 
 
 def pg_roles_spec() -> Spec:

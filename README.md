@@ -53,14 +53,15 @@ Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 
     src/mls/logic     term AST, 3VL encoding, Z3 backend, SMT-LIB2 printer, cvc5 cross-check
     src/mls/props     policy combination, property templates as obligations, scenarios, reports, access diff
     src/mls/compile   one module per template + indexes, grants, hardening, plan, objects, migrate
-    src/mls/identity  supabase, pg_roles adapters
+    src/mls/identity  supabase, pg_roles, session_setting adapters
     src/mls/pg        concrete oracle, differential harness, EXPLAIN checks, leakproof lint,
                       pre-flight, catalog snapshots, drift, lock observation
     src/mls/english.py  plain-English rendering of rules, properties, scenarios (the approval artifact)
     tests/            spec, logic, props, cli (no Postgres); templates (Postgres 15–18, Docker)
     evals/cases       eval case format and the first cases (the prototype's three corpora)
     examples/         tenant_docs (supabase), tenant_docs_v2 (its next version), pg_roles_docs (pg_roles),
-                      org_tree (hierarchy with in_group policies and a cardinality limit)
+                      session_docs (session_setting), org_tree (hierarchy with in_group policies and a
+                      cardinality limit)
     prototype/        the throwaway Python + Z3 prototype this grew from
     docs/             GUIDE (user guide), REFERENCE (language and CLI), SEMANTICS, DECISIONS,
                       ROADMAP, FINDINGS, BACKGROUND (what pg_more_ls established), MIGRATION, LLM

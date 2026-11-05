@@ -90,7 +90,21 @@ def snapshot(conn: psycopg.Connection, schema: str, tables: list[str], roles: li
                                         where am.roleid = pg_roles.oid order by 1)
                            from pg_roles where rolname = %s""", (r,))
             row = cur.fetchone()
-            out["roles"][r] = None if row is None else {"bypassrls": row[0], "super": row[1], "login": row[2],
-                                                        "can_set_replication_role": row[3],
-                                                        "members": list(row[4])}
+            if row is None:
+                out["roles"][r] = None
+                continue
+            # D47 hardening: functions (any schema) whose body sets the app.* namespace and that
+            # the role may execute, and ALTER ROLE ... SET defaults for app.*
+            cur.execute("""select n.nspname || '.' || p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')'
+                           from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                           where n.nspname not in ('pg_catalog', 'information_schema')
+                             and (p.prosrc ~* $$set_config\\s*\\(\\s*'app\\.$$ or p.prosrc ~* $$\\mset\\s+(local\\s+|session\\s+)?app\\.$$)
+                             and has_function_privilege(%s, p.oid, 'EXECUTE') order by 1""", (r,))
+            setters = [x[0] for x in cur.fetchall()]
+            cur.execute("""select array_agg(c order by c) from pg_db_role_setting s join pg_roles o on o.oid = s.setrole,
+                           unnest(s.setconfig) c where o.rolname = %s and c like 'app.%%'""", (r,))
+            defaults = cur.fetchone()[0] or []
+            out["roles"][r] = {"bypassrls": row[0], "super": row[1], "login": row[2],
+                               "can_set_replication_role": row[3], "members": list(row[4]),
+                               "app_setters": setters, "app_defaults": list(defaults)}
     return out

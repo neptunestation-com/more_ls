@@ -405,6 +405,12 @@ class Checker:
                 else:
                     self.err(path + ".source", f"unknown supabase source '{cv.source}'",
                              "use 'auth.uid' or 'jwt.claims.<name>'")
+            elif ident.adapter == "session_setting":
+                from mls.identity.session_setting import SOURCE
+
+                if not SOURCE.match(cv.source):
+                    self.err(path + ".source", f"unknown session_setting source '{cv.source}'",
+                             "use 'app.<name>' (lower-case letters, digits and underscores)")
             else:  # pg_roles
                 if cv.source != "current_user":
                     self.err(path + ".source", f"unknown pg_roles source '{cv.source}'",

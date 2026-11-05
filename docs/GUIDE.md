@@ -389,7 +389,7 @@ static list.
 
 A policy's context values (`@uid`, `@clearance`) come from an identity adapter.  The adapter
 decides how a name becomes SQL and what has to be true outside the database for the policy to
-mean anything.  Two adapters ship:
+mean anything.  Three adapters ship:
 
 **`supabase`.**  `auth.uid` is the user id (`(select auth.uid())`, type `uuid`) and
 `jwt.claims.<name>` is a JWT claim (`(select (auth.jwt() ->> 'name')::type)`).  The trust
@@ -401,7 +401,17 @@ forged claim is outside the model.
 authenticated the session.  Use this when every user is a database role, or when a connection
 pooler sets the role per request with `SET ROLE`.
 
-MLS rejects `current_setting('app.*')` as an identity source (D1): any client can `SET` it.
+**`session_setting`.**  `app.<name>` is a session setting read with
+`current_setting('app.<name>', true)` and cast to the declared type (D47).  A setting that is
+absent or empty is NULL, so every comparison with it is UNKNOWN and the row is denied: no
+context set, denied.  MLS rejected this as an identity source at first (D1), because any client
+with a direct connection can `SET` it; that is still true, so the adapter states its trust
+assumption in every proof report, `explain` and diff: clients cannot execute `SET` on `app.*`;
+the setting is established by a trusted path (a pooler, a `SET LOCAL` inside a `SECURITY
+DEFINER` entry point, or the application's connection layer) that no untrusted client reaches.
+`mls drift` checks the two ways that path leaks into the database: an app role that may execute
+a function whose body sets `app.*`, and an `ALTER ROLE ... SET app.*` default on an app role.
+`examples/session_docs.mls.json` is the document store on this adapter.
 
 `now` is a built-in context value in every adapter (the transaction start time), used by
 `now_between`.

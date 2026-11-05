@@ -99,6 +99,10 @@ code or a generated object name, update them in the same change.
   (`spec/expand.py`); every consumer must use the returned spec, and nothing downstream of the
   checker ever sees an `In` node. `compile/sql.py` renders that `or` shape as one IN list
   (mutation `IN_DROP_LAST`, fixture `in_spec`), and `pg/explain.py` requires it as an index condition.
+  The `session_setting` adapter (D47) reads `current_setting('app.<name>', true)` through
+  `nullif(.., '')`; its hardening is drift-only (`pg/catalog.py` collects per role the functions
+  that set `app.*` and the `ALTER ROLE .. SET app.*` defaults; `pg/drift.py` reports them for this
+  adapter). The harness user context is the membership key (`user_context_name`), not a source.
 - Lean track (D11, D41): `lean/` is a Lake project (core Lean 4, no Mathlib; pinned in
   `lean/lean-toolchain`). `cd lean && lake build` checks it; CI does, and `uv run pytest -m lean`
   does when `lake` is on PATH (skipped otherwise). `lean/MLS/Pred.lean` is `logic/tvl.py`
@@ -126,7 +130,7 @@ src/mls/
   logic/       term AST, 3VL encoding, Z3 backend, SMT-LIB2 printer
   props/       property templates + custom properties, proof runner, reports
   compile/     one module per template: policy, check, fk, transition, time, column, index, hardening
-  identity/    adapters: supabase, pg_roles
+  identity/    adapters: supabase, pg_roles, session_setting (D47)
   pg/          catalog introspection, EXPLAIN checks, differential test harness
   cli.py
 tests/

@@ -36,8 +36,12 @@ def _run(pg_dsn, spec, mutations, big_table: str = "docs"):
         h.close()
 
 
-def test_policies_are_index_driven_at_scale(pg_dsn, example_spec):
-    results = _run(pg_dsn, example_spec, set())
+@pytest.mark.parametrize("adapter", ["supabase", "session_setting"])
+def test_policies_are_index_driven_at_scale(pg_dsn, example_spec, adapter):
+    from tests.templates import specs
+
+    spec = example_spec if adapter == "supabase" else specs.session_spec()
+    results = _run(pg_dsn, spec, set())
     assert results, "no plans checked"
     bad = [f"{r.table}/{r.role}: {r.problems}" for r in results if not r.ok]
     assert not bad, bad

@@ -187,6 +187,18 @@ def _v(v: Any) -> str:
     return str(v)
 
 
+def identity_lines(spec: Spec) -> list[str]:
+    """The identity adapter's trust assumption, stated wherever the spec is explained."""
+    from mls.identity import get_adapter
+
+    adapter = get_adapter(spec)
+    lines = [f"- identity adapter '{adapter.name}': {adapter.assumption}"]
+    if adapter.name == "session_setting":
+        lines.append("- a context value whose setting is absent is unknown, so every comparison with it is "
+                     "unknown and the row is denied (no context set: denied).")
+    return lines
+
+
 def spec_summary(spec: Spec) -> str:
     lines = ["# What the rules say", ""]
     for r in spec.rules:
@@ -205,4 +217,5 @@ def spec_summary(spec: Spec) -> str:
         for name, o in spec.opaques.items():
             lines.append(f"- **{name}** on {o.table}: `{o.sql}` (not checked by the prover; "
                          f"proofs that use it are conditional on it)")
+    lines += ["", "# Identity", "", *identity_lines(spec)]
     return "\n".join(lines) + "\n"

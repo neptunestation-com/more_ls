@@ -71,7 +71,7 @@ nullable.
 ## 3. `identity`
 
     "identity": {
-      "adapter": "supabase" | "pg_roles",
+      "adapter": "supabase" | "pg_roles" | "session_setting",
       "context": { "<name>": {"source": "<source>", "type": "<column type>"}, ... }
     }
 
@@ -83,10 +83,13 @@ adapter maps each source to SQL and declares the trust assumption the proof repo
 | `supabase` | `auth.uid` | `(select auth.uid())` | must be `uuid` | clients reach the database only through Supabase's API layer, which verifies the JWT before setting `request.jwt.claims` |
 | `supabase` | `jwt.claims.<claim>` | `(select (auth.jwt() ->> '<claim>')::<type>)` | any | same |
 | `pg_roles` | `current_user` | `current_user` | must be `text` | none |
+| `session_setting` | `app.<name>` | `(select nullif(current_setting('app.<name>', true), '')::<type>)` | any | clients cannot execute `SET` on `app.*`; the setting is established by a trusted path (a pooler, a `SET LOCAL` inside a `SECURITY DEFINER` entry point, or the application's connection layer) that no untrusted client reaches (D47) |
 
 `now` is a built-in context value in every adapter (the transaction start time, compiled as
 `(select now())`) and may not be declared.  The adapter cannot be changed by `mls migrate`.
-Raw `current_setting(...)` is not an identity source (D1).
+With `session_setting` a missing or empty setting is NULL: every comparison with it is UNKNOWN
+and the row is denied (the English says "no context set: denied").  The assumption of the
+adapter in use is stated by `mls prove`, `mls explain` and `mls diff`.
 
 ## 4. `roles`
 
@@ -506,7 +509,11 @@ it).
 Hardening (D13), on every deployment: the preamble refuses to run as an app role; app roles
 lose `BYPASSRLS`, `SUPERUSER`, `CREATEDB`, `CREATEROLE` and `SET` on `session_replication_role`;
 every table gets `ENABLE` and `FORCE ROW LEVEL SECURITY`; all privileges are revoked from
-`public`; `TRUNCATE` is never granted.
+`public`; `TRUNCATE` is never granted.  With the `session_setting` adapter, `mls drift` also
+reports (kind `hardening`) an app role that may execute a function whose body sets `app.*`
+(`set_config('app....` or `SET app....`, in any schema) and an app role with an
+`ALTER ROLE ... SET app.*` default (D47); nothing is emitted for these, since the fix is to
+revoke or reset something MLS did not create.
 
 ## 15. Command-line interface
 

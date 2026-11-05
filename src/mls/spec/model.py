@@ -212,13 +212,14 @@ class Hierarchy(Strict):
 
 class ContextVar(Strict):
     """A context value.  `source` grammar depends on the adapter:
-    supabase: 'auth.uid' | 'jwt.claims.<name>';  pg_roles: 'current_user'."""
+    supabase: 'auth.uid' | 'jwt.claims.<name>';  pg_roles: 'current_user';
+    session_setting: 'app.<name>' (read with current_setting, D47)."""
     source: str
     type: ColType
 
 
 class Identity(Strict):
-    adapter: Literal["supabase", "pg_roles"]
+    adapter: Literal["supabase", "pg_roles", "session_setting"]
     context: dict[str, ContextVar] = Field(default_factory=dict)
 
 

@@ -120,6 +120,11 @@ def compare(spec: Spec, expected: Snapshot, actual: Snapshot) -> list[DriftItem]
             items.append(DriftItem("hardening", f"role {r} is a superuser"))
         if a["can_set_replication_role"]:
             items.append(DriftItem("hardening", f"role {r} may SET session_replication_role"))
+        if spec.identity.adapter == "session_setting" and r in spec.roles:  # D47
+            for fn in a["app_setters"]:
+                items.append(DriftItem("hardening", f"role {r} may execute {fn}, which sets app.*"))
+            for d in a["app_defaults"]:
+                items.append(DriftItem("hardening", f"role {r} has a default for {d.split('=')[0]} (ALTER ROLE ... SET)"))
         if r == INTERNAL_ROLE:
             if a["login"]:
                 items.append(DriftItem("hardening", f"role {r} can log in"))

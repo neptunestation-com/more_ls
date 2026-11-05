@@ -47,6 +47,8 @@ class Adapter(ABC):
 
 def get_adapter(spec: Spec) -> Adapter:
     from mls.identity.pg_roles import PgRolesAdapter
+    from mls.identity.session_setting import SessionSettingAdapter
     from mls.identity.supabase import SupabaseAdapter
 
-    return {"supabase": SupabaseAdapter, "pg_roles": PgRolesAdapter}[spec.identity.adapter](spec)
+    return {"supabase": SupabaseAdapter, "pg_roles": PgRolesAdapter,
+            "session_setting": SessionSettingAdapter}[spec.identity.adapter](spec)

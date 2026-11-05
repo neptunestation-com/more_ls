@@ -121,6 +121,10 @@ An adapter maps context names to SQL expressions and declares its trust assumpti
 - `supabase`: `uid → (select auth.uid())`, claims → `(select auth.jwt() ->> 'claim')`.
   Assumption: claims are set only by the API layer after JWT verification.
 - `pg_roles`: `role → current_user`, membership via `pg_has_role`. No external assumption.
+- `session_setting` (D47): `name → (select nullif(current_setting('app.name', true), '')::type)`.
+  A missing or empty setting is NULL, so every comparison with it is UNKNOWN and the row is
+  denied. Assumption: clients cannot execute `SET` on `app.*`; a trusted path (pooler,
+  `SET LOCAL` in a `SECURITY DEFINER` entry point, the application's connection layer) sets it.
 
 ## 7. Proof obligations
 

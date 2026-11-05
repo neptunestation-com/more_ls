@@ -95,6 +95,7 @@ class ValueGen:
         self.facts: dict[str, list[tuple[Any, Any]]] = {}  # relation -> known pairs (FK-aware rows)
         self.rows: dict[str, list[Row]] = {}                  # table -> rows generated so far
         self.user_cols = user_columns(spec, adapter)
+        self.user_ctx = adapter.user_context_name()
 
     def value(self, type_: str, nullable: bool, null_p: float | None = None) -> Any:
         if nullable and self.rnd.random() < (self.null_p if null_p is None else null_p):
@@ -140,7 +141,7 @@ class ValueGen:
     def context(self, role: str) -> dict[str, Any]:
         ctx: dict[str, Any] = {CONTEXT_NOW: self.now}
         for name, cv in self.spec.identity.context.items():
-            if cv.source in ("auth.uid", "current_user"):
+            if name == self.user_ctx:
                 ctx[name] = self.rnd.choice(self.users)
             else:
                 ctx[name] = self.value(cv.type, False)
