@@ -710,8 +710,8 @@ The common real case is neither greenfield nor adoption of existing policies. Th
 tables and the data model exist and stay: foreign keys are likely, functions common, triggers
 occasional, CHECK constraints rare, custom types and transition rules absent. The RLS policies
 either do not exist or are a half-hearted attempt nobody is attached to. The user keeps the data
-model and hands the policies to MLS. D51–D55 make that path first-class; *proposed, not yet
-settled: review before implementation.*
+model and hands the policies to MLS. D51–D55 make that path first-class. D51 is settled (2026-11-05);
+D52–D55 are *proposed, not yet settled: review before implementation.*
 
 **D51. The spec owns the whole policy set of every governed table (amends D45).** D45 already
 says this for drift: on an `adopted` table an undeclared policy is `unexpected`, not `foreign`,
@@ -719,10 +719,15 @@ because it changes what a role can do. The deployment did not say it: `mls compi
 adopted table creates the spec's policies next to whatever is there, and since Postgres ORs
 permissive policies, a leftover `using (true)` keeps granting what every proof says is denied.
 That is invariant 4 broken by omission. So the policies section of the compiled script begins,
-for each adopted table, with a fixed template that drops every policy on the table that is not
-about to be created, by name read from `pg_policy` at run time, with a `raise notice` per
-dropped policy; owned tables need none (MLS created them). It runs in the script's transaction,
-so no statement sees the table with neither policy set. The template gets a differential test
+for each adopted table, with a fixed template that drops every policy on the table, by name
+read from `pg_policy` at run time, with a `raise notice` naming each dropped policy the spec does
+not declare; the spec's policies are then created as on any table. Dropping all of them, not
+only the undeclared ones, is what lets the script run again on a deployed database (a policy of
+the spec's name already there would make `create policy` fail) and replaces a same-named
+hand-written policy instead of keeping it. Owned tables need none (MLS created them). It runs
+in the deploy's transaction (`psql --single-transaction`), so no statement sees the table with
+neither policy set. `mls migrate` is unchanged: it starts from a database the v1 script
+deployed, which has no foreign policy to drop. The template gets a differential test
 with a pre-existing permissive `using (true)` and restrictive `using (false)` policy, and a
 mutation (`REPLACE_KEEPS_FOREIGN`) that skips the drop. `mls drift` before a deploy lists
 exactly the policies the deploy will drop (they are its `unexpected` policies), so the preview

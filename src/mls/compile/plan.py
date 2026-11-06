@@ -1,7 +1,7 @@
 """Compile a checked spec into an ordered DDL script of fixed templates.
 
 Sections, in order: preamble, roles, tables, checks, fks, transitions, hierarchies, cardinalities,
-rls, policies, indexes, grants.  Before emitting, the compiler proves the soundness obligations that the targets need
+rls, policies (on an adopted table, first the replacement of its policy set, D51), indexes, grants.  Before emitting, the compiler proves the soundness obligations that the targets need
 (relation visibility: a membership subquery in a policy must not be filtered by RLS on the
 relation's table) and refuses with an actionable error if any fails (invariant 4).
 """
@@ -18,7 +18,7 @@ from mls.compile.fk import fk_ddl
 from mls.compile.hardening import preamble_ddl, role_ddl, table_hardening_ddl
 from mls.compile.index import index_ddl
 from mls.compile.mutations import Mutation
-from mls.compile.policy import policy_ddl
+from mls.compile.policy import policy_ddl, replace_policies_ddl
 from mls.compile.sql import SqlCompiler
 from mls.compile.table import table_ddl
 from mls.compile.transition import transition_ddl
@@ -121,7 +121,12 @@ def compile_spec(spec: Spec, mutations: frozenset[Mutation] | set[Mutation] = fr
     for r in spec.cardinalities():
         s.add("cardinalities", cardinality_ddl(spec, r, sc), r.id)
     s.add("rls", table_hardening_ddl(spec, mutations))
-    for p in all_policies(spec) + internal_policies(spec):
+    policies = all_policies(spec) + internal_policies(spec)
+    for name, t in spec.governed().items():
+        if t.mode == "adopted":
+            s.add("policies", replace_policies_ddl(name, [p.name for p in policies if p.table == name], sc),
+                  f"replace:{name}")
+    for p in policies:
         s.add("policies", policy_ddl(p, sc), p.id)
     if Mutation.INDEX_NONE not in mutations:
         s.add("indexes", index_ddl(spec))

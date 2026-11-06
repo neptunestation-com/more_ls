@@ -129,7 +129,7 @@ union member the renderer does not cover.
   adapter). The harness user context is the membership key (`user_context_name`), not a source.
   Table modes (D45): `Table.mode` is `owned` | `adopted` | `observed`; `Spec.governed()` is what the
   compiler, harness, objects and drift iterate (observed tables are only checked to exist). The
-  compiler never creates or forces an adopted table (`compile/hardening.py`); `drift` shadow-creates
+  compiler never creates or forces an adopted table (`compile/hardening.py`) but replaces its whole policy set (D51, `compile/policy.py:replace_policies_ddl`; the harness seeds every adopted table with foreign policies, mutation `REPLACE_KEEPS_FOREIGN`); `drift` shadow-creates
   it from the spec, reports undeclared constraints/triggers/indexes/columns on it as `foreign`
   (non-failing) and the `assume` entries as `assumed` (non-failing; a stale one is a note). The
   assumptions are rendered once (`english.assumption_lines`) for the proof report, explain, diff

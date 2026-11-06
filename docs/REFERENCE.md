@@ -145,7 +145,9 @@ declared table depends on its mode:
   security and does not touch the owner: that hardening is either in place (drift verifies it)
   or stated under `assume`.  A constraint, trigger, index or column on the table that the spec
   does not declare is `foreign` (listed by drift, not drift); a policy or privilege the spec does
-  not declare is still drift.
+  not declare is still drift.  The spec owns the table's whole policy set (D51): the deploy drops
+  every policy already on it before creating the spec's (§14), so a hand-written permissive
+  policy cannot keep granting what the proofs deny.
 - **`observed`**: the table is in the schema and is mentioned so that the spec can speak about
   it; nothing governs it.  No rule, relation, hierarchy, opaque block or property may name it
   (the checker refuses with the path and the fix: set the mode to `adopted`).  Drift only checks
@@ -646,6 +648,15 @@ All names are deterministic functions of the spec, so `mls drift` can match them
 | index | `mls_ix_<table>_<col>[_<col>...]` |
 | migration: replacement constraint before the swap | `<name>_mls_new` |
 | internal role | `mls_internal` (NOLOGIN, NOBYPASSRLS, NOINHERIT; owns the helpers) |
+
+Policy-set replacement (D51), on every `adopted` table, first in the policies section: a `do`
+block that drops every policy on the table, by name read from `pg_policy` when the script runs,
+and raises the notice `MLS drops policy <name> on <table>: the spec does not declare it` for
+each one the spec does not declare; the spec's policies are created after it.  The policies the
+notices name are exactly the `unexpected` policies `mls drift` reports before the deploy.
+Dropping the spec's own names too is what lets the script run again on a deployed database.
+Owned tables need no replacement (MLS created them), and `mls migrate` emits none (it starts from
+a deployment, which has no foreign policy).
 
 Indexes (D14): one composite index per conjunctive group of a permissive policy (membership
 columns first, then comparison columns), one on each foreign key's referencing columns, and a

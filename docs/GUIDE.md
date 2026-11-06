@@ -929,8 +929,8 @@ meaning at the same time.
 
 ## 9. Deploying the DDL
 
-The compiled script is idempotent for roles (`create role` if missing) but not for tables and
-policies: it is the *initial* deployment.  Run it as the role that will own the objects, in a
+The compiled script is idempotent for roles (`create role` if missing) but not for owned tables
+and their policies: it is the *initial* deployment.  Run it as the role that will own the objects, in a
 transaction:
 
     uv run mls compile spec.mls.json --out deploy.sql
@@ -966,6 +966,17 @@ MLS does not have to create the tables it governs.  A table declares its `mode`:
   not create (force row-level security, change the owner) is either already in place, and drift
   verifies it, or stated as an assumption the proofs repeat.
 - `observed`: in the schema, mentioned, not governed.  No rule may name it.
+
+MLS takes over the whole policy set of an adopted table.  Whatever policies are on it when the
+script runs, hand-written or left over from an earlier attempt, are dropped before the spec's
+are created, in the same transaction, so a permissive `using (true)` someone wrote last year
+cannot quietly keep granting what the proofs say is denied.  The script names each one it drops
+that the spec does not declare:
+
+    NOTICE:  MLS drops policy Enable read access for all users on profiles: the spec does not declare it
+
+To see the list before deploying, run `mls drift`: its `unexpected` policies are exactly the
+ones the deploy will drop.
 
 To adopt a live schema, let MLS write the first version of the spec:
 

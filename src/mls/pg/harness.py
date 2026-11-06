@@ -298,11 +298,29 @@ class Harness:
 
     def pre_existing_sql(self) -> list[str]:
         """What the brownfield database holds before the script runs: the adopted tables (D45),
-        created from their declared columns as a stand-in for the real ones.  The compiled script
-        never creates them."""
+        created from their declared columns as a stand-in for the real ones, and on each the kind
+        of policies a hand-written attempt leaves behind (D51): a permissive one that admits
+        everything, under a name that is not an identifier; a restrictive one that refuses every
+        insert; and one under the name of a policy the spec declares.  The compiled script never
+        creates the tables and must replace the policies."""
+        from mls.compile.sql import q
         from mls.compile.table import table_ddl
+        from mls.props.effective import all_policies
 
-        return [s for name, t in self.spec.tables.items() if t.mode == "adopted" for s in table_ddl(name, t)]
+        out = []
+        for name, t in self.spec.tables.items():
+            if t.mode != "adopted":
+                continue
+            out += table_ddl(name, t)
+            out.append(f'create policy "Enable access for all users" on {q(name)} as permissive for all '
+                       f"to public using (true) with check (true)")
+            out.append(f"create policy legacy_no_inserts on {q(name)} as restrictive for insert to public "
+                       f"with check (false)")
+            declared = sorted(p.name for p in all_policies(self.spec) if p.table == name)
+            if declared:
+                out.append(f"create policy {q(declared[0])} on {q(name)} as permissive for select "
+                           f"to public using (true)")
+        return out
 
     def attach(self) -> None:
         """Connect to an already deployed database (e.g. after a migration) without redeploying."""

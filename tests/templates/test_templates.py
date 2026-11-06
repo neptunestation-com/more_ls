@@ -27,6 +27,7 @@ CASES = {
     "pg_roles": (specs.pg_roles_spec, Mutation.POLICY_ALL_RESTRICTIVE, None),
     "session_setting": (specs.session_spec, Mutation.POLICY_ALL_RESTRICTIVE, None),
     "adopted": (specs.adopted_spec, Mutation.POLICY_ALL_RESTRICTIVE, None),
+    "adopted_replace": (specs.adopted_spec, Mutation.REPLACE_KEEPS_FOREIGN, None),  # D51
     "hierarchy": (specs.hierarchy_spec, Mutation.HIERARCHY_SHALLOW, None),
     "hierarchy_depth": (specs.hierarchy_spec, Mutation.HIERARCHY_NO_DEPTH_CHECK, None),
     "cardinality": (specs.cardinality_spec, Mutation.CARDINALITY_OFF_BY_ONE, None),

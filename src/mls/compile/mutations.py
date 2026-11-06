@@ -22,3 +22,4 @@ class Mutation(str, Enum):
     CARDINALITY_OFF_BY_ONE = "cardinality_off_by_one"  # n > max instead of n + 1 > max
     CARDINALITY_NO_LOCK = "cardinality_no_lock"      # skip the parent-row lock (concurrency)
     IN_DROP_LAST = "in_drop_last"                    # IN list without its last constant
+    REPLACE_KEEPS_FOREIGN = "replace_keeps_foreign"  # drop only the declared names on an adopted table
