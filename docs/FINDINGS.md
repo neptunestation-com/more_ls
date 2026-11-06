@@ -209,3 +209,32 @@ run statement by statement as Supabase's `postgres` role on the platform image
   (`pg/server.py:SupabaseServer.prepare`).
 - After those changes `team_notes`, `tenant_docs` and `org_tree` deploy as `postgres`, pass the
   differential test and have no drift.
+
+## Ownership two tables away (Milestone 6, #23; PG 15–18)
+
+`tasks.project_id → projects.team_id → team_members(user_id, team_id)`: 1M tasks, 10k projects,
+1k teams; a user in 3 teams sees 3,000 tasks, a user in 100 teams 100,000.  Each shape was the
+only SELECT policy on `tasks` for a non-owner role; `projects` and `team_members` carried the
+policies MLS emits for a relation read (D21), so the nested shapes paid for them.  Median of 7
+`EXPLAIN (ANALYZE, FORMAT JSON)` runs of `select count(*) from tasks`; the range is over the
+four versions:
+
+| Policy shape on `tasks` | 3 teams | 100 teams | Plan |
+|---|---|---|---|
+| denormalized `team_id = any(array(select team_id from team_members where user_id = ..))` | 0.21–0.30 ms | 6.0–6.9 ms | index cond, 3 InitPlans |
+| nested `project_id = any(array(select id from projects where team_id = any(array(select team_id from team_members ..))))` | 0.23–0.29 ms | 7.3–7.9 ms | index cond, 7 InitPlans |
+| flat `project_id = any(array(select p.id from projects p join team_members m ..))` | 0.23–0.31 ms | 7.4–7.7 ms | index cond, 6 InitPlans |
+| `project_id = any(security_definer_fn())` | 0.23–0.36 ms | 7.3–8.4 ms | index cond |
+| `project_id in (select id from projects where team_id in (select ..))` (the usual hand-written form) | 27–66 ms | 30–73 ms | seq scan, hashed SubPlan |
+| correlated `exists (select 1 from projects join team_members .. where p.id = tasks.project_id ..)` | 138–155 ms | 142–165 ms | seq scan, SubPlan |
+
+- The nested InitPlan is index-driven on every version and costs what the denormalized column
+  costs (within 15 %, the extra being the 10–1,000 project ids the inner array carries).  Each
+  level is one uncorrelated InitPlan, evaluated once per statement, including the policy MLS
+  puts on the intermediate table.
+- Point lookups (`where id = ..`) and `where project_id = ..` stay below 1 ms for every shape,
+  the `IN` and `EXISTS` forms included: their cost is in scans, which is where the gap shows.
+  PG 17 halved the `IN` form (still a seq scan); nothing changed for `EXISTS`.
+- So performance does not argue for denormalization.  The nested form is also what a correct
+  hand-written policy should be, and the takeover audience's existing policies are mostly the
+  `IN` form.

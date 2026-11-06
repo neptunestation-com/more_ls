@@ -711,7 +711,7 @@ tables and the data model exist and stay: foreign keys are likely, functions com
 occasional, CHECK constraints rare, custom types and transition rules absent. The RLS policies
 either do not exist or are a half-hearted attempt nobody is attached to. The user keeps the data
 model and hands the policies to MLS. D51–D55 make that path first-class. D51 and D55 are settled
-(2026-11-05); D52–D54 are *proposed, not yet settled: review before implementation.*
+(2026-11-05); D52–D54 are *proposed, not yet settled: review before implementation.* D56 is settled (2026-11-06).
 
 **D51. The spec owns the whole policy set of every governed table (amends D45).** D45 already
 says this for drift: on an `adopted` table an undeclared policy is `unexpected`, not `foreign`,
@@ -806,3 +806,40 @@ assumed BYPASSRLS role by import". Rejected: revoking from every role the spec d
 (breaks every Supabase backend that uses the service key); reporting the default grants without
 revoking them (`anon` would hold every privilege on every table, inert only while no policy
 names it).
+
+**D56. Composed relations through a key, up to three hops (settles the open question of Milestone
+6, #23; settled 2026-11-06, built in #25).**  Real schemas nest
+(`tasks.project_id → projects.team_id → team_members`), and membership is one table deep, so a
+task policy needs `team_id` copied onto `tasks`: a schema change, which takeover users resist,
+and one whose composite FK also freezes `projects.team_id`.  A relation may instead be composed:
+`relation in_project = member_of . projects(team_id, id)` (JSON: `{"of": "member_of", "through":
+[{"table": "projects", "key": "team_id", "value": "id"}]}`) means `(k, v) ∈ in_project ⇔ ∃t. (k,
+t) ∈ member_of ∧ projects(team_id = t, id = v)`, and `member(in_project, key=@uid,
+value=project_id)` is used like any membership.  Each hop's `value` must be the table's primary
+key or a NOT NULL unique column, and its `key` NOT NULL; a chain has at most three hops.  The key
+condition is what keeps the fragment: the hop is a function, so the ∃ disappears and the
+encoding is `exists_projects(v) ∧ member_of(k, team_of(v))`, quantifier-free with uninterpreted
+functions, the way `in_group` unrolls `parent` (an obligation that also reads a `projects` row
+adds `row.id = v → team_of(v) = row.team_id`).  The bound keeps the compiled nesting and the
+unrolling finite (invariant 6).  A hop through a non-unique column is refused with the JSON path,
+naming the two ways out (a membership table, or the denormalized column with an inclusion rule).
+NULL handling matches SQL by construction: a NULL `project_id` is UNKNOWN as for any membership,
+and the NOT NULL hop columns leave no other NULL.  Compiled to one InitPlan per level,
+`project_id = any(array(select id from projects where team_id = any(array(select team_id from
+team_members where user_id = ..))))`, which FINDINGS "Ownership two tables away" measures at the
+cost of the denormalized column on PG 15–18 (the hand-written `IN` and `EXISTS` forms are seq
+scans, 30–165 ms at 1M rows).  D21 extends to every hop: the hop table is read as the app role,
+so the compiler gives it a `mls_rel_*` SELECT policy (`key` in the previous level's array) and a
+column grant on `(key, value)`, the relation-visibility obligation covers restrictive policies on
+it, and the hop key is indexed (owned) or required by the EXPLAIN check (adopted).  Changing
+`projects.team_id` moves the project's tasks with it; that is the schema's meaning, and a spec
+that wants it fixed says so with a transition on `projects`.  Cost: model and both syntaxes, the
+checker, the encoder, the compiler (nested template, hop policies, a mutation that drops the
+hop's visibility policy), the harness's evaluator and data generator, `english`, the lifter
+(the nested `IN` form most takeover schemas already have lifts to a composed relation, and its
+deploy is then index-driven), Lean (`Member` over a composed relation, vectors regenerated),
+GUIDE/REFERENCE.  Rejected: denormalization as the only answer (a schema change, and a freeze on
+the parent's key the user did not ask for; it stays a recipe for whoever prefers it); hops
+through any column (∃ over a many-to-many join, which leaves the quantifier-free fragment for no
+case met so far); a SECURITY DEFINER helper per composed relation (D21's reasons, and FINDINGS
+shows it no faster).

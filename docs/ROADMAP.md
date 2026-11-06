@@ -207,16 +207,13 @@ Scope:
   restated in schema terms ("you have `projects.owner_id → auth.users`", "you have a
   membership table", "your policies call `is_admin()`", "you have a `deleted_at` column").
 
-Open question (decide before the runbook): **ownership two tables away.** Real schemas nest:
-`tasks.project_id → projects.team_id → team_members`. The fragment's membership is one table
-deep, so today a task policy needs `team_id` copied onto `tasks` with a composite FK
-`(project_id, team_id) → projects (id, team_id)` (expressible now: a relation on `projects` and
-an inclusion rule). That is a schema change, which is what takeover users resist. The
-alternative is a composed relation (`relation task_team = tasks(project_id) . projects(id,
-team_id)`), compiled to a nested InitPlan (`project_id = any(array(select id from projects where
-team_id = any(array(select ...))))`), with a declared bound on composition length so the
-obligations stay in EPR (invariant 6). Needs a FINDINGS experiment on plan shape and a
-decision; until then the runbook documents the denormalization recipe.
+Settled question: **ownership two tables away.** Real schemas nest:
+`tasks.project_id → projects.team_id → team_members`. FINDINGS "Ownership two tables away"
+measures the nested InitPlan at the cost of a denormalized column on PG 15–18; D56 answers
+with composed relations through a key (`relation in_project = member_of . projects(team_id,
+id)`, at most three hops, quantifier-free because each hop is a function).
+Built in #25, before the runbook, which documents it as the nesting recipe (denormalization
+stays a side recipe).
 
 Acceptance:
 - `tests/brownfield/starter_schema.sql`, a typical Supabase starter (profiles keyed by
@@ -237,7 +234,7 @@ Acceptance:
   assumed one appears in the proof report's assumptions.
 
 Not in scope: rewriting the user's views, functions or triggers; enums and other custom types
-(not met in practice); a composed relation unless the open question is decided in its favour;
+(not met in practice); hops through a non-unique column (D56);
 marketing material (blog articles and tutorials cite the runbook once it exists; they are not
 acceptance criteria).
 
