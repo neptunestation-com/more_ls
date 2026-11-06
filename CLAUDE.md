@@ -64,6 +64,10 @@ union member the renderer does not cover.
 - `uv run pytest -m "not pg"` is fast and needs no Docker. `uv run pytest -m pg` starts
   `postgres:15..18` containers (set `MLS_PG_VERSIONS=16` for one, `MLS_PG_DSN=...` for an existing
   server). `-m slow` runs the EXPLAIN checks at 1M rows.
+- D55: `-m supabase` (also selected by `-m pg`) runs `tests/platform` on the `supabase/postgres`
+  image as its non-superuser `postgres` role (`pg/server.py:supabase_container`; each test database
+  gets the image's auth schema, default privileges and GoTrue's auth functions via `prepare`).
+  A template that works as a superuser can still fail there: FINDINGS "Supabase as a platform".
 - Every compiler template has a `Mutation` (compile/mutations.py); `tests/templates` proves each
   mutation is caught by the differential test. Add a mutation when you add a template. The
   fixtures (`tests/templates/specs.py`) derive from the example specs; `test_specs.py` builds and

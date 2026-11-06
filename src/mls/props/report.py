@@ -39,6 +39,8 @@ def assumptions(spec: Spec, results: list[PropertyResult]) -> list[str]:
     trusted = ("trusted roles: the owner of the MLS schema and superusers bypass policies; the compiler "
                "forces RLS for owners, so only superusers (and roles granted BYPASSRLS outside MLS) "
                "remain trusted")
+    if adapter.trusted_note:
+        trusted += f"; {adapter.trusted_note}"
     if internal:
         trusted += ("; the internal role mls_internal owns the generated SECURITY DEFINER helpers "
                     "(group reachability, depth and counting triggers) and may read the tables they "

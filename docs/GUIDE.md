@@ -937,8 +937,12 @@ transaction:
     psql "$DSN" --single-transaction -v ON_ERROR_STOP=1 -f deploy.sql
 
 The owner must not be an app role (the preamble checks).  On Supabase run it as `postgres`
-through the SQL editor or a migration; the roles `authenticated` and `anon` already exist and
-the script only hardens them.
+through the SQL editor or a migration.  `postgres` is not a superuser there, and the script is
+tested as it on Supabase's own image: the roles `authenticated` and `anon` already exist and are
+already hardened, so the script leaves them alone.  Supabase grants every new table to `anon`,
+`authenticated` and `service_role`; the script takes those grants back from the roles your spec
+does not use (usually `anon`) and keeps `service_role`, whose key your backend uses to bypass
+row-level security.  Every proof report says so: `service_role` is a trusted role.
 
 After deploying, confirm the live database matches the spec:
 

@@ -94,6 +94,13 @@ With `session_setting` a missing or empty setting is NULL: every comparison with
 and the row is denied (the English says "no context set: denied").  The assumption of the
 adapter in use is stated by `mls prove`, `mls explain` and `mls diff`.
 
+An adapter may declare its platform's roles (D55).  `supabase` declares `anon`, `authenticated`
+and `service_role`, which Supabase's default privileges grant every new table and function in
+`public`.  The deploy revokes every privilege on governed tables and MLS functions from those
+the spec does not use; `service_role` is the platform's trusted role (BYPASSRLS by design: the
+backend key) and is kept, named among the trusted roles of every proof report, and not compared
+by `mls drift`.
+
 ## 4. `roles`
 
     "roles": ["authenticated", "service"]
@@ -665,7 +672,11 @@ it).  A key that is a prefix of another wanted key is covered by it, whatever or
 name them in, so the index set does not depend on rule order.
 
 Hardening (D13), on every deployment: the preamble refuses to run as an app role; app roles
-lose `BYPASSRLS`, `SUPERUSER`, `CREATEDB`, `CREATEROLE` and `SET` on `session_replication_role`;
+lose `BYPASSRLS`, `SUPERUSER`, `CREATEDB`, `CREATEROLE` and `SET` on `session_replication_role`
+(one `ALTER ROLE` per attribute the role has, so a role that has none is not altered: Supabase
+refuses any `ALTER ROLE` on its API roles, D55); the helpers' ownership moves to `mls_internal`
+with `CREATE` on the schema granted for the transfer only (a non-superuser deployer needs it on
+PG 15+); the platform's untrusted roles lose their default privileges (§3);
 every owned table gets `ENABLE` and `FORCE ROW LEVEL SECURITY` (an adopted table only `ENABLE`,
 §5); all privileges are revoked from `public`; `TRUNCATE` is never granted.  With the `session_setting` adapter, `mls drift` also
 reports (kind `hardening`) an app role that may execute a function whose body sets `app.*`

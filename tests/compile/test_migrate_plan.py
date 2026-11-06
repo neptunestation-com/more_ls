@@ -54,7 +54,7 @@ def test_destructive_is_gated():
 
 def test_trigger_add_and_remove():
     m = migrate(specs.v_a(), specs.v_b())
-    assert kinds(m, "constraints") == ["create function", "create trigger"]
+    assert kinds(m, "constraints") == ["create function", "revoke", "create trigger"]  # revoke: Supabase's default EXECUTE grants (D55)
     m = migrate(specs.v_b(), specs.v_a())
     assert kinds(m, "swap") == ["drop trigger", "drop function"]
 
@@ -103,7 +103,7 @@ def test_hierarchy_and_cardinality_migration():
     m = migrate(specs.org_flat_spec(), specs.org_base_spec())
     s = sqls(m)
     assert kinds(m, "schema").count("create role") == 3 and any('create role "mls_internal"' in x for x in s)
-    assert any('grant "mls_internal" to current_user' in x for x in s)
+    assert any("format('grant %I to %I', 'mls_internal', current_user)" in x for x in s)
     c = kinds(m, "constraints")
     assert c.count("add fk not valid") == 3 and c.count("add check not valid") == 1
     assert c.count("create function") == 4 and c.count("create trigger") == 3  # reach, depth, count, parent-immutable

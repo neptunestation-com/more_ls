@@ -25,6 +25,7 @@ from psycopg import sql as psql
 from mls.compile.internal import INTERNAL_ROLE, needs_internal_role
 from mls.compile.plan import Script
 from mls.compile.table import table_ddl
+from mls.identity import get_adapter
 from mls.pg.catalog import Snapshot, snapshot
 from mls.spec.model import BypassAssumed, OwnerAssumed, RlsAssumed, Spec
 
@@ -93,6 +94,7 @@ def _assumed(spec: Spec, table: str, cls, value: str) -> bool:
 def compare(spec: Spec, expected: Snapshot, actual: Snapshot) -> tuple[list[DriftItem], list[str]]:
     items: list[DriftItem] = []
     notes: list[str] = []
+    trusted = get_adapter(spec).trusted_roles
     for t, exp in expected["tables"].items():
         mode = spec.tables[t].mode
         extra = "unexpected" if mode == "owned" else "foreign"
@@ -120,7 +122,9 @@ def compare(spec: Spec, expected: Snapshot, actual: Snapshot) -> tuple[list[Drif
             for name in act[group]:
                 if name not in exp[group]:
                     items.append(DriftItem("unexpected" if group == "policies" else extra, f"{label} {name} on {t}"))
-        exp_acl, act_acl = set(exp["acl"]), set(act["acl"])
+        # a trusted platform role (D55) bypasses the policies whatever it holds: not compared
+        exp_acl = {g for g in exp["acl"] if g[0] not in trusted}
+        act_acl = {g for g in act["acl"] if g[0] not in trusted}
         if act["owner"] in spec.roles:  # an owner holds every privilege: its grants are not comparable
             exp_acl = {g for g in exp_acl if g[0] != act["owner"]}
             act_acl = {g for g in act_acl if g[0] != act["owner"]}
@@ -155,8 +159,11 @@ def compare(spec: Spec, expected: Snapshot, actual: Snapshot) -> tuple[list[Drif
     for t, present in actual.get("observed", {}).items():
         if not present:
             items.append(DriftItem("missing", f"table {t} (observed)"))
+    def _untrusted(f):
+        return f if f is None else {**f, "execute": [r for r in f["execute"] if r not in trusted]}
+
     for name, e in expected["functions"].items():
-        a = actual["functions"].get(name)
+        e, a = _untrusted(e), _untrusted(actual["functions"].get(name))
         if a is None:
             items.append(DriftItem("missing", f"function {name}"))
         elif a != e:

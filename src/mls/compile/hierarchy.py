@@ -17,7 +17,7 @@ never change, so depth strictly decreases along every parent chain.
 """
 from __future__ import annotations
 
-from mls.compile.internal import INTERNAL_ROLE, function_grant_ddl
+from mls.compile.internal import function_grant_ddl, function_owner_ddl
 from mls.compile.mutations import Mutation
 from mls.compile.sql import SqlCompiler, q
 from mls.identity.base import SQL_TYPE
@@ -101,10 +101,6 @@ def depth_trigger_ddl(spec: Spec, name: str) -> str:
     h = spec.hierarchies[name]
     return (f"create trigger {q(depth_fn_name(name))} before insert or update on {q(h.table)} "
             f"for each row execute function {q(depth_fn_name(name))}()")
-
-
-def function_owner_ddl(sig: str) -> str:
-    return f"alter function {sig} owner to {q(INTERNAL_ROLE)}"
 
 
 def hierarchy_ddl(spec: Spec, name: str, sc: SqlCompiler) -> list[str]:

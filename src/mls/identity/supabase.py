@@ -11,6 +11,10 @@ from mls.spec.model import ColType, Spec
 
 class SupabaseAdapter(Adapter):
     name = "supabase"
+    platform_roles = ("anon", "authenticated", "service_role")
+    trusted_roles = ("service_role",)
+    trusted_note = ("service_role has BYPASSRLS (Supabase's backend key) and is trusted: it reads and "
+                    "writes every row whatever the policies say")
     assumption = ("Clients reach the database only through Supabase's API layer, which verifies "
                   "the JWT before setting request.jwt.claims; direct database connections by "
                   "untrusted clients are out of scope.")

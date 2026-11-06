@@ -13,6 +13,13 @@ SQL_TYPE = {"int": "integer", "text": "text", "bool": "boolean", "timestamp": "t
 class Adapter(ABC):
     name: str
     assumption: str
+    # Roles the platform creates and grants by default privileges (D55).  The deploy revokes every
+    # privilege on governed tables and MLS functions from those the spec does not use, except the
+    # trusted ones: roles the platform gives BYPASSRLS on purpose, which every proof report names
+    # and whose privileges drift does not compare (they bypass the policies whatever they hold).
+    platform_roles: tuple[str, ...] = ()
+    trusted_roles: tuple[str, ...] = ()
+    trusted_note: str = ""
 
     def __init__(self, spec: Spec):
         self.spec = spec

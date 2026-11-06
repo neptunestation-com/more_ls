@@ -77,7 +77,7 @@ def snapshot(conn: psycopg.Connection, schema: str, tables: list[str], roles: li
         cur.execute("""select p.proname || '(' || pg_get_function_identity_arguments(p.oid) || ')',
                               p.proname, p.prosrc, l.lanname, p.prosecdef, pg_get_userbyid(p.proowner),
                               array(select coalesce(nullif(x.grantee, 0)::regrole::text, 'public')
-                                    from aclexplode(p.proacl) x where x.privilege_type = 'EXECUTE' order by 1)
+                                    from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) x where x.privilege_type = 'EXECUTE' order by 1)
                        from pg_proc p join pg_namespace n on n.oid = p.pronamespace
                        join pg_language l on l.oid = p.prolang
                        where n.nspname = %s order by 1""", (schema,))

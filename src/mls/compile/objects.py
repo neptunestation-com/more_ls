@@ -5,19 +5,21 @@ or a drift report talks about exactly the objects a fresh deploy would create.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from mls.compile.cardinality import card_fn_ddl, card_fn_name, card_trigger_ddl
 from mls.compile.cardinality import parent_fk_def as card_parent_fk_def
 from mls.compile.check import check_def
 from mls.compile.column import privileges
 from mls.compile.fk import fk_def
+from mls.compile.hardening import platform_revokes, revoke_platform_ddl
 from mls.compile.hierarchy import (
     depth_check_def, depth_fn_ddl, depth_fn_name, depth_trigger_ddl, member_fk_def, parent_fk_def,
     reach_fn_ddl, reach_fn_name, reach_fn_sig,
 )
 from mls.compile.index import index_specs
-from mls.compile.internal import INTERNAL_ROLE, function_grant_ddl, internal_grants, internal_policies
+from mls.compile.internal import (INTERNAL_ROLE, function_grant_ddl, function_owner_ddl, internal_grants,
+                                  internal_policies)
 from mls.compile.mutations import Mutation
 from mls.compile.policy import policy_ddl
 from mls.compile.sql import SqlCompiler, q
@@ -61,6 +63,7 @@ class FunctionObj:
     owner: str | None  # mls_internal for the SECURITY DEFINER helpers
     execute: tuple[str, ...]  # roles granted EXECUTE (public revoked when non-empty)
     rule_id: str
+    revoke: tuple[str, ...] = ()  # platform roles granted EXECUTE by default privileges (D55)
 
     def replace_ddl(self) -> str:
         return "create or replace function" + self.ddl[len("create function"):]
@@ -68,10 +71,14 @@ class FunctionObj:
     def create_ddl(self) -> list[str]:
         out = [self.ddl]
         if self.owner:
-            out.append(f"alter function {self.signature} owner to {q(self.owner)}")
+            out.append(function_owner_ddl(self.signature, self.owner))
         if self.execute:
             out += function_grant_ddl(self.signature, list(self.execute))
         return out
+
+    def platform_revoke_ddl(self) -> str | None:
+        """The platform's default EXECUTE grants taken back (D55); None off such a platform."""
+        return revoke_platform_ddl(f"function {self.signature}", list(self.revoke))
 
 
 @dataclass(frozen=True)
@@ -162,6 +169,9 @@ def objects(spec: Spec, mutations: frozenset[Mutation] = frozenset()) -> Objects
         fn = card_fn_name(r)
         o.functions[fn] = FunctionObj(fn, f"{q(fn)}()", card_fn_ddl(spec, r, mutations), INTERNAL_ROLE, (), r.id)
         o.triggers[(r.table, r.name)] = TriggerObj(r.table, r.name, fn, card_trigger_ddl(r), r.id)
+    platform = platform_revokes(spec)
+    o.functions = {n: replace(f, revoke=tuple(r for r in platform if r not in f.execute))
+                   for n, f in o.functions.items()}
     o.internal_role = bool(spec.hierarchies or spec.cardinalities())
     for cmd, table in internal_grants(spec):
         o.grants.add(GrantObj(INTERNAL_ROLE, table, cmd, None))

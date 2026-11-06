@@ -7,6 +7,8 @@ relation's table) and refuses with an actionable error if any fails (invariant 4
 """
 from __future__ import annotations
 
+import re
+
 from dataclasses import dataclass, field
 
 from mls.compile.cardinality import cardinality_ddl
@@ -18,6 +20,7 @@ from mls.compile.fk import fk_ddl
 from mls.compile.hardening import preamble_ddl, role_ddl, table_hardening_ddl
 from mls.compile.index import index_ddl
 from mls.compile.mutations import Mutation
+from mls.compile.objects import objects
 from mls.compile.policy import policy_ddl, replace_policies_ddl
 from mls.compile.sql import SqlCompiler
 from mls.compile.table import table_ddl
@@ -131,4 +134,24 @@ def compile_spec(spec: Spec, mutations: frozenset[Mutation] | set[Mutation] = fr
     if Mutation.INDEX_NONE not in mutations:
         s.add("indexes", index_ddl(spec))
     s.add("grants", grant_ddl(spec, mutations))
+    _revoke_platform_execute(s, spec, mutations)
     return s
+
+
+_CREATE_FUNCTION = re.compile(r'^create (?:or replace )?function "([^"]+)"')
+
+
+def _revoke_platform_execute(s: Script, spec: Spec, mutations: frozenset[Mutation]) -> None:
+    """The platform's default EXECUTE grants on every MLS function (D55), taken back right after
+    the function is created, in the same section (a test that deploys only some sections, or a
+    template that emits no function under a mutation, stays consistent)."""
+    revoke = {f.name: f for f in objects(spec, mutations).functions.values() if f.revoke}
+    if not revoke:
+        return
+    out = []
+    for st in s.statements:
+        out.append(st)
+        m = _CREATE_FUNCTION.match(st.sql)
+        if m and m.group(1) in revoke:
+            out.append(Statement(st.section, revoke[m.group(1)].platform_revoke_ddl(), st.rule_id))
+    s.statements = out

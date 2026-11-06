@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import random
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 import psycopg
 from psycopg import sql as psql
@@ -261,7 +261,11 @@ class LoadError(Exception):
 
 class Harness:
     def __init__(self, spec: Spec, script: Script, dsn: str, dbname: str,
-                 opaque_impl: dict[str, Any] | None = None):
+                 opaque_impl: dict[str, Any] | None = None, prepare: Callable[[str], None] | None = None):
+        """`prepare(dbname)`, when given, sets up the new database as a platform would (Supabase,
+        D55: the auth schema and default privileges, as its admin) in place of the adapter's
+        stand-in definitions."""
+        self.prepare = prepare
         self.spec = spec
         self.script = script
         self.dsn = dsn
@@ -288,8 +292,11 @@ class Harness:
             for s in self.script.statements:
                 if s.section in ("preamble", "roles"):
                     cur.execute(s.sql)
-            for s in self.adapter.harness_setup_sql(self.spec):
-                cur.execute(s)
+            if self.prepare:
+                self.prepare(self.dbname)
+            else:
+                for s in self.adapter.harness_setup_sql(self.spec):
+                    cur.execute(s)
             for s in self.pre_existing_sql():
                 cur.execute(s)
             for s in self.script.statements:

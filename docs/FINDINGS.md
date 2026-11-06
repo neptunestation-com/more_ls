@@ -170,3 +170,42 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
   leak above: a bad-reference case whose text states the defect as a requirement measures the
   model's willingness to write a leak, not the loop.  One JSON-only failure was a one-off
   invention the model named in its notes (an id-immutability transition); left alone.
+
+## Supabase as a platform (Milestone 6, D55; `supabase/postgres:17.6.1.043`)
+
+Every test before this ran as a true superuser on `postgres:15..18`.  The compiled examples were
+run statement by statement as Supabase's `postgres` role on the platform image
+(`tests/platform/test_supabase.py`); what failed, and what the compiler does now:
+
+- **`postgres` is not a superuser**, but has BYPASSRLS, CREATEROLE and CREATEDB, and administers
+  `anon`, `authenticated` and `service_role`.  `service_role` has BYPASSRLS; `supabase_admin` is
+  the superuser.  The deployer having BYPASSRLS is fine: it owns the tables, which are forced.
+- **The API roles are reserved**: any `ALTER ROLE authenticated ...` is refused ("only superusers
+  can modify it"), even when it changes nothing, and `ALTER ROLE x NOSUPERUSER` needs a superuser
+  whatever `x` is.  The role hardening is now one `ALTER ROLE` per attribute the role actually has
+  (`hardening.role_attributes_ddl`); the end state is the same, and a role that really has
+  BYPASSRLS still fails the deploy rather than being skipped.
+- **`grant mls_internal to current_user` crashes the server** (signal 11, the whole cluster
+  restarts) on this image; `grant mls_internal to postgres` does not.  Not investigated further
+  (one of the preloaded extensions, most likely); the grant now names the deployer through
+  `format('%I', current_user)`.
+- **`alter function ... owner to mls_internal` needs CREATE on the schema for the new owner**,
+  which a superuser deployer never notices and nobody else has on PG 15+ (public's CREATE belongs
+  to its owner).  This broke every hierarchy and cardinality deploy by a non-superuser on any
+  platform, not only Supabase.  CREATE is now granted to `mls_internal` for the transfer and
+  revoked after it, unless it already had it (`internal.function_owner_ddl`).
+- **Default privileges** grant every new table, function and sequence in `public` to `anon`,
+  `authenticated` and `service_role` (and the deployer).  The deploy revoked only from the spec's
+  roles, so `anon` kept every privilege on every table and EXECUTE on every MLS function (inert
+  while RLS is on and no policy names it, but drift was right to call it unexpected).  The deploy
+  now revokes from the platform's untrusted roles the spec does not use; `service_role` is the
+  platform's trusted role (its key is the backend's), named in every proof report and not
+  compared by drift (`Adapter.platform_roles`, `trusted_roles`).
+- **The image's `auth.uid()` is the old one** (`request.jwt.claim.sub` only) and it has no
+  `auth.jwt()`: a project gets both from GoTrue's migrations.  A database other than `postgres`
+  has no `auth` schema and none of the default privileges, so the test fixture replays into each
+  test database the image's own `00000000000001-auth-schema.sql`, the default privileges of its
+  `00000000000000-initial-schema.sql` and GoTrue's two functions, as `supabase_admin`
+  (`pg/server.py:SupabaseServer.prepare`).
+- After those changes `team_notes`, `tenant_docs` and `org_tree` deploy as `postgres`, pass the
+  differential test and have no drift.

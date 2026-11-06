@@ -710,8 +710,8 @@ The common real case is neither greenfield nor adoption of existing policies. Th
 tables and the data model exist and stay: foreign keys are likely, functions common, triggers
 occasional, CHECK constraints rare, custom types and transition rules absent. The RLS policies
 either do not exist or are a half-hearted attempt nobody is attached to. The user keeps the data
-model and hands the policies to MLS. D51–D55 make that path first-class. D51 is settled (2026-11-05);
-D52–D55 are *proposed, not yet settled: review before implementation.*
+model and hands the policies to MLS. D51–D55 make that path first-class. D51 and D55 are settled
+(2026-11-05); D52–D54 are *proposed, not yet settled: review before implementation.*
 
 **D51. The spec owns the whole policy set of every governed table (amends D45).** D45 already
 says this for drift: on an `adopted` table an undeclared policy is `unexpected`, not `foreign`,
@@ -790,6 +790,19 @@ privileges grant every new table to the API roles. The `supabase/postgres` image
 matrix for the takeover tests (one major version). Each statement of the compiled script that
 `postgres` cannot run there is recorded in FINDINGS and becomes, case by case, a template that
 works there or a hardening that drift verifies and the spec assumes; never a statement that is
-dropped silently. `service_role` is recorded as an assumed BYPASSRLS role by import (it already
-is for any BYPASSRLS role with privileges on a governed table). The runbook is tested on this
-image, not on vanilla Postgres.
+dropped silently. The runbook is tested on this image, not on vanilla Postgres.
+*Implementation defaults (2026-11-05, #18; FINDINGS "Supabase as a platform"):* the image is
+`supabase/postgres:17.6.1.043`, marker `supabase` (selected by `-m pg` too). Role hardening is
+one `ALTER ROLE` per attribute the role has, because Supabase refuses any `ALTER ROLE` on its
+reserved API roles and `NOSUPERUSER` needs a superuser; the deployer joins `mls_internal` by
+name (`grant ... to current_user` crashes that server); ownership of the helpers moves to
+`mls_internal` with CREATE on the schema granted for the transfer only (needed by every
+non-superuser deployer on PG 15+). An identity adapter declares its platform's roles: the
+deploy revokes every privilege on governed tables and MLS functions from the untrusted ones the
+spec does not use (Supabase's default privileges grant them everything), and the trusted ones —
+on Supabase `service_role`, whose BYPASSRLS is the platform's design — are kept, named among the
+trusted roles of every proof report, and not compared by drift; this replaces "recorded as an
+assumed BYPASSRLS role by import". Rejected: revoking from every role the spec does not name
+(breaks every Supabase backend that uses the service key); reporting the default grants without
+revoking them (`anon` would hold every privilege on every table, inert only while no policy
+names it).

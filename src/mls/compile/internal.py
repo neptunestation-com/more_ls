@@ -7,6 +7,7 @@ deployer (needed to transfer function ownership); drift verifies that no app rol
 """
 from __future__ import annotations
 
+from mls.compile.hardening import APP_ROLE_ATTRIBUTES, role_attributes_ddl
 from mls.compile.sql import q
 from mls.spec.model import PolicyRule, Lit, Spec
 
@@ -38,10 +39,27 @@ def internal_role_ddl(spec: Spec) -> list[str]:
         f"    create role {q(INTERNAL_ROLE)} nologin;\n"
         f"  end if;\n"
         f"end $mls$",
-        f"alter role {q(INTERNAL_ROLE)} nologin nobypassrls nosuperuser nocreatedb nocreaterole noinherit",
-        # the deployer must be a member to transfer ownership of the helper functions
-        f"grant {q(INTERNAL_ROLE)} to current_user",
+        role_attributes_ddl(INTERNAL_ROLE, {"rolcanlogin": "nologin", **APP_ROLE_ATTRIBUTES, "rolinherit": "noinherit"}),
+        # the deployer must be a member to transfer ownership of the helper functions; by name,
+        # because `grant ... to current_user` crashes the Supabase image's server (D55, FINDINGS)
+        f"do $mls$ begin execute format('grant %I to %I', '{INTERNAL_ROLE}', current_user); end $mls$",
     ]
+
+
+def function_owner_ddl(sig: str, owner: str = INTERNAL_ROLE) -> str:
+    """Transfer a helper function to its owner.  ALTER ... OWNER requires the new owner to have
+    CREATE on the function's schema, which a superuser deployer never notices and which no other
+    deployer has to give on PG 15+ (public's CREATE belongs to its owner only).  So CREATE is
+    granted for the transfer and revoked after it, unless the owner already had it (D55)."""
+    return (f"do $mls$ declare g boolean := not has_schema_privilege({_lit(owner)}, current_schema(), 'CREATE'); begin\n"
+            f"  if g then execute format('grant create on schema %I to %I', current_schema(), {_lit(owner)}); end if;\n"
+            f"  alter function {sig} owner to {q(owner)};\n"
+            f"  if g then execute format('revoke create on schema %I from %I', current_schema(), {_lit(owner)}); end if;\n"
+            f"end $mls$")
+
+
+def _lit(s: str) -> str:
+    return "'" + s.replace("'", "''") + "'"
 
 
 def internal_policies(spec: Spec) -> list[PolicyRule]:

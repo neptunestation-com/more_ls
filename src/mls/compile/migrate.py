@@ -29,9 +29,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from mls.compile.hardening import preamble_ddl
+from mls.compile.hardening import (APP_ROLE_ATTRIBUTES, platform_table_revokes, preamble_ddl, revoke_platform_ddl,
+                                   role_attributes_ddl)
 from mls.compile.index import index_sql
-from mls.compile.internal import internal_role_ddl
+from mls.compile.internal import function_owner_ddl, internal_role_ddl
 from mls.compile.mutations import Mutation
 from mls.compile.objects import GrantObj, Objects, objects
 from mls.compile.sql import q
@@ -189,7 +190,7 @@ def migrate(old: Spec, new: Spec, allow_destructive: bool = False,
         if r not in o.roles:
             schema.add(f"do $mls$ begin\n  if not exists (select 1 from pg_roles where rolname = '{r}') then\n"
                        f"    create role {q(r)} nologin;\n  end if;\nend $mls$", "create role")
-            schema.add(f"alter role {q(r)} nobypassrls nosuperuser nocreatedb nocreaterole", "create role")
+            schema.add(role_attributes_ddl(r, APP_ROLE_ATTRIBUTES), "create role")
             schema.add(f"revoke set on parameter session_replication_role from {q(r)}", "create role")
     for r in o.roles:
         if r not in n.roles:
@@ -212,6 +213,9 @@ def migrate(old: Spec, new: Spec, allow_destructive: bool = False,
         schema.add(f"revoke all on {q(name)} from public", "revoke all", name)
         for r in n.roles:
             schema.add(f"revoke all on {q(name)} from {q(r)}", "revoke all", name)
+        platform = revoke_platform_ddl(q(name), platform_table_revokes(new))
+        if platform:
+            schema.add(platform, "revoke all", name)
         schema.add(f"alter table {q(name)} enable row level security", "enable rls", name)
         if not adopted and Mutation.HARDENING_NO_FORCE not in mutations:
             schema.add(f"alter table {q(name)} force row level security", "force rls", name)
@@ -267,11 +271,13 @@ def migrate(old: Spec, new: Spec, allow_destructive: bool = False,
         if prev is None:
             for i, ddl in enumerate(f.create_ddl()):
                 cons.add(ddl, "create function" if i == 0 else "alter function", None, f.rule_id)
+            if f.platform_revoke_ddl():
+                cons.add(f.platform_revoke_ddl(), "revoke", None, f.rule_id)
         else:
             if prev.ddl != f.ddl:
                 cons.add(f.replace_ddl(), "replace function", None, f.rule_id)
             if prev.owner != f.owner and f.owner:
-                cons.add(f"alter function {f.signature} owner to {q(f.owner)}", "alter function", None, f.rule_id)
+                cons.add(function_owner_ddl(f.signature, f.owner), "alter function", None, f.rule_id)
             if prev.execute != f.execute:
                 for g in set(prev.execute) - set(f.execute):
                     swap.add(f"revoke execute on function {f.signature} from {q(g)}", "alter function", None, f.rule_id)

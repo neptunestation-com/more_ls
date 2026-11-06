@@ -12,7 +12,7 @@ a stale snapshot: the proof report states the READ COMMITTED assumption.
 """
 from __future__ import annotations
 
-from mls.compile.internal import INTERNAL_ROLE
+from mls.compile.internal import function_owner_ddl
 from mls.compile.mutations import Mutation
 from mls.compile.sql import SqlCompiler, q
 from mls.spec.model import CardinalityRule, Spec
@@ -61,6 +61,6 @@ def cardinality_ddl(spec: Spec, r: CardinalityRule, sc: SqlCompiler) -> list[str
     return [
         f"alter table {q(r.table)} add constraint {q(f'mls_card_{r.name}_parent')} {parent_fk_def(spec, r)}",
         card_fn_ddl(spec, r, sc.mutations),
-        f"alter function {q(card_fn_name(r))}() owner to {q(INTERNAL_ROLE)}",
+        function_owner_ddl(f"{q(card_fn_name(r))}()"),
         card_trigger_ddl(r),
     ]
