@@ -1,7 +1,7 @@
 -- A hand-written Supabase-style schema (Milestone 5 acceptance fixture): bare auth.uid() in
 -- policies, correlated EXISTS and IN (subquery) memberships, a JWT claim, a policy for two roles,
--- a restrictive policy, a CHECK, a trigger, single-column foreign keys, bigint columns MLS does
--- not model, column-level grants, a grant with no policy, and a table without RLS.
+-- a restrictive policy, a CHECK, a trigger, single-column foreign keys, bigint columns (left out
+-- before D53, modelled since), column-level grants, a grant with no policy, and a table without RLS.
 create schema if not exists auth;
 create or replace function auth.jwt() returns jsonb language sql stable as $$
   select coalesce(nullif(current_setting('request.jwt.claim', true), ''),

@@ -203,9 +203,11 @@ def test_import_of_the_brownfield_fixture(brownfield):
     modes = {t: tb.mode for t, tb in spec.tables.items()}
     assert modes == {"profiles": "adopted", "projects": "adopted", "project_members": "adopted",
                      "tasks": "adopted", "audit_log": "observed"}
-    assert "credits" not in spec.tables["profiles"].columns and "id" not in spec.tables["tasks"].columns
+    # bigint is modelled since D53 (the starter fixture of #20 keeps an unmodelled jsonb column)
+    assert spec.tables["profiles"].columns["credits"].type == "bigint"
+    assert spec.tables["tasks"].columns["id"].type == "bigint"
     assert spec.tables["profiles"].columns["created_at"].type == "timestamp"
-    assert spec.tables["tasks"].primary_key is None  # bigserial id is not modelled
+    assert spec.tables["tasks"].primary_key == ["id"]
     # the lifted policies (bare auth.uid(), IN (subquery), EXISTS, a claim, a boolean column)
     by_name = {p.name: p for p in spec.policies()}
     pred = lambda p: p.model_dump(mode="json", by_alias=True, exclude_none=True)  # noqa: E731
