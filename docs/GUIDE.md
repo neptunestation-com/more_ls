@@ -986,6 +986,23 @@ To adopt a live schema, let MLS write the first version of the spec:
 
     uv run mls import --dsn "$DSN" --out spec.mls.json
 
+If you are keeping the tables but not the policies, the common case, ask for a skeleton
+instead:
+
+    uv run mls import --dsn "$DSN" --policies discard --out skeleton.mls.json
+
+Every table becomes `adopted` (row-level security is enabled on deploy where it is off today;
+`--observe t1,t2` leaves tables out), no policy is imported, and the notes list each discarded
+policy with its SQL so you can see what the old rules allowed.  Membership tables are found
+from the schema: a `team_members (team_id, user_id)` whose key columns both have foreign keys,
+one of them to `auth.users` (or to `profiles`), becomes a relation keyed by the user.  The
+foreign keys and readable CHECKs come in as rules; a CHECK that already exists is kept by the
+deploy when it is the same constraint and replaced, with a notice, when it is not.  Hand the
+skeleton to `mls generate --skeleton skeleton.mls.json` with your requirements, or write the
+rules yourself.
+
+The rest of this section is the `keep` import:
+
 Every table with row-level security becomes `adopted` (a table without it is `observed`: a
 policy on it would mean nothing), the identity adapter is guessed from what the policies read,
 relations are proposed from the foreign keys and the memberships the policies look up, and

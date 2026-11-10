@@ -23,3 +23,4 @@ class Mutation(str, Enum):
     CARDINALITY_NO_LOCK = "cardinality_no_lock"      # skip the parent-row lock (concurrency)
     IN_DROP_LAST = "in_drop_last"                    # IN list without its last constant
     REPLACE_KEEPS_FOREIGN = "replace_keeps_foreign"  # drop only the declared names on an adopted table
+    ADOPTED_KEEPS_CONSTRAINT = "adopted_keeps_constraint"  # keep an adopted table's same-named constraint unseen

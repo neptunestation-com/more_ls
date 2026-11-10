@@ -372,3 +372,18 @@ def test_bigint_keys_and_varchar_columns_import_deploy_and_drift(typed):
             cur.execute("set local role app")
             cur.execute("select id from tickets")
             assert [r[0] for r in cur.fetchall()] == [BIG + 3]
+
+
+def test_discard_import_of_the_brownfield_fixture(brownfield):
+    """D52 on plain Postgres: every table adopted (the one without RLS too), no policy, column rule
+    or opaque block, each discarded policy listed with its text; `keep` stays the default."""
+    res = import_schema(brownfield, policies="discard")
+    spec = check_spec(Spec.model_validate(res.spec))
+    assert all(t.mode == "adopted" for t in spec.tables.values())
+    assert "audit_log" in spec.tables
+    assert spec.policies() == [] and spec.column_rules() == [] and spec.opaques == {}
+    discarded = [n for n in res.notes if " discarded (--policies discard" in n]
+    assert len(discarded) == 9 and any("restrictive for delete to authenticated using ((NOT done))" in n
+                                       for n in discarded), discarded
+    assert spec.identity.adapter == "supabase"  # still read from the discarded policies' text
+    assert import_schema(brownfield).spec["tables"]["audit_log"]["mode"] == "observed"

@@ -209,6 +209,9 @@ run statement by statement as Supabase's `postgres` role on the platform image
   (`pg/server.py:SupabaseServer.prepare`).
 - After those changes `team_notes`, `tenant_docs` and `org_tree` deploy as `postgres`, pass the
   differential test and have no drift.
+- **`postgres` holds every privilege on the `auth` schema** in a project (the image's
+  `migrations/10000000000000_demote-postgres.sql`), which `profiles.id references auth.users`
+  needs; a test database gets the same grants in `prepare` (#20).
 
 ## Ownership two tables away (Milestone 6, #23; PG 15–18)
 

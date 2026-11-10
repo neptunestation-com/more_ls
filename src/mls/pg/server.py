@@ -47,6 +47,11 @@ GOTRUE_SQL = [
     "alter function auth.jwt() owner to supabase_auth_admin",
     "grant execute on function auth.uid(), auth.jwt() to anon, authenticated, service_role",
 ]
+# the image's migrations/10000000000000_demote-postgres.sql: `postgres` keeps every privilege on
+# the auth schema (a project's `profiles.id references auth.users` needs REFERENCES)
+AUTH_GRANTS_SQL = [f"grant all on {what} to postgres" for what in
+                   ("schema auth", "all tables in schema auth", "all sequences in schema auth",
+                    "all routines in schema auth")]
 
 
 class SupabaseServer:
@@ -69,7 +74,7 @@ class SupabaseServer:
 
         with psycopg.connect(psycopg.conninfo.make_conninfo(self.admin_dsn, dbname=dbname), autocommit=True) as c:
             c.execute(self.auth_schema_sql)
-            for s in SUPABASE_DATABASE_SQL + GOTRUE_SQL:
+            for s in SUPABASE_DATABASE_SQL + GOTRUE_SQL + AUTH_GRANTS_SQL:
                 c.execute(s)
 
 

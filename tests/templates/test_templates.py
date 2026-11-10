@@ -29,6 +29,7 @@ CASES = {
     "bigint": (specs.bigint_spec, Mutation.POLICY_ALL_RESTRICTIVE, None),  # D53
     "adopted": (specs.adopted_spec, Mutation.POLICY_ALL_RESTRICTIVE, None),
     "adopted_replace": (specs.adopted_spec, Mutation.REPLACE_KEEPS_FOREIGN, None),  # D51
+    "adopted_constraint": (specs.adopted_spec, Mutation.ADOPTED_KEEPS_CONSTRAINT, None),  # D52
     "hierarchy": (specs.hierarchy_spec, Mutation.HIERARCHY_SHALLOW, None),
     "hierarchy_depth": (specs.hierarchy_spec, Mutation.HIERARCHY_NO_DEPTH_CHECK, None),
     "cardinality": (specs.cardinality_spec, Mutation.CARDINALITY_OFF_BY_ONE, None),

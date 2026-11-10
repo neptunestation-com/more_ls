@@ -16,6 +16,15 @@ compiler regenerates them from the lifted memberships).  A CHECK the lifter read
 check rule (a stored-row assumption); one it cannot read is listed.  Column privileges become
 column rules; a foreign key of the inclusion shape becomes an inclusion rule; triggers, other
 foreign keys and table-level grants with no policy are listed, not imported.
+
+`--policies discard` (D52) writes a skeleton for a takeover instead: every table is `adopted`
+(RLS enabled today or not: the deploy enables it; `observe` keeps tables out), no policy,
+column grant or opaque block is imported (the notes list each discarded policy with its text),
+and relations are proposed from the schema alone: a table whose two-column primary or unique
+key has a foreign key on each column is a membership table, keyed by the column that refers to
+the user table (`auth.users`, or the type of the identity's `uid`).  Without policy text the
+identity is guessed from the schema: a foreign key to `auth.users` means Supabase.  The trusted
+platform roles (D55: `service_role`) are not app roles.
 """
 from __future__ import annotations
 
@@ -46,6 +55,18 @@ JWT_CLAIM = re.compile(r"auth\.jwt\(\)\s*->>\s*'([A-Za-z_][A-Za-z0-9_]*)'(?:::te
 # bare `current_setting('app.x', true)::t` and the compiler's `(NULLIF(current_setting('app.x'::text, true), ''::text))::t`
 APP_SETTING = re.compile(r"current_setting\('app\.([a-z_][a-z0-9_]*)'(?:::text)?[^)]*\)(?:,\s*''(?:::text)?\))?"
                          r"\s*\)*\s*(?:::([a-z ]+))?")
+
+
+USER_TABLE = "auth.users"  # what a membership table's user column refers to on Supabase
+
+
+def _trusted_roles(adapter: str) -> tuple[str, ...]:
+    from mls.identity.pg_roles import PgRolesAdapter
+    from mls.identity.session_setting import SessionSettingAdapter
+    from mls.identity.supabase import SupabaseAdapter
+
+    return {"supabase": SupabaseAdapter, "pg_roles": PgRolesAdapter,
+            "session_setting": SessionSettingAdapter}[adapter].trusted_roles
 
 
 @dataclass
@@ -83,11 +104,12 @@ def _read(conn: psycopg.Connection, schema: str) -> dict[str, Any]:
                            order by a.attnum""", (oid,))
             t["columns"] = [{"num": r[0], "name": r[1], "type": r[2], "notnull": r[3]} for r in cur.fetchall()]
             cur.execute("""select conname, contype, pg_get_constraintdef(oid), conkey, confrelid, confkey,
-                                  confupdtype, confdeltype, confmatchtype, convalidated
+                                  confupdtype, confdeltype, confmatchtype, convalidated,
+                                  case when confrelid <> 0 then confrelid::regclass::text end
                            from pg_constraint where conrelid = %s order by conname""", (oid,))
             t["constraints"] = [{"name": r[0], "type": r[1], "def": _strip_schema(r[2], schema), "cols": list(r[3] or []),
                                  "ref": r[4], "refcols": list(r[5] or []), "upd": r[6], "del": r[7], "match": r[8],
-                                 "validated": r[9]}
+                                 "validated": r[9], "refname": r[10]}
                                 for r in cur.fetchall()]
             cur.execute("""select p.oid, p.polname, p.polcmd, p.polpermissive,
                                   array(select rolname from pg_roles where oid = any (p.polroles) order by 1),
@@ -126,37 +148,36 @@ def _read(conn: psycopg.Connection, schema: str) -> dict[str, Any]:
 
 
 # ----------------------------------------------------------------------------- the import
-def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[str] | None = None) -> ImportResult:
+def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[str] | None = None,
+                  policies: str = "keep", observe: list[str] | None = None) -> ImportResult:
+    """`policies` is `keep` (lift them) or `discard` (a skeleton, D52); `observe` names tables a
+    discard import leaves `observed`."""
     with conn.transaction():
         cat = _read(conn, schema)
     notes: list[str] = []
     tables = cat["tables"]
     if not tables:
         raise SpecError([MlsError("$.tables", f"schema '{schema}' has no tables", "pass --schema", "import")])
-
-    # --- roles: what the policies and grants name, minus owners, superusers and the internal role
-    if roles is None:
-        found: set[str] = set()
-        for name, t in tables.items():
-            for p in t["policies"]:
-                found.update(p["roles"])
-            found.update(g for g, _, _ in t["acl"])
-        owners = {t["owner"] for t in tables.values()}
-        skipped = sorted(r for r in found if r in owners or r in cat["superusers"] or r == INTERNAL_ROLE
-                         or r.startswith("pg_") or r == "public")
-        roles = sorted(r for r in found if r not in skipped and r in cat["roles"])
-        if skipped:
-            notes.append(f"roles not taken as app roles: {', '.join(skipped)} (owners, superusers, public, "
-                         f"or MLS's internal role)")
-    if not roles:
-        raise SpecError([MlsError("$.roles", "no app role was found in the policies and grants of schema "
-                                             f"'{schema}'", "pass --role NAME for each app role", "import")])
+    discard = policies == "discard"
+    observe = list(observe or [])
+    for i, o in enumerate(observe):
+        if o not in tables:
+            raise SpecError([MlsError(f"--observe[{i}]", f"schema '{schema}' has no table '{o}'",
+                                      f"one of: {', '.join(tables)}", "import")])
+    if observe and not discard:
+        raise SpecError([MlsError("--observe", "--observe applies to --policies discard (a keep import makes "
+                                               "the tables without RLS observed)", "add --policies discard", "import")])
 
     # --- identity: guessed from the policy expressions
     texts = [e for t in tables.values() for p in t["policies"] for e in (p["using"], p["check"]) if e]
     hits = {a: sum(1 for e in texts if m.search(e)) for a, m in MARKERS.items()}
     ranked = sorted((n, a) for a, n in hits.items() if n)
-    if not ranked:
+    user_fks = discard and any(con["type"] == "f" and con["refname"] == USER_TABLE
+                               for t in tables.values() for con in t["constraints"])
+    if not ranked and user_fks:
+        adapter = "supabase"
+        notes.append(f"identity: no policy text to read; foreign keys refer to {USER_TABLE}: the adapter is supabase")
+    elif not ranked:
         adapter = "pg_roles"
         notes.append("identity: no policy reads auth.uid()/auth.jwt(), current_setting('app.*') or current_user; "
                      "the adapter defaults to pg_roles")
@@ -167,7 +188,7 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
                          + f"; the adapter is {adapter} (the most read); the others' policies stay opaque")
     context: dict[str, dict] = {}
     if adapter == "supabase":
-        if any("auth.uid()" in e for e in texts):
+        if any("auth.uid()" in e for e in texts) or user_fks:
             context["uid"] = {"source": "auth.uid", "type": "uuid"}
         for e in texts:
             for claim, cast in JWT_CLAIM.findall(e):
@@ -193,6 +214,25 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
     else:
         context["role"] = {"source": "current_user", "type": "text"}
 
+    # --- roles: what the policies and grants name, minus owners, superusers and the internal role
+    if roles is None:
+        found: set[str] = set()
+        for name, t in tables.items():
+            for p in t["policies"]:
+                found.update(p["roles"])
+            found.update(g for g, _, _ in t["acl"])
+        owners = {t["owner"] for t in tables.values()}
+        trusted = set(_trusted_roles(adapter)) if discard else set()
+        skipped = sorted(r for r in found if r in owners or r in cat["superusers"] or r == INTERNAL_ROLE
+                         or r.startswith("pg_") or r == "public" or r in trusted)
+        roles = sorted(r for r in found if r not in skipped and r in cat["roles"])
+        if skipped:
+            notes.append(f"roles not taken as app roles: {', '.join(skipped)} (owners, superusers, public, "
+                         f"MLS's internal role" + (", or the platform's trusted roles" if trusted else "") + ")")
+    if not roles:
+        raise SpecError([MlsError("$.roles", "no app role was found in the policies and grants of schema "
+                                             f"'{schema}'", "pass --role NAME for each app role", "import")])
+
     # --- tables
     spec_tables: dict[str, dict] = {}
     modelled: dict[str, set[str]] = {}
@@ -206,11 +246,17 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
                 continue
             cols[c["name"]] = {"type": ty, "nullable": not c["notnull"]}
         modelled[name] = set(cols)
-        tb: dict[str, Any] = {"columns": cols, "mode": "adopted" if t["rls"] else "observed"}
-        if not t["rls"]:
+        adopt = (name not in observe) if discard else t["rls"]
+        tb: dict[str, Any] = {"columns": cols, "mode": "adopted" if adopt else "observed"}
+        if discard and name in observe:
+            notes.append(f"table {name} is observed (--observe)")
+        elif not adopt:
             notes.append(f"table {name} has row level security disabled: observed, not adopted (enable it and "
                          f"set mode to adopted to govern it)")
-        else:  # the hardening state, recorded as assumptions (D45): what drift would otherwise report
+        else:
+            if not t["rls"]:
+                notes.append(f"table {name} has row level security disabled today: the deploy enables it, and "
+                             f"until then every app role with a grant reads every row")  # the hardening state, recorded as assumptions (D45): what drift would otherwise report
             assume: list[dict] = []
             if t["owner"] in roles:
                 assume.append({"owner": t["owner"]})
@@ -313,6 +359,38 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
             inclusions.append({"kind": "inclusion", "name": ident(con["name"]), "table": name,
                                "columns": con["colnames"], "relation": rel, "on_delete": "restrict"})
 
+    # --- membership tables, from the schema alone (D52): a two-column key with a foreign key on
+    # each column, keyed by the column that refers to the user table
+    if discard:
+        uid_type = context["uid"]["type"] if "uid" in context else None
+        # the user table, and the tables keyed by it (`profiles.id references auth.users`)
+        user_tables = {USER_TABLE} | {
+            n for n, t in tables.items()
+            if any(con["type"] == "p" and len(con["colnames"]) == 1 for con in t["constraints"])
+            and any(con["type"] == "f" and con["refname"] == USER_TABLE and con["colnames"]
+                    == next(c["colnames"] for c in t["constraints"] if c["type"] == "p") for con in t["constraints"])}
+        for name, t in tables.items():
+            if name not in governed:
+                continue
+            single = {con["colnames"][0]: con for con in t["constraints"] if con["type"] == "f"
+                      and len(con["colnames"]) == 1}
+            for k in key_sets(name):
+                if len(k) != 2 or not all(c in single for c in k):
+                    continue
+                users = [c for c in k if single[c]["refname"] in user_tables]
+                if not users and uid_type is not None:
+                    users = [c for c in k if spec_tables[name]["columns"][c]["type"] == uid_type]
+                if len(users) != 1:
+                    notes.append(f"table {name}: the key ({', '.join(k)}) has a foreign key on each column, but "
+                                 + ("neither" if not users else "both") + f" refer to the user table "
+                                 f"({USER_TABLE}{f' or type {uid_type}' if uid_type else ''}): no relation proposed")
+                    continue
+                key = users[0]
+                value = next(c for c in k if c != key)
+                propose(name, key, value, f"membership table: ({key}, {value}) is a key, {key} refers to "
+                                          f"{single[key]['refname']}, {value} to {single[value]['refname']}")
+                break
+
     # --- policies through the lifter (D46); what it cannot read is an opaque block
     opaques: dict[str, dict] = {}
     rules: list[dict] = list(inclusions)
@@ -347,6 +425,13 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
         for p in t["policies"]:
             depcols[p["name"]] = [t["colname"][n] for n in p["depcols"] if n in t["colname"]]
         for p in t["policies"]:
+            if discard:
+                text = f"for {p['cmd']} to {', '.join(p['roles']) or 'public'}" + (
+                    f" using ({p['using']})" if p["using"] else "") + (
+                    f" with check ({p['check']})" if p["check"] else "")
+                notes.append(f"policy {p['name']} on {name} discarded (--policies discard; the deploy drops it): "
+                             f"{'permissive' if p['permissive'] else 'restrictive'} {text}")
+                continue
             pol_roles = list(p["roles"])
             if p["public"]:
                 pol_roles = list(roles)
@@ -391,7 +476,10 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
                       and r["mode"] == "permissive"
                       for c in (("select", "insert", "update", "delete") if r["command"] == "all" else (r["command"],))}
         grants: dict[tuple[str, str], set[str] | None] = {}
-        for grantee, priv, col in t["acl"]:
+        if discard and any(g in roles for g, _, _ in t["acl"]):
+            notes.append(f"the grants on {name} are not imported (--policies discard): the deploy grants what the "
+                         f"rules need")
+        for grantee, priv, col in ([] if discard else t["acl"]):
             if grantee not in roles or priv not in ("select", "insert", "update", "delete"):
                 continue
             cur = grants.get((grantee, priv), set())
@@ -552,7 +640,8 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
             "tables": spec_tables, "relations": relations, "opaques": opaques, "rules": rules, "properties": []}
 
     n_adopted = len(governed)
-    comment = (f"imported by mls import from schema '{schema}' on {dt.date.today().isoformat()}: "
+    comment = (f"imported by mls import{' --policies discard' if discard else ''} from schema '{schema}' on "
+               f"{dt.date.today().isoformat()}: "
                f"{len(spec_tables)} tables ({n_adopted} adopted, {len(spec_tables) - n_adopted} observed), "
                f"{lifted_n} policy and CHECK expressions lifted into the fragment, {opaque_n} opaque blocks; "
                f"see the import notes for what was left out")

@@ -663,6 +663,7 @@ All names are deterministic functions of the spec, so `mls drift` can match them
 | cardinality trigger function | `mls_card_<table>_<name>()` |
 | index | `mls_ix_<table>_<col>[_<col>...]` |
 | migration: replacement constraint before the swap | `<name>_mls_new` |
+| adopted-table constraint comparison (dropped in the same block) | `mls_probe` |
 | internal role | `mls_internal` (NOLOGIN, NOBYPASSRLS, NOINHERIT; owns the helpers) |
 
 Policy-set replacement (D51), on every `adopted` table, first in the policies section: a `do`
@@ -673,6 +674,17 @@ notices name are exactly the `unexpected` policies `mls drift` reports before th
 Dropping the spec's own names too is what lets the script run again on a deployed database.
 Owned tables need no replacement (MLS created them), and `mls migrate` emits none (it starts from
 a deployment, which has no foreign policy).
+
+Constraints on an adopted table (D52): the table may already have a constraint under the name
+of a check or inclusion rule (`mls import` names its rules after the constraints it read), so
+each is a `do` block instead of a bare `add constraint`.  When no constraint has the name, it
+is added.  When one has, the spec's definition is added `NOT VALID` as `mls_probe` (no scan),
+its `pg_get_constraintdef` is compared with the existing one's, and the probe is dropped; equal
+definitions keep the existing constraint as it is, any difference (a `NOT VALID` one included)
+drops it and adds the spec's, which validates the rows, with the notice `MLS replaces
+constraint <name> on <table>: <existing> (the spec: <definition>)`.  Rows that violate the
+spec's constraint fail the deploy.  Before the deploy, `mls drift` reports each such
+constraint as `differs`.
 
 Indexes (D14): one composite index per conjunctive group of a permissive policy (membership
 columns first, then comparison columns), one on each foreign key's referencing columns, and a
@@ -823,7 +835,7 @@ The last line is a count per status.  `--json` prints `{"ok", "tables": [{"table
 governed table is missing or has RLS disabled; `opaque`, `unproved` and observed or
 unmentioned tables are information, exit 0.
 
-
+### `mls import --dsn DSN [--schema NAME] [--role R]... [--policies keep|discard] [--observe T1,T2]... [--out FILE] [--json]`
 
 Writes a spec from a live schema (D45): a starting point the human or the loop edits; from then
 on the spec is the source of truth and `mls drift` says whether the database still agrees.
@@ -851,8 +863,26 @@ grants with no permissive policy, policies for no app role, policies whose names
 identifiers (the rule gets the identifier; a deploy renames the policy).  Notes prefixed
 `lint:` name hand-written shapes a deploy improves on (a bare `auth.uid()` evaluated per row,
 a correlated `EXISTS`).  The spec goes to stdout or `--out`, the notes to stderr; `--json`
-prints `{"ok", "spec", "notes"}`.  Exit 1 with the errors when no app role is found or the
-schema has no tables.
+prints `{"ok", "spec", "notes"}`.  Exit 1 with the errors when no app role is found, the
+schema has no tables, `--observe` names a table the schema does not have, or `--observe` is
+given without `--policies discard`.
+
+`--policies discard` (D52) writes a skeleton for a takeover (keep the tables, replace the
+policies) instead: identity, roles, tables, relations, inclusion rules and readable CHECKs, and
+no policy, column rule or opaque block.  Every table is `adopted`, with row-level security
+enabled today or not (the deploy enables it; the notes name the tables where it is off today);
+`--observe` leaves tables out.  Each discarded policy is a note with its text (`policy <name>
+on <table> discarded (--policies discard; the deploy drops it): permissive for select to
+authenticated using (...)`), and the grants are not imported (the deploy grants what the rules
+need).  With no policy to read memberships from, relations are proposed from the schema: a
+table whose two-column primary or unique key has a single-column foreign key on each column is
+a membership table, keyed by the column that refers to the user table (`auth.users`, a table
+whose primary key refers to `auth.users` such as `profiles`, or failing those the column of the
+identity's `uid` type); when neither or both columns qualify, a note says so and no relation is
+proposed.  The identity is still read from the discarded policies' text; without any, a
+foreign key to `auth.users` means `supabase` with `uid` from `auth.uid`.  The platform's
+trusted roles (`service_role`, D55) are not taken as app roles.  `mls generate --skeleton`
+takes the result as it is.
 
 **The lifter** (D46, `pg/lift.py`) parses the deparsed text of an expression and reads:
 

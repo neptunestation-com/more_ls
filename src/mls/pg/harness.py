@@ -317,8 +317,9 @@ class Harness:
         created from their declared columns as a stand-in for the real ones, and on each the kind
         of policies a hand-written attempt leaves behind (D51): a permissive one that admits
         everything, under a name that is not an identifier; a restrictive one that refuses every
-        insert; and one under the name of a policy the spec declares.  The compiled script never
-        creates the tables and must replace the policies."""
+        insert; and one under the name of a policy the spec declares.  Each check rule on the
+        table finds a weaker constraint under its name (`check (true)`, D52).  The compiled script
+        never creates the tables and must replace the policies and the constraints."""
         from mls.compile.sql import q
         from mls.compile.table import table_ddl
         from mls.props.effective import all_policies
@@ -336,6 +337,9 @@ class Harness:
             if declared:
                 out.append(f"create policy {q(declared[0])} on {q(name)} as permissive for select "
                            f"to public using (true)")
+            for r in self.spec.checks():
+                if r.table == name:
+                    out.append(f"alter table {q(name)} add constraint {q(r.name)} check (true)")
         return out
 
     def attach(self) -> None:

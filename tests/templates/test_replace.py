@@ -56,7 +56,7 @@ def test_the_deploy_replaces_the_policy_set(brownfield):
                   for i in drift(h.conn, spec, script).by_kind("unexpected") if i.object.startswith("policy ")}
     assert unexpected == foreign, "drift before the deploy lists the policies it will drop"
 
-    notices = run(h, script)
+    notices = [n for n in run(h, script) if n.startswith("MLS drops")]
     assert sorted(notices) == sorted(f"MLS drops policy {n} on docs: the spec does not declare it" for n in foreign)
     assert policies_on(h, "docs") == declared
     res = drift(h.conn, spec, script)
@@ -72,3 +72,54 @@ def test_the_policies_of_an_adopted_table_deploy_again(brownfield):
                        and (s.rule_id == "replace:docs" or ' on "docs" ' in s.sql)])
     assert run(h, policies) == []
     assert drift(h.conn, spec, script).ok
+
+
+# ----------------------------------------------------------------------------- constraints (D52)
+def constraint(h: Harness, table: str, name: str) -> tuple[int, str, bool] | None:
+    with h.conn.cursor() as cur:
+        cur.execute("select oid, pg_get_constraintdef(oid), convalidated from pg_constraint "
+                    "where conrelid = %s::regclass and conname = %s", (f'"{table}"', name))
+        return cur.fetchone()
+
+
+def test_an_existing_constraint_is_kept_when_it_matches_and_replaced_when_it_differs(brownfield):
+    """The seeded `level_range` is `check (true)`: replaced, with a notice.  The FK `owner_in_tenant`
+    is written by hand as the spec writes it after the tables exist: kept, the same constraint."""
+    spec, script, h = brownfield
+    tables = Script([s for s in script.statements if s.section == "tables"])
+    run(h, tables)
+    with h.conn.cursor() as cur:
+        cur.execute('alter table "docs" add constraint "owner_in_tenant" foreign key ("owner_id", "tenant_id") '
+                    'references "memberships" ("user_id", "tenant_id") on update restrict on delete restrict')
+    fk_before = constraint(h, "docs", "owner_in_tenant")
+    rest = Script([s for s in script.statements if s.section not in ("tables",)])
+    notices = run(h, rest)
+    assert [n for n in notices if n.startswith("MLS replaces")] == [
+        "MLS replaces constraint level_range on docs: CHECK (true) (the spec: "
+        "CHECK ((((level >= 0) AND (level <= 3)) IS TRUE)))"]
+    assert constraint(h, "docs", "owner_in_tenant") == fk_before  # kept: same oid
+    assert constraint(h, "docs", "level_range")[1:] == ("CHECK ((((level >= 0) AND (level <= 3)) IS TRUE))", True)
+    assert constraint(h, "docs", "mls_probe") is None
+    res = drift(h.conn, spec, script)
+    assert res.ok, [str(i) for i in res.items]
+
+
+def test_a_matching_constraint_that_is_not_valid_is_replaced(brownfield):
+    spec, script, h = brownfield
+    with h.conn.cursor() as cur:
+        cur.execute('alter table "docs" drop constraint "level_range"')
+        cur.execute('alter table "docs" add constraint "level_range" check (((level >= 0) and (level <= 3)) is true) '
+                    'not valid')
+    notices = run(h, script)
+    assert any(n.startswith("MLS replaces constraint level_range on docs") and "IS TRUE)) NOT VALID (the spec" in n
+               for n in notices), notices
+    assert constraint(h, "docs", "level_range")[2] is True
+
+
+def test_a_replacement_that_the_rows_violate_fails_the_deploy(brownfield):
+    spec, script, h = brownfield
+    with h.conn.cursor() as cur:
+        cur.execute('insert into "docs" (id, tenant_id, level) values (1, 1, 9)')  # fine under check (true)
+    with pytest.raises(Exception, match="level_range"):
+        with h.conn.transaction():
+            run(h, script)

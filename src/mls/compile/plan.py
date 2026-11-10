@@ -11,12 +11,13 @@ import re
 
 from dataclasses import dataclass, field
 
+from mls.compile.adopted import adopted_constraint_ddl
 from mls.compile.cardinality import cardinality_ddl
-from mls.compile.check import check_ddl
+from mls.compile.check import check_ddl, check_def
 from mls.compile.column import grant_ddl, privileges, relations_in
 from mls.compile.hierarchy import hierarchy_ddl
 from mls.compile.internal import internal_policies, internal_role_ddl
-from mls.compile.fk import fk_ddl
+from mls.compile.fk import fk_ddl, fk_def
 from mls.compile.hardening import preamble_ddl, role_ddl, table_hardening_ddl
 from mls.compile.index import index_ddl
 from mls.compile.mutations import Mutation
@@ -113,10 +114,13 @@ def compile_spec(spec: Spec, mutations: frozenset[Mutation] | set[Mutation] = fr
     for name, t in spec.tables.items():
         if t.mode == "owned":
             s.add("tables", table_ddl(name, t))  # adopted tables exist; observed ones are not touched
-    for r in spec.checks():
-        s.add("checks", check_ddl(r, sc), r.id)
+    adopted = {n for n, t in spec.tables.items() if t.mode == "adopted"}
+    for r in spec.checks():  # on an adopted table the constraint may exist already (D52)
+        s.add("checks", adopted_constraint_ddl(r.table, r.name, check_def(r, sc), mutations)
+              if r.table in adopted else check_ddl(r, sc), r.id)
     for r in spec.inclusions():
-        s.add("fks", fk_ddl(r, sc), r.id)
+        s.add("fks", adopted_constraint_ddl(r.table, r.name, fk_def(r, sc), mutations)
+              if r.table in adopted else fk_ddl(r, sc), r.id)
     for r in all_transitions(spec):
         s.add("transitions", transition_ddl(r, sc), r.id)
     for name in spec.hierarchies:

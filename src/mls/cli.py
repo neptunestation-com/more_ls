@@ -344,7 +344,8 @@ def cmd_import(a) -> int:
 
     try:
         with psycopg.connect(a.dsn) as conn:
-            res = import_schema(conn, schema=a.schema, roles=a.role or None)
+            res = import_schema(conn, schema=a.schema, roles=a.role or None, policies=a.policies,
+                                observe=[t for o in a.observe or [] for t in o.split(",") if t])
     except SpecError as e:
         _print_errors(e, a.json)
         return 1
@@ -593,6 +594,11 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--dsn", required=True)
     p.add_argument("--schema", default="public")
     p.add_argument("--role", action="append", help="app role (repeatable); default: the roles the policies and grants name")
+    p.add_argument("--policies", choices=["keep", "discard"], default="keep",
+                   help="keep: lift the existing policies (default); discard: a skeleton for a takeover, every "
+                        "table adopted, no policy imported (each listed in the notes) (D52)")
+    p.add_argument("--observe", action="append", metavar="T1,T2",
+                   help="with --policies discard: tables to leave observed (repeatable, comma-separated)")
     p.add_argument("--out", help="write the spec here (default: stdout); the notes go to stderr")
     p.add_argument("--json", action="store_true", help="print {spec, notes} as JSON")
     p.set_defaults(fn=cmd_import)

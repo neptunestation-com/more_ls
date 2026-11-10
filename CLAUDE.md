@@ -72,6 +72,10 @@ union member the renderer does not cover.
   only constants are bounded (`model.INT_RANGE`). The `bigint` fixture (`specs.bigint_spec`)
   draws values beyond 2³¹, so an `integer` left anywhere in a template fails its load. An
   adopted `varchar(n)` column is `text` (`lift.mls_type`); drift's stand-in takes the live type.
+- D52: `mls import --policies discard` writes the takeover skeleton (`pg/adopt.py`; membership
+  tables from FK-backed two-column keys). On an adopted table a check or inclusion rule compiles
+  to `compile/adopted.py`'s compare-or-replace block (mutation `ADOPTED_KEEPS_CONSTRAINT`).
+  `tests/brownfield/starter_schema.sql` is the Supabase starter; `tests/platform/test_takeover.py`.
 - Every compiler template has a `Mutation` (compile/mutations.py); `tests/templates` proves each
   mutation is caught by the differential test. Add a mutation when you add a template. The
   fixtures (`tests/templates/specs.py`) derive from the example specs; `test_specs.py` builds and
