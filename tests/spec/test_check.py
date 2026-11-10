@@ -318,6 +318,15 @@ def test_assume_is_refused_where_the_proofs_cannot_state_it():
     assert has(errs, "$.tables.docs.assume[1].rls", "not an assumption the proofs can state")
     assert any(e.path == "$.tables.docs.assume[1].rls" and 'mode to "observed"' in e.fix for e in errs)
     assert has(errs, "$.tables.docs.assume[3]", "duplicate assumption")
+    # D54: a bypass path is spelled as drift reports it; spacing does not make two of them
+    d["tables"]["docs"]["assume"] = [{"bypass": "view doc_index"}, {"bypass": "function can_read(integer, text)"},
+                                     {"bypass": "function  can_read(integer, text)"}, {"bypass": "trigger t"},
+                                     {"bypass": "function f"}]
+    errs = errors(d)
+    assert has(errs, "$.tables.docs.assume[2]", "duplicate assumption")
+    assert has(errs, "$.tables.docs.assume[3].bypass", "'trigger t' is not a bypass path")
+    assert has(errs, "$.tables.docs.assume[4].bypass", "'function f' is not a bypass path")
+    assert not any(e.path in ("$.tables.docs.assume[0].bypass", "$.tables.docs.assume[1].bypass") for e in errs)
     d["tables"]["docs"]["mode"] = "observed"
     d["tables"]["docs"]["assume"] = [{"rls": "not_forced"}]
     d["rules"] = [r for r in d["rules"] if r["table"] != "docs"]
@@ -339,6 +348,6 @@ def test_mode_shape_errors_name_the_path():
     with pytest.raises(ValidationError) as ei:
         Spec.model_validate(d)
     e = pydantic_errors_to_mls(ei.value)[0]
-    assert e.path == "$.tables.docs.assume[0]" and "{owner}, {bypassrls}, {rls}" in e.message
+    assert e.path == "$.tables.docs.assume[0]" and "{owner}, {bypassrls}, {rls}, {bypass}" in e.message
     schema = spec_json_schema()
     assert "mode" in schema["$defs"]["Table"]["properties"]

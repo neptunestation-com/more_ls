@@ -2,7 +2,8 @@
 on the `supabase/postgres` image: a skeleton that checks, every table adopted, the membership table
 a relation, the readable CHECKs rules, every discarded policy in the notes; the skeleton deploys
 over the schema as `postgres` (the existing CHECKs are compared and replaced, the old policies
-dropped), drift is clean, and `mls generate --skeleton` takes it (scripted, no API call)."""
+dropped), drift reports the view and the SECURITY DEFINER function as bypass paths (D54) and is
+clean once their fixes are applied, and `mls generate --skeleton` takes it (scripted, no API call)."""
 from __future__ import annotations
 
 import json
@@ -72,6 +73,13 @@ def test_discard_import_of_the_starter_is_a_skeleton(starter):
     assert "table team_members has row level security disabled today: the deploy enables it" in notes
     assert "relation team_members proposed: (user_id, team_id) of team_members (membership table" in notes
     assert "column projects.settings has type jsonb" in notes
+    assert sorted(n.split(" without")[0] for n in res.notes if n.startswith("bypass path: ")) == [
+        "bypass path: function is_team_member(bigint) reaches table team_members",
+        "bypass path: view project_overview reaches table projects",
+        "bypass path: view project_overview reaches table tasks",
+        "bypass path: view project_overview reaches table teams"]
+    assert ("(fix: revoke execute on function is_team_member(bigint) from public, anon, authenticated; or assume "
+            "{\"bypass\": \"function is_team_member(bigint)\"} on team_members)") in notes
 
 
 def test_the_skeleton_deploys_over_the_starter_and_drift_is_clean(starter):
@@ -90,6 +98,14 @@ def test_the_skeleton_deploys_over_the_starter_and_drift_is_clean(starter):
     # the imported CHECKs are the bare form: replaced by `(p) is true` (their columns are NOT NULL)
     assert {n.split(" on ")[0] for n in notices if n.startswith("MLS replaces")} == {
         "MLS replaces constraint team_members_role_check", "MLS replaces constraint tasks_status_check"}
+    res = drift(conn, spec, script)
+    # the starter's view and SECURITY DEFINER function are its bypass paths (D54) ...
+    assert sorted((i.object.split(" without")[0] for i in res.items if i.kind == "hardening")) == [
+        "function is_team_member(bigint) reaches table team_members", "view project_overview reaches table projects",
+        "view project_overview reaches table tasks", "view project_overview reaches table teams"]
+    # ... and with the fixes drift prints applied, drift is clean
+    conn.execute("alter view project_overview set (security_invoker = true)")
+    conn.execute("revoke execute on function is_team_member(bigint) from public, anon, authenticated")
     res = drift(conn, spec, script)
     assert res.ok, [str(i) for i in res.items]
     with conn.cursor() as cur:

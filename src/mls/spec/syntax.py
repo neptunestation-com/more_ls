@@ -321,15 +321,16 @@ class Parser:
             self.mark(f"{self.path}.{opt}")
             self.eat("(")
             if opt == "assume":
-                items = [self.string("an assumption ('owner r', 'bypassrls r', 'rls not_forced')")]
+                items = [self.string("an assumption ('owner r', 'bypassrls r', 'rls not_forced', 'bypass view v')")]
                 while self.at(","):
                     self.advance()
                     items.append(self.string())
                 t["assume"] = []
                 for s in items:
                     parts = s.split(" ", 1)
-                    if len(parts) != 2 or parts[0] not in ("owner", "bypassrls", "rls") or not parts[1]:
-                        raise ParseError(f"an assumption is 'owner <role>', 'bypassrls <role>' or 'rls not_forced', "
+                    if len(parts) != 2 or parts[0] not in ("owner", "bypassrls", "rls", "bypass") or not parts[1]:
+                        raise ParseError(f"an assumption is 'owner <role>', 'bypassrls <role>', 'rls not_forced' or "
+                                         f"'bypass view <v>' / 'bypass function <f>(<types>)', "
                                          f"not {s!r}", self.tok.line, self.tok.col, f"{self.path}.assume")
                     t["assume"].append({parts[0]: parts[1]})
             elif opt == "unique":

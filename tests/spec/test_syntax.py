@@ -113,7 +113,9 @@ TABLES = st.fixed_dictionaries(
     optional={"primary_key": st.lists(NAMES, min_size=1, max_size=2), "unique": st.lists(st.lists(NAMES, min_size=1, max_size=2), max_size=2),
               "tags": st.lists(NAMES, max_size=2),
               "assume": st.lists(st.one_of(NAMES.map(lambda r: {"owner": r}), NAMES.map(lambda r: {"bypassrls": r}),
-                                           st.just({"rls": "not_forced"})), max_size=2)})
+                                           st.just({"rls": "not_forced"}),
+                                           st.sampled_from([{"bypass": "view v"}, {"bypass": "function f(integer, text)"}])),
+                                 max_size=2)})
 
 SPECS = st.fixed_dictionaries(
     {"mls_version": st.just("0.1"),

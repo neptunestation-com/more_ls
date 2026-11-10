@@ -111,3 +111,69 @@ def snapshot(conn: psycopg.Connection, schema: str, tables: list[str], roles: li
                                "can_set_replication_role": row[3], "members": list(row[4]),
                                "app_setters": setters, "app_defaults": list(defaults)}
     return out
+
+
+# D54: the views and functions through which an app role reaches a table without its policies
+_BYPASS_VIEWS = r"""
+with recursive dep(view, tbl) as (
+  select distinct r.ev_class, t.relname
+  from pg_class t join pg_namespace tn on tn.oid = t.relnamespace
+  join pg_depend d on d.refclassid = 'pg_class'::regclass and d.refobjid = t.oid
+  join pg_rewrite r on d.classid = 'pg_rewrite'::regclass and r.oid = d.objid
+  where tn.nspname = %(schema)s and t.relname = any(%(tables)s) and r.ev_class <> t.oid
+  union
+  select r.ev_class, dep.tbl
+  from dep join pg_depend d on d.refclassid = 'pg_class'::regclass and d.refobjid = dep.view
+  join pg_rewrite r on d.classid = 'pg_rewrite'::regclass and r.oid = d.objid
+  where r.ev_class <> dep.view
+)
+select dep.tbl, vn.nspname, v.relname, v.relkind,
+       array(select ro.rolname from pg_roles ro
+             where ro.rolname = any(%(roles)s)
+               and has_table_privilege(ro.oid, v.oid, 'SELECT, INSERT, UPDATE, DELETE') order by 1)
+from dep join pg_class v on v.oid = dep.view join pg_namespace vn on vn.oid = v.relnamespace
+where v.relkind = 'm'
+   or (v.relkind = 'v' and not coalesce((select o.option_value::boolean from pg_options_to_table(v.reloptions) o
+                                         where o.option_name = 'security_invoker'), false))
+order by 1, 2, 3"""
+
+_BYPASS_FUNCTIONS = r"""
+select t.relname, n.nspname, p.proname, oidvectortypes(p.proargtypes), pg_get_userbyid(p.proowner),
+       array(select ro.rolname from pg_roles ro
+             where ro.rolname = any(%(roles)s) and has_function_privilege(ro.oid, p.oid, 'EXECUTE') order by 1)
+from pg_proc p join pg_namespace n on n.oid = p.pronamespace join pg_roles o on o.oid = p.proowner,
+     pg_class t join pg_namespace tn on tn.oid = t.relnamespace
+where p.prosecdef and n.nspname not in ('pg_catalog', 'information_schema')
+  and tn.nspname = %(schema)s and t.relname = any(%(tables)s) and t.relkind in ('r', 'p')
+  and (o.rolsuper or o.rolbypassrls or (pg_has_role(o.oid, t.relowner, 'USAGE') and not t.relforcerowsecurity))
+  and p.prosrc ~* ('\m' || regexp_replace(t.relname, '([^a-zA-Z0-9_])', '\\\1', 'g') || '\M')
+order by 1, 2, 3, 4"""
+
+
+def bypass_paths(conn: psycopg.Connection, schema: str, tables: list[str], roles: list[str]) -> dict[str, list[dict]]:
+    """Per table, the bypass paths (D54) the app roles `roles` may use: every view over the table
+    (directly or through other views) that is not `security_invoker`, and every materialized view,
+    on which an app role holds a privilege (a view runs as its owner, whom the table's policies
+    usually do not bind; a materialized view was filled by its owner); and every SECURITY DEFINER
+    function an app role may execute whose owner bypasses the table's policies (a superuser, a
+    BYPASSRLS role, or the table's owner while row level security is not forced) and whose body
+    names the table (a conservative text match, as for D47's setters).  Each is `{"path": "view v"
+    | "function f(types)", "kind", "roles", "owner"?}`; a name outside `schema` is qualified."""
+    out: dict[str, list[dict]] = {t: [] for t in tables}
+    args = {"schema": schema, "tables": list(tables), "roles": list(roles)}
+
+    def name(nsp: str, rel: str) -> str:
+        return rel if nsp == schema else f"{nsp}.{rel}"
+
+    with conn.cursor() as cur:
+        cur.execute(_BYPASS_VIEWS, args)
+        for tbl, nsp, rel, kind, using in cur.fetchall():
+            if using:
+                out[tbl].append({"path": f"view {name(nsp, rel)}", "roles": list(using),
+                                 "kind": "materialized view" if kind == "m" else "view"})
+        cur.execute(_BYPASS_FUNCTIONS, args)
+        for tbl, nsp, fn, types, owner, executing in cur.fetchall():
+            if executing:
+                out[tbl].append({"path": f"function {name(nsp, fn)}({types})", "roles": list(executing),
+                                 "kind": "function", "owner": owner})
+    return out

@@ -76,6 +76,11 @@ union member the renderer does not cover.
   tables from FK-backed two-column keys). On an adopted table a check or inclusion rule compiles
   to `compile/adopted.py`'s compare-or-replace block (mutation `ADOPTED_KEEPS_CONSTRAINT`).
   `tests/brownfield/starter_schema.sql` is the Supabase starter; `tests/platform/test_takeover.py`.
+- D54: bypass paths (`pg/catalog.py:bypass_paths`: non-invoker views, transitively, materialized
+  views, SECURITY DEFINER functions whose owner bypasses the policies and whose body names the
+  table) are drift `hardening` (`pg/drift.py:bypass_report`, also read by `mls status --dsn` and
+  import's notes) unless the table assumes `{"bypass": "view v"}`; `tests/templates/test_bypass.py`
+  has the positive and negative fixtures, the takeover test fixes the starter's two.
 - Every compiler template has a `Mutation` (compile/mutations.py); `tests/templates` proves each
   mutation is caught by the differential test. Add a mutation when you add a template. The
   fixtures (`tests/templates/specs.py`) derive from the example specs; `test_specs.py` builds and
@@ -86,7 +91,7 @@ union member the renderer does not cover.
   and must print the lines the guide shows. A change to report, lint, explain or compile output
   updates the tour in the same change.
 - Implementation defaults decided during M1 are D21–D27, during M2 D28–D33, during M3 D34–D36,
-  after M4 D40–D44, during M5 (brownfield) D45–D49, syntax D50, M6 (takeover, proposed) D51–D56, in `docs/DECISIONS.md`.  D42: row-dependent column visibility is normalization
+  after M4 D40–D44, during M5 (brownfield) D45–D49, syntax D50, M6 (takeover) D51–D56, in `docs/DECISIONS.md`.  D42: row-dependent column visibility is normalization
   (the column is its own table with its own policies); there is no masking construct.
 - M4: `uv run mls generate` / `mls eval --llm` (src/mls/llm, docs/LLM.md, D37–D39). Tests never call the
   API: `MLS_LLM_SCRIPT=<json>` or `ScriptedClient` replays answers. `evals/make_cases.py` regenerates

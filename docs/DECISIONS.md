@@ -711,8 +711,7 @@ tables and the data model exist and stay: foreign keys are likely, functions com
 occasional, CHECK constraints rare, custom types and transition rules absent. The RLS policies
 either do not exist or are a half-hearted attempt nobody is attached to. The user keeps the data
 model and hands the policies to MLS. D51–D55 make that path first-class. D51 and D55 are settled
-(2026-11-05); D54 is *proposed, not yet settled: review before implementation.* D53 and D56 are settled
-(2026-11-06), D52 (2026-11-10).
+(2026-11-05), D53 and D56 (2026-11-06), D52 and D54 (2026-11-10).
 
 **D51. The spec owns the whole policy set of every governed table (amends D45).** D45 already
 says this for drift: on an `adopted` table an undeclared policy is `unexpected`, not `foreign`,
@@ -819,6 +818,19 @@ true)`, or revoke the app role's privilege); a table may assume one instead
 as a trusted path, the way D45 states an app-role owner. Rejected: rewriting views (the view is
 the user's object, not MLS's); ignoring functions because their bodies are unreadable (their
 existence and grants are in the catalog, which is what the report needs).
+*Implementation defaults (2026-11-10, #22):* reported on every governed table, owned ones
+included (only an adopted table may assume one, as for every assumption).  Views are found
+through `pg_depend` on their rewrite rules, transitively, so a non-invoker view over an invoker
+view over the table is found; a materialized view counts with any app-role privilege (its rows
+were read by its owner; the fix is the revoke).  "May use" is any of SELECT, INSERT, UPDATE,
+DELETE on the view and EXECUTE on the function, through PUBLIC and role membership included.
+A function's owner bypasses the table's policies when it is a superuser, has BYPASSRLS, or has
+the privileges of the table's owner while RLS is not forced; `mls_internal`'s helpers never
+qualify (no BYPASSRLS, not an owner; drift compares them already).  Functions are looked for in
+every schema but `pg_catalog` and `information_schema`; the path is `view <v>` / `function
+<f>(<argument types>)` as `oidvectortypes` prints them, qualified outside the governed schema,
+compared ignoring whitespace.  `mls status --dsn` fails on an unassumed path whatever the proofs
+say, and the import lists paths but never assumes one (a takeover should see them as drift).
 
 **D55. Supabase is a target platform, not only an identity adapter.** Every test so far ran on
 `postgres:15..18` as a true superuser with `auth.uid()` defined by the fixture. On a Supabase

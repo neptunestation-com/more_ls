@@ -327,11 +327,13 @@ def cmd_status(a) -> int:
     if a.dsn:
         import psycopg
 
-        from mls.pg.catalog import snapshot
+        from mls.pg.catalog import bypass_paths, snapshot
         from mls.pg.drift import _observed, _roles
 
         with psycopg.connect(a.dsn) as conn:
             snap = snapshot(conn, a.schema, list(spec.governed()), _roles(spec), _observed(spec))
+            present = [t for t in spec.governed() if snap["tables"].get(t) is not None]
+            snap["bypass"] = bypass_paths(conn, a.schema, present, list(spec.roles))
     statuses = table_statuses(spec, results, snap)
     print(json.dumps(to_json(statuses), indent=2) if a.json else to_text(statuses))
     return 2 if failing(statuses) else 0

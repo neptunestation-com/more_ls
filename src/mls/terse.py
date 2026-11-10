@@ -14,7 +14,7 @@ approval artifact (D10, D33).  The grammar:
     table      := 'table' NAME MODE '{' [column (',' column)* [';']] [option (';' option)*] '}'
     column     := NAME TYPE ['not null']                          (a bare column is nullable)
     option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
-                | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced')
+                | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced' | 'bypass view v' | 'bypass function f(t)')
     relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
     hierarchy  := 'hierarchy' NAME '=' TABLE 'id' COL 'parent' COL 'depth' COL 'max_depth' INT 'members' REL
     opaque     := 'opaque' NAME 'on' TABLE '(' [input (',' input)*] ')' 'relations' '(' [names] ')' 'sql' DOLLAR
@@ -45,7 +45,7 @@ from mls.spec.model import (
     Hierarchy, Identity, In, InclusionRule, InGroup, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member,
     MonotoneIn, MustAllow, NewRef, Not, NowBetween, OldRef, Opaque, OpaqueRef, Or, PolicyRule, Pred, Property,
     Relation, RoleSeparation, Rule, RuleBase, Spec, Table, TenantIsolation, TransitionRule, WriteSubsetRead,
-    OwnerAssumed, BypassAssumed, RlsAssumed, ContextVar, Column,
+    OwnerAssumed, BypassAssumed, RlsAssumed, PathAssumed, ContextVar, Column,
 )
 
 OR, AND, NOT, ATOM = 1, 2, 3, 4
@@ -83,7 +83,7 @@ RENDERED_CLASSES: set[type] = {
     MustAllow, RoleSeparation,
     Lit, And, Or, Not, IsNull, Cmp, In, Member, InGroup, NowBetween, OpaqueRef,
     ColRef, OldRef, NewRef, CtxRef, Const,
-    OwnerAssumed, BypassAssumed, RlsAssumed,
+    OwnerAssumed, BypassAssumed, RlsAssumed, PathAssumed,
 }
 
 
@@ -297,6 +297,8 @@ def assumption(a) -> str:
         return string(f"bypassrls {a.bypassrls}")
     if isinstance(a, RlsAssumed):
         return string(f"rls {a.rls}")
+    if isinstance(a, PathAssumed):
+        return string(f"bypass {a.bypass}")
     raise TypeError(a)
 
 

@@ -13,6 +13,11 @@ declare is `foreign` (listed, not drift: the table was not created by MLS), whil
 policy or privilege is still `unexpected` (it changes what a role can do).  Hardening the spec
 states under `assume` is reported as `assumed`, not as `hardening`; an assumption the catalog no
 longer needs is a note.  An `observed` table is only checked to exist.
+
+Bypass paths (D54): a view that is not `security_invoker` (or a materialized view) over a governed
+table that an app role may use, and a SECURITY DEFINER function an app role may execute whose
+owner bypasses the table's policies and whose body names it, are `hardening` with their fix, or
+`assumed` when the table assumes `{"bypass": "<path>"}`.
 """
 from __future__ import annotations
 
@@ -27,9 +32,9 @@ from mls.compile.plan import Script
 from mls.compile.sql import q
 from mls.compile.table import table_ddl
 from mls.identity import get_adapter
-from mls.pg.catalog import Snapshot, snapshot
+from mls.pg.catalog import Snapshot, bypass_paths, snapshot
 from mls.pg.lift import mls_type
-from mls.spec.model import BypassAssumed, OwnerAssumed, RlsAssumed, Spec
+from mls.spec.model import BypassAssumed, OwnerAssumed, PathAssumed, RlsAssumed, Spec
 
 FAILING = ("missing", "unexpected", "differs", "hardening")
 
@@ -111,6 +116,49 @@ def _assumed(spec: Spec, table: str, cls, value: str) -> bool:
     """Whether `table` assumes `cls` with the given value (owner / bypassrls role, or rls mode)."""
     field = next(iter(cls.model_fields))
     return any(isinstance(a, cls) and getattr(a, field) == value for a in spec.tables[table].assume)
+
+
+def path_key(path: str) -> str:
+    return " ".join(path.split()).replace("( ", "(").replace(" )", ")").replace(" ,", ",")
+
+
+def bypass_report(spec: Spec, paths: dict[str, list[dict]]) -> tuple[list[DriftItem], list[str]]:
+    """The bypass paths (D54, `catalog.bypass_paths`) of the governed tables as drift items:
+    `hardening` with the fix, or `assumed` when the table assumes the path; an assumed path the
+    catalog no longer shows is a note.  `drift` and `mls status --dsn` both read this."""
+    items: list[DriftItem] = []
+    notes: list[str] = []
+    for t, found in paths.items():
+        assumed = {path_key(a.bypass): a.bypass for a in spec.tables[t].assume if isinstance(a, PathAssumed)}
+        seen: set[str] = set()
+        for f in found:
+            key = path_key(f["path"])
+            seen.add(key)
+            who = ", ".join(f["roles"])
+            if key in assumed:
+                items.append(DriftItem("assumed", f"{f['path']} reaches table {t} without its policies "
+                                                  f"(used by {who}) and is trusted"))
+                continue
+            name = f["path"].split(" ", 1)[1]
+            if f["kind"] == "view":
+                what = "runs as its owner (it is not security_invoker)"
+                fix = f"alter view {name} set (security_invoker = true), or revoke its privileges from {who}"
+            elif f["kind"] == "materialized view":
+                what = "holds rows its owner read"
+                fix = f"revoke its privileges from {who}"
+            else:
+                what = f"is SECURITY DEFINER, owned by {f['owner']}, who bypasses the policies"
+                fix = f"revoke execute on function {name} from public, {who}"
+            trust = (f"; or assume {{\"bypass\": \"{f['path']}\"}} on {t}" if spec.tables[t].mode == "adopted"
+                     else "")
+            items.append(DriftItem("hardening", f"{f['path']} reaches table {t} without its policies: it {what}, "
+                                                f"and {who} may use it (fix: {fix}{trust})"))
+        for key, written in assumed.items():
+            if key not in seen:
+                notes.append(f"table '{t}': {written} is not a bypass path now; the assumption "
+                             f"{{\"bypass\": \"{written}\"}} is no longer needed"
+                             + (f" (found: {', '.join(f['path'] for f in found)})" if found else ""))
+    return items, notes
 
 
 def compare(spec: Spec, expected: Snapshot, actual: Snapshot) -> tuple[list[DriftItem], list[str]]:
@@ -223,12 +271,18 @@ def compare(spec: Spec, expected: Snapshot, actual: Snapshot) -> tuple[list[Drif
             for mbr in a["members"]:
                 if mbr in spec.roles:
                     items.append(DriftItem("hardening", f"app role {mbr} is a member of {r}"))
+    if "bypass" in actual:
+        b_items, b_notes = bypass_report(spec, actual["bypass"])
+        items += b_items
+        notes += b_notes
     return items, notes
 
 
 def drift(conn: psycopg.Connection, spec: Spec, script: Script, schema: str = "public") -> DriftResult:
     with conn.transaction(force_rollback=True):  # nests as a savepoint inside a caller's transaction
         actual = snapshot(conn, schema, list(spec.governed()), _roles(spec), _observed(spec))
+        present = [t for t in spec.governed() if actual["tables"].get(t) is not None]
+        actual["bypass"] = bypass_paths(conn, schema, present, list(spec.roles))
         expected = shadow_snapshot(conn, spec, script, _live_types(spec, actual))
     items, notes = compare(spec, expected, actual)
     notes += [f"table '{t}' in schema '{schema}' is not in the spec" for t in actual["other_tables"]]

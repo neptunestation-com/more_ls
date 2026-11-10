@@ -11,7 +11,8 @@ from typing import Any
 from mls.spec.model import (
     CONTEXT_NOW, And, BypassAssumed, CardinalityRule, CheckRule, ColRef, ColumnImmutable, ColumnRule, Cmp, Const,
     CtxRef, Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MonotoneIn,
-    MustAllow, NewRef, Not, NowBetween, OldRef, OpaqueRef, Or, OwnerAssumed, PolicyRule, Pred, Property, RlsAssumed,
+    MustAllow, NewRef, Not, NowBetween, OldRef, OpaqueRef, Or, OwnerAssumed, PathAssumed, PolicyRule, Pred, Property,
+    RlsAssumed,
     RoleSeparation,
     Rule, Spec, TenantIsolation, TransitionRule, WriteSubsetRead,
 )
@@ -215,6 +216,9 @@ def assumption(table: str, a) -> str:
     if isinstance(a, RlsAssumed):
         return (f"assumed: row level security is not forced on adopted table `{table}`; its owner bypasses "
                 f"every policy and is trusted")
+    if isinstance(a, PathAssumed):
+        return (f"assumed: {a.bypass} runs as its owner and reads `{table}` without its policies; it is a "
+                f"trusted path, and what an app role reaches through it is not covered by the proofs")
     raise TypeError(a)
 
 

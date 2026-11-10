@@ -71,7 +71,7 @@ def test_one_table_of_each_status(tmp_path, capsys):
     j = json.loads(capsys.readouterr().out)
     assert j == to_json(st) and j["ok"] is False
     assert j["tables"][3] == {"table": "files", "status": "opaque", "detail": "conditional on file_gate",
-                              "opaques": ["file_gate"], "properties": ["PF"]}
+                              "opaques": ["file_gate"], "properties": ["PF"], "bypass": [], "trusted": []}
 
 
 def test_the_example_is_all_proved(capsys):

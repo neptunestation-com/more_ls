@@ -1032,6 +1032,26 @@ and drift is clean; leave the assumption in and drift tells you it is no longer 
 table declared `owned` is refused by `mls check --dsn`, because the compiler never emits a
 hardening it then has to assume.
 
+The policies are not the only way into a table.  A view runs as its owner unless it is
+`security_invoker`, and the owner of an adopted table is usually the role that created the
+view, which the policies do not bind; a `SECURITY DEFINER` function runs as its owner too.
+Supabase's starter has one of each, a `project_overview` view and an `is_team_member` helper,
+and `mls import`, `mls drift` and `mls status --dsn` all list them as bypass paths (D54):
+
+    hardening: view project_overview reaches table projects without its policies: it runs as its
+      owner (it is not security_invoker), and anon, authenticated may use it (fix: alter view
+      project_overview set (security_invoker = true), or revoke its privileges from anon,
+      authenticated; or assume {"bypass": "view project_overview"} on projects)
+    hardening: function is_team_member(bigint) reaches table team_members without its policies:
+      it is SECURITY DEFINER, owned by postgres, who bypasses the policies, and anon,
+      authenticated may use it (fix: revoke execute on function is_team_member(bigint) from
+      public, anon, authenticated; or assume {"bypass": "function is_team_member(bigint)"} on
+      team_members)
+
+Apply the fix, or, when the path is meant to be there (a reporting view only the dashboard
+reads, a helper whose body you have reviewed), assume it on the table: every proof report then
+says that what an app role reaches through it is not covered by the proofs.
+
 The imported spec is a starting point.  It checks, compiles and proves as it is.  A lifted
 policy is proved, diffed and explained like one MLS wrote; a proof over a policy that stayed
 opaque is conditional on its block, which says little a reviewer can act on, so rewrite the
@@ -1247,7 +1267,10 @@ These are decisions, not gaps; `docs/DECISIONS.md` has the reasoning.
   proof report says so whenever a spec has one.
 - **Trusted roles.**  Superusers and roles granted `BYPASSRLS` outside MLS bypass everything.
   The owner does not (RLS is forced), but it can of course alter the objects; drift will tell
-  you.
+  you.  Views that are not `security_invoker` and `SECURITY DEFINER` functions over a governed
+  table are reported as bypass paths (D54), never rewritten: they are your objects.  The
+  function check is a text match on the table's name in the body, so it can report a function
+  that only mentions it, and it cannot see a function that reaches the table through another.
 - **Postgres only**, versions 15 through 18.  The templates are validated on those four;
   another database would need its own normalization (Snowflake, for one, defaults foreign keys
   to MATCH FULL).

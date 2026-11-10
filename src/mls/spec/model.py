@@ -76,7 +76,7 @@ def _single_key(v: Any) -> str:
             return "?"
         return next(iter(v))
     for tag in ("col", "ctx", "const", "old", "new", "cmp", "in", "member", "in_group", "now_between",
-                "is_null", "opaque", "and", "or", "not", "lit", "owner", "bypassrls", "rls"):
+                "is_null", "opaque", "and", "or", "not", "lit", "owner", "bypassrls", "rls", "bypass"):
         if hasattr(v, tag) or hasattr(v, tag + "_"):
             return tag
     return "?"
@@ -206,6 +206,14 @@ class BypassAssumed(Strict):
     bypassrls: str
 
 
+class PathAssumed(Strict):
+    """A bypass path (D54) the table's policies do not bind, trusted: `view v` (a view that is not
+    `security_invoker`, or a materialized view, over the table that an app role may use) or
+    `function f(argtypes)` (a SECURITY DEFINER function an app role may execute whose owner
+    bypasses the table's policies and whose body names it), spelled as drift reports it."""
+    bypass: str
+
+
 class RlsAssumed(Strict):
     """`not_forced`: row level security is not forced on the table; its owner bypasses every policy
     and is trusted.  (No other value: a table without row level security *enabled* is `observed`.)"""
@@ -217,9 +225,10 @@ Assumption = Annotated[
         Annotated[OwnerAssumed, Tag("owner")],
         Annotated[BypassAssumed, Tag("bypassrls")],
         Annotated[RlsAssumed, Tag("rls")],
+        Annotated[PathAssumed, Tag("bypass")],
     ],
     Discriminator(_single_key, custom_error_type="invalid_assumption",
-                  custom_error_message="an assumption is one of {owner}, {bypassrls}, {rls}"),
+                  custom_error_message="an assumption is one of {owner}, {bypassrls}, {rls}, {bypass}"),
 ]
 
 

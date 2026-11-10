@@ -25,12 +25,14 @@ from mls.spec.model import (
     CONTEXT_NOW, And, BypassAssumed, CardinalityRule, CheckRule, ColRef, ColType, ColumnRule, Cmp, Const, CtxRef,
     INT_RANGE, In, Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
     RoleSeparation,
-    NowBetween, OldRef, OpaqueRef, Or, OwnerAssumed, PolicyRule, RlsAssumed, Spec, TenantIsolation,
+    NowBetween, OldRef, OpaqueRef, Or, OwnerAssumed, PathAssumed, PolicyRule, RlsAssumed, Spec, TenantIsolation,
     ColumnImmutable, WriteSubsetRead, LeastPrivilege, TransitionRule, comparable,
 )
 
 IDENT = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
 ORDERED_TYPES = {"int", "bigint", "timestamp"}
+# D54: a bypass path as drift spells it (`pg/catalog.py:bypass_paths`)
+BYPASS_PATH = re.compile(r'view\s+[\w."$]+|function\s+[\w."$]+\s*\([^()]*\)')
 
 
 def _json_path(loc: tuple) -> str:
@@ -520,6 +522,13 @@ class Checker:
                                              f"adopted table without it is observed",
                              "use \"not_forced\" (the owner bypasses the policies and is trusted), or set "
                              "mode to \"observed\" until row level security is enabled outside MLS")
+            elif isinstance(a, PathAssumed):
+                key = ("bypass", " ".join(a.bypass.split()))
+                if not BYPASS_PATH.fullmatch(a.bypass.strip()):
+                    self.err(f"{apath}.bypass", f"'{a.bypass}' is not a bypass path: one is 'view <name>' or "
+                                                f"'function <name>(<argument types>)', as mls drift reports it",
+                             "copy the path from the drift or import report, e.g. \"view project_overview\" or "
+                             "\"function is_team_member(bigint)\"")
             else:
                 self.err(apath, "unknown assumption")
                 continue

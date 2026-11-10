@@ -177,6 +177,7 @@ declared table depends on its mode:
 | `{"owner": "<app role>"}` | the table is owned by that app role, which could alter its policies, and the role is trusted | `assumed` instead of `hardening: owned by app role`; the owner's privileges are not compared (an owner holds them all) |
 | `{"rls": "not_forced"}` | row-level security is not forced; the owner bypasses the policies and is trusted | `assumed` instead of `hardening: row level security is not forced` |
 | `{"bypassrls": "<app role>"}` | the role has `BYPASSRLS`, reads and writes the table unfiltered, and is trusted | `assumed` instead of `hardening: role has BYPASSRLS` (only when every governed table assumes it) |
+| `{"bypass": "view <v>"}` / `{"bypass": "function <f>(<types>)"}` | a bypass path (D54, below) reaches the table without its policies and is trusted; what an app role reaches through it is not covered by the proofs | `assumed` instead of `hardening: <path> reaches table <t> without its policies` |
 
 Every assumption is repeated in the proof report, `mls explain`, `mls diff` and the compiled
 script's header (D13's list of trusted roles grows by it).  When the catalog no longer needs an
@@ -185,7 +186,30 @@ assumption going away.  Refused at `check`: `assume` on an `owned` table (its ha
 emitted and verified, so an app-role owner is an error there, not an assumption; `mls check
 --dsn` reports it as such), on an `observed` table, naming a role that is not an app role of the
 spec, or an `rls` value other than `not_forced` (there is no assumption under which a policy on a
-table without row-level security enabled means anything).
+table without row-level security enabled means anything), or a `bypass` value that is not
+`view <name>` or `function <name>(<argument types>)`.
+
+**Bypass paths** (D54).  On an existing database the holes in row-level security are rarely
+`BYPASSRLS`; they are views and functions.  `mls drift`, `mls status --dsn` and `mls import`
+report, for every governed table:
+
+- a view over the table (directly or through other views) that is not `security_invoker`, on
+  which an app role holds any privilege: it runs as its owner, whom the policies of an adopted
+  table usually do not bind;
+- a materialized view over the table on which an app role holds a privilege (its rows were read
+  by its owner);
+- a `SECURITY DEFINER` function an app role may execute, whose owner bypasses the table's
+  policies (a superuser, a `BYPASSRLS` role, or the table's owner while row-level security is
+  not forced) and whose body names the table (a text match, so a function that only mentions
+  the name is reported too).
+
+The path is spelled `view <name>` or `function <name>(<argument types>)` (the types as
+Postgres prints them, `function is_team_member(bigint)`), schema-qualified outside `--schema`.
+Each is `hardening` with the fix (`alter view <v> set (security_invoker = true)` or revoking
+the app roles' privileges; for a function, `revoke execute on function <f> from public, <roles>`);
+on an adopted table `{"bypass": "<path>"}` assumes it instead.  An assumed path the catalog no
+longer shows is a note.  The trusted platform roles (D55: `service_role`) are not app roles, so
+their privileges on a view or function are not a bypass path.
 
 ## 6. `relations`
 
@@ -570,7 +594,7 @@ grammar:
     table      := 'table' NAME MODE '{' [column (',' column)* [';']] [option (';' option)*] '}'
     column     := NAME TYPE ['not null']                          (a bare column is nullable)
     option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
-                | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced')
+                | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced' | 'bypass view v' | 'bypass function f(t)')
     relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
     hierarchy  := 'hierarchy' NAME '=' TABLE 'id' COL 'parent' COL 'depth' COL 'max_depth' INT 'members' REL
     opaque     := 'opaque' NAME 'on' TABLE '(' [input (',' input)*] ')' 'relations' '(' [names] ')' 'sql' DOLLAR
@@ -805,7 +829,7 @@ with samples, then `pre-flight: OK ...` or the count of violation groups.  JSON:
 
 Shadow-deploys the spec in a transaction it rolls back, then compares catalogs.  Items are
 `<kind>: <object> (expected ..., found ...)` with kinds `missing`, `unexpected`, `differs`,
-`hardening` (drift), `assumed` (hardening the spec's `assume` accounts for, §5) and `foreign`
+`hardening` (drift; the bypass paths of §5 among them), `assumed` (hardening the spec's `assume` accounts for, §5) and `foreign`
 (an object on an adopted table that the spec does not declare and that cannot grant access: a
 constraint, trigger, index or column).  An imported CHECK written without `IS TRUE` is
 `differs` until a deploy rewrites it to the check template's form (the notes of `mls import`
@@ -830,10 +854,13 @@ spec, in declaration order, `<table>: <status> (<detail>)`:
 
 A property *mentions* the tables it names (`table`, an invariant's rules); `least_privilege`
 mentions every governed table and `monotone_in` every table an obligation of it ranges over.
-The last line is a count per status.  `--json` prints `{"ok", "tables": [{"table", "status",
-"detail", "opaques", "properties"}]}`.  Exit 2 when a table is `refuted` or, with `--dsn`, a
-governed table is missing or has RLS disabled; `opaque`, `unproved` and observed or
-unmentioned tables are information, exit 0.
+With `--dsn` a governed table's bypass paths (§5) follow its line: `; bypassed by <path>, ...`
+for the ones the table does not assume, `; trusted path <path>, ...` for the assumed ones.
+The last line is a count per status, then `; <n> bypassed (D54: see mls drift)` when a table
+has an unassumed path.  `--json` prints `{"ok", "tables": [{"table", "status", "detail",
+"opaques", "properties", "bypass", "trusted"}]}`.  Exit 2 when a table is `refuted` or, with
+`--dsn`, a governed table is missing, has RLS disabled or has an unassumed bypass path;
+`opaque`, `unproved` and observed or unmentioned tables are information, exit 0.
 
 ### `mls import --dsn DSN [--schema NAME] [--role R]... [--policies keep|discard] [--observe T1,T2]... [--out FILE] [--json]`
 
@@ -883,6 +910,10 @@ proposed.  The identity is still read from the discarded policies' text; without
 foreign key to `auth.users` means `supabase` with `uid` from `auth.uid`.  The platform's
 trusted roles (`service_role`, D55) are not taken as app roles.  `mls generate --skeleton`
 takes the result as it is.
+
+In either mode the bypass paths of the adopted tables (§5) are notes, `bypass path: <path>
+reaches table <t> without its policies: ... (fix: ...)`.  The import never assumes one: drift
+reports each as `hardening` until it is fixed or the spec assumes it.
 
 **The lifter** (D46, `pg/lift.py`) parses the deparsed text of an expression and reads:
 

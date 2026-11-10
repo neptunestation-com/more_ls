@@ -25,6 +25,10 @@ key has a foreign key on each column is a membership table, keyed by the column 
 the user table (`auth.users`, or the type of the identity's `uid`).  Without policy text the
 identity is guessed from the schema: a foreign key to `auth.users` means Supabase.  The trusted
 platform roles (D55: `service_role`) are not app roles.
+
+Either way the bypass paths of the adopted tables (D54: views that are not `security_invoker`,
+SECURITY DEFINER functions whose owner bypasses the policies) are listed with their fix; the
+import never assumes one (drift reports them as `hardening` until they are fixed or assumed).
 """
 from __future__ import annotations
 
@@ -38,7 +42,7 @@ from psycopg import sql as psql
 
 from mls.compile.internal import INTERNAL_ROLE
 from mls.errors import MlsError, SpecError
-from mls.pg.catalog import _strip_schema
+from mls.pg.catalog import _strip_schema, bypass_paths
 from mls.pg.lift import (
     CAST_TO_MLS, Env, Unreadable, lift, nullable_columns, parse, strip_check, transition_expr,
     mls_type,
@@ -638,6 +642,13 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
         checked = finish(rules)
     spec = {"mls_version": "0.1", "identity": {"adapter": adapter, "context": context}, "roles": roles,
             "tables": spec_tables, "relations": relations, "opaques": opaques, "rules": rules, "properties": []}
+
+    # --- bypass paths (D54): listed with their fix, never assumed by the import
+    from mls.pg.drift import bypass_report
+
+    with conn.transaction():
+        paths = bypass_paths(conn, schema, sorted(governed), list(roles))
+    notes += [f"bypass path: {i.object}" for i in bypass_report(checked, paths)[0]]
 
     n_adopted = len(governed)
     comment = (f"imported by mls import{' --policies discard' if discard else ''} from schema '{schema}' on "

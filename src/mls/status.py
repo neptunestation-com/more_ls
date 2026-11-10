@@ -6,7 +6,9 @@ property about the table does not hold), `opaque` (governed, every proof about i
 some proof is conditional on an opaque block or a rule on it reads one), `unproved` (governed,
 no property mentions it) or `proved`.  This is the red / yellow / green of the pg_more_ls
 schema overlay as data; the proofs come from `props.runner.run_all`, the live facts from
-`pg.catalog.snapshot`."""
+`pg.catalog.snapshot`.  With `--dsn` a governed table's bypass paths (D54, `pg.catalog.bypass_paths`)
+are listed on it: one the table does not assume fails the command whatever the proofs say (an app
+role reaches the rows without the policies the proofs are about); an assumed one is listed."""
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -26,13 +28,21 @@ class TableStatus:
     detail: str
     opaques: list[str] = field(default_factory=list)      # blocks the proofs about the table depend on
     properties: list[str] = field(default_factory=list)   # property ids that mention the table
+    bypass: list[str] = field(default_factory=list)       # live bypass paths the table does not assume (D54)
+    trusted: list[str] = field(default_factory=list)      # live bypass paths it assumes
 
     def __str__(self) -> str:
-        return f"{self.table}: {self.status} ({self.detail})"
+        s = f"{self.table}: {self.status} ({self.detail})"
+        if self.bypass:
+            s += f"; bypassed by {', '.join(self.bypass)}"
+        if self.trusted:
+            s += f"; trusted path {', '.join(self.trusted)}"
+        return s
 
     def to_dict(self) -> dict[str, Any]:
         return {"table": self.table, "status": self.status, "detail": self.detail,
-                "opaques": self.opaques, "properties": self.properties}
+                "opaques": self.opaques, "properties": self.properties,
+                "bypass": self.bypass, "trusted": self.trusted}
 
 
 def _opaques_in(node: Any) -> set[str]:
@@ -119,6 +129,14 @@ def table_statuses(spec: Spec, results: list[PropertyResult], snapshot: dict | N
         else:
             out.append(TableStatus(name, "proved", ", ".join(mentions), [], mentions))
     if snapshot is not None:
+        from mls.pg.drift import path_key
+        from mls.spec.model import PathAssumed
+
+        for st in out:
+            found = [f["path"] for f in snapshot.get("bypass", {}).get(st.table, [])]
+            assumed = {path_key(a.bypass) for a in spec.tables[st.table].assume if isinstance(a, PathAssumed)}
+            st.bypass = [f for f in found if path_key(f) not in assumed]
+            st.trusted = [f for f in found if path_key(f) in assumed]
         for name in snapshot["other_tables"]:
             out.append(TableStatus(name, "ungoverned", "not in the spec"))
     return out
@@ -127,8 +145,9 @@ def table_statuses(spec: Spec, results: list[PropertyResult], snapshot: dict | N
 def failing(statuses: list[TableStatus]) -> list[TableStatus]:
     """The statuses that fail the command: a refuted table, or (with --dsn) a governed table
     that is missing or has RLS disabled.  Observed tables, tables outside the spec, opaque and
-    unproved tables are information, not failures."""
-    return [s for s in statuses if s.status == "refuted"
+    unproved tables are information, not failures; so is a trusted bypass path, but not an
+    unassumed one (D54)."""
+    return [s for s in statuses if s.status == "refuted" or s.bypass
             or (s.status == "ungoverned" and s.detail.split(";")[0] in
                 ("missing from the database", "row level security is not enabled"))]
 
@@ -140,4 +159,7 @@ def to_json(statuses: list[TableStatus]) -> dict[str, Any]:
 def to_text(statuses: list[TableStatus]) -> str:
     counts = {k: sum(1 for s in statuses if s.status == k) for k in STATUSES}
     summary = ", ".join(f"{n} {k}" for k, n in counts.items() if n)
+    bypassed = sum(1 for s in statuses if s.bypass)
+    if bypassed:
+        summary += f"; {bypassed} bypassed (D54: see mls drift)"
     return "\n".join([str(s) for s in statuses] + [f"status: {summary}"])
