@@ -6,9 +6,9 @@ from typing import Any
 
 from mls.logic.solve import Model
 from mls.logic.term import Sort
-from mls.logic.tvl import has_parent_fun, parent_fun, rel_fun
+from mls.logic.tvl import has_parent_fun, hop_exists_fun, hop_key_fun, parent_fun, rel_fun
 from mls.props.obligations import Obligation
-from mls.spec.model import CONTEXT_NOW, Spec
+from mls.spec.model import CONTEXT_NOW, MAX_HOPS, Spec
 
 
 @dataclass
@@ -17,6 +17,7 @@ class Scenario:
     rows: dict[str, dict[str, Any]] = field(default_factory=dict)     # row name -> {table, values}
     relations: dict[str, list[list[Any]]] = field(default_factory=dict)  # "rel[@tag]" -> pairs
     hierarchies: dict[str, list[list[Any]]] = field(default_factory=dict)  # name -> (child, parent)
+    hops: dict[str, list[list[Any]]] = field(default_factory=dict)  # "T(key, value)" -> (key, value) rows (D56)
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -34,6 +35,9 @@ class Scenario:
         for name, pairs in self.hierarchies.items():
             shown = ", ".join(f"{a} → {b}" for a, b in pairs) if pairs else "no parent links"
             lines.append(f"- hierarchy {name}: {shown}")
+        for name, pairs in self.hops.items():
+            shown = ", ".join(f"({a}, {b})" for a, b in pairs) if pairs else "∅"
+            lines.append(f"- {name} = {{{shown}}}")
         return "\n".join(lines)
 
 
@@ -88,6 +92,25 @@ def render_scenario(spec: Spec, ob: Obligation, model: Model) -> Scenario:
                 universe.setdefault(c.type, set()).add(v)
                 values[col] = _render(spec, c.type, v, consts, now)
         sc.rows[row] = {"table": table, "values": values}
+    # D56: the hop rows the solver's chains went through (value -> key), followed level by level
+    # so that the base relation's values join the universe before its facts are listed
+    hops = sorted({h for e in ob.encoders for h in e.hops_used})
+    found: dict[tuple[str, str, str], list[tuple[int, int]]] = {h: [] for h in hops}
+    for _ in range(MAX_HOPS):
+        for (table, key, value) in hops:
+            vt = spec.tables[table].columns[value].type
+            kt = spec.tables[table].columns[key].type
+            for a in sorted(universe.get(vt, ())):
+                if model.app(hop_exists_fun(table, value), a):
+                    b = model.app(hop_key_fun(table, key, value), a)
+                    if b is not None and (b, a) not in found[(table, key, value)]:
+                        found[(table, key, value)].append((b, a))
+                        universe.setdefault(kt, set()).add(b)
+    for (table, key, value), pairs in found.items():
+        kt = spec.tables[table].columns[key].type
+        vt = spec.tables[table].columns[value].type
+        sc.hops[f"{table}({key}, {value})"] = [[_render(spec, kt, b, consts, now), _render(spec, vt, a, consts, now)]
+                                               for b, a in sorted(pairs)]
     for rname, tag in ob.relations:
         rel = spec.relations[rname]
         kt = spec.tables[rel.table].columns[rel.key].type

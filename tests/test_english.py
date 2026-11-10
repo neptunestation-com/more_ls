@@ -57,3 +57,14 @@ def test_role_separation_english():
         "No new row of docs can be inserted by both authenticated and auditor.",
         "No row of docs can be updated by both authenticated and auditor."]
     assert terse.prop(spec.properties[0]) == "S1 role_separation docs select: authenticated | auditor"
+
+
+def test_composed_relations_english():
+    from mls.spec import load_spec
+    from tests.spec.test_composed import TEAM_TASKS
+
+    text = english.spec_summary(load_spec(TEAM_TASKS))
+    assert "# Relations read through other tables" in text
+    assert ("in_task**: member_of, then projects (team_id → id), then tasks (project_id → id): a user's in_task "
+            "are the id of every tasks row whose project_id is the id of a projects row whose team_id is among "
+            "that user's member_of." in text)

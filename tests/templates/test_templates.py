@@ -33,6 +33,7 @@ CASES = {
     "hierarchy": (specs.hierarchy_spec, Mutation.HIERARCHY_SHALLOW, None),
     "hierarchy_depth": (specs.hierarchy_spec, Mutation.HIERARCHY_NO_DEPTH_CHECK, None),
     "cardinality": (specs.cardinality_spec, Mutation.CARDINALITY_OFF_BY_ONE, None),
+    "composed": (specs.composed_spec, Mutation.HOP_VISIBILITY_DROPPED, None),  # D56
 }
 
 

@@ -893,3 +893,21 @@ the parent's key the user did not ask for; it stays a recipe for whoever prefers
 through any column (∃ over a many-to-many join, which leaves the quantifier-free fragment for no
 case met so far); a SECURITY DEFINER helper per composed relation (D21's reasons, and FINDINGS
 shows it no faster).
+
+Implementation defaults (#25, 2026-11-10).  (1) First version, refused with the alternative: a
+composed relation in an invariant (a hop-table write would change it and the induction step
+does not model that), as an inclusion target, as a hierarchy's members, in an opaque block's
+relations and in `monotone_in`; allowed in policies, goals, `must_allow` and
+`tenant_isolation`.  Lifting a refusal is additive.  (2) A hop's visibility policy is named after
+the shortest composed relation through it (then by name): `mls_rel_<R>_h<i>_<role>_<n>`, so the
+name does not depend on rule order and two relations sharing a prefix share one policy; its
+`using` is the hop key's membership in the prefix, written internally as the relation name `R/i`
+(never a spec name: `/` is not an identifier character).  (3) The stored-row axiom ties the hop
+functions to every row of a hop table an obligation reads except `new`: the written row is not
+yet stored when the policies read the hop table (a task's own insert does not make it its own
+hop).  (4) The scenario renders the hop rows the counterexample reads (`tasks(project_id, id)`
+lines), following the encoder's uses up to three passes.  (5) The lifter recognizes the nested
+`= any(array(...))` and `IN (select ...)` shapes; it proposes a composed relation only when every
+hop is a governed table, its value a key and both columns NOT NULL, reuses an identical chain,
+and otherwise keeps the policy opaque.  (6) Lean: `Pred.memberVia` over the hops' lookups, sound
+by `chainPy_eq`; 60 generated vectors cover one and two hops.

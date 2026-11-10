@@ -1,0 +1,301 @@
+{
+ "$comment": "Ownership two and three tables away (D56): tasks belong to projects, projects to teams, comments to tasks. A team member reads the projects of their teams, reads and adds the tasks of those projects through the composed relation in_project, and reads the comments on those tasks through in_task, with no team_id copied onto tasks or comments.",
+ "mls_version": "0.1",
+ "identity": {
+  "adapter": "supabase",
+  "context": {
+   "uid": {
+    "source": "auth.uid",
+    "type": "uuid"
+   }
+  }
+ },
+ "roles": [
+  "authenticated"
+ ],
+ "tables": {
+  "team_members": {
+   "columns": {
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "team_id": {
+     "type": "bigint",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "user_id",
+    "team_id"
+   ],
+   "unique": [],
+   "mode": "owned",
+   "assume": [],
+   "tags": []
+  },
+  "projects": {
+   "columns": {
+    "id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "team_id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "name": {
+     "type": "text",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ],
+   "unique": [],
+   "mode": "owned",
+   "assume": [],
+   "tags": []
+  },
+  "tasks": {
+   "columns": {
+    "id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "project_id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "title": {
+     "type": "text",
+     "nullable": false
+    },
+    "done": {
+     "type": "bool",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ],
+   "unique": [],
+   "mode": "owned",
+   "assume": [],
+   "tags": []
+  },
+  "comments": {
+   "columns": {
+    "id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "task_id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "body": {
+     "type": "text",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ],
+   "unique": [],
+   "mode": "owned",
+   "assume": [],
+   "tags": []
+  }
+ },
+ "relations": {
+  "member_of": {
+   "table": "team_members",
+   "key": "user_id",
+   "value": "team_id"
+  },
+  "in_project": {
+   "of": "member_of",
+   "through": [
+    {
+     "table": "projects",
+     "key": "team_id",
+     "value": "id"
+    }
+   ]
+  },
+  "in_task": {
+   "of": "member_of",
+   "through": [
+    {
+     "table": "projects",
+     "key": "team_id",
+     "value": "id"
+    },
+    {
+     "table": "tasks",
+     "key": "project_id",
+     "value": "id"
+    }
+   ]
+  }
+ },
+ "hierarchies": {},
+ "opaques": {},
+ "rules": [
+  {
+   "id": "R1",
+   "name": "member_reads_projects",
+   "table": "projects",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "team_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R2",
+   "name": "member_reads_tasks",
+   "table": "tasks",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "in_project",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R3",
+   "name": "member_adds_tasks",
+   "table": "tasks",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "member": {
+     "relation": "in_project",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R4",
+   "name": "member_reads_comments",
+   "table": "comments",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "in_task",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "task_id"
+     }
+    }
+   }
+  }
+ ],
+ "properties": [
+  {
+   "id": "P1",
+   "description": "a user only reads the tasks of the projects of their own teams",
+   "template": "tenant_isolation",
+   "table": "tasks",
+   "column": "project_id",
+   "relation": "in_project",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select"
+   ]
+  },
+  {
+   "id": "P2",
+   "description": "a member reads every task of every project of their teams",
+   "template": "must_allow",
+   "table": "tasks",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "in_project",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P3",
+   "description": "a user only reads the comments on tasks of their own teams",
+   "template": "tenant_isolation",
+   "table": "comments",
+   "column": "task_id",
+   "relation": "in_task",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select"
+   ]
+  },
+  {
+   "id": "P4",
+   "description": "a member reads every comment on a task of their teams",
+   "template": "must_allow",
+   "table": "comments",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "in_task",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "task_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P5",
+   "description": "a member only adds tasks they can read",
+   "template": "write_subset_read",
+   "table": "tasks"
+  }
+ ]
+}

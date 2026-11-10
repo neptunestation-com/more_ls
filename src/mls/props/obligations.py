@@ -14,7 +14,8 @@ from mls.compile.column import privileges
 from mls.logic.term import (
     FALSE, TRUE, Sort, Term, Var, and_, eq, forall, fun, iff, implies, int_var, le, not_, or_,
 )
-from mls.logic.tvl import Encoder, col_null_var, col_value_var, ctx_var, rel_fun
+from mls.logic.tvl import Encoder, col_null_var, col_value_var, ctx_var, hop_exists_fun, hop_key_fun, rel_fun
+from mls.spec.chain import hop_prefix, levels
 from mls.props.effective import (
     effective, inclusion_pred, members_in, relations_of, row_constraints, transition_constraints,
 )
@@ -55,8 +56,22 @@ class Obligation:
 
     def finish(self) -> "Obligation":
         for e in self.encoders:
-            self.assumptions = self.assumptions + e.side_conditions
+            self.assumptions = self.assumptions + e.side_conditions + hop_row_axioms(e, self.rows)
         return self
+
+
+def hop_row_axioms(enc: Encoder, rows: dict[str, str]) -> list[Term]:
+    """A stored row of a hop table (D56) is what the hop's lookups read: its value exists and maps
+    to its key.  `new` is excluded: a written image is not in the snapshot the policy's subquery
+    reads (an UPDATE's new image may change the key the subquery still sees as the old one)."""
+    out: list[Term] = []
+    for table, key, value in sorted(enc.hops_used):
+        for row, rt in rows.items():
+            if rt == table and row != "new":
+                v = col_value_var(row, value)
+                out.append(and_(hop_exists_fun(table, value)(v),
+                                eq(hop_key_fun(table, key, value)(v), col_value_var(row, key))))
+    return out
 
 
 def _rels_in(spec: Spec, p: Pred | None) -> set[str]:
@@ -74,7 +89,7 @@ def relation_axioms(spec: Spec, enc: Encoder) -> list[Term]:
     out = []
     x, y = int_var("ax.k"), int_var("ax.v")
     for inc in spec.inclusions():
-        for aname, a in spec.relations.items():
+        for aname, a in spec.base_relations().items():
             if a.table == inc.table and list(inc.columns) == [a.key, a.value]:
                 out.append(forall([x, y], implies(enc.rel(aname)(x, y), enc.rel(inc.relation)(x, y))))
     return out
@@ -427,7 +442,7 @@ def invariant_preserved(spec: Spec, p: InvariantPreserved) -> list[Obligation]:
             tables.add(spec.relations[r].table)
     # transitions: INSERT / UPDATE / DELETE on every table the invariants mention
     for t in sorted(tables):
-        backed = {name for name, rel in spec.relations.items() if rel.table == t}
+        backed = {name for name, rel in spec.base_relations().items() if rel.table == t}
         for cmd in ("insert", "update", "delete"):
             out.extend(_induction_step(spec, p, invs, t, cmd, backed))
     return out
@@ -526,32 +541,42 @@ def relation_visibility_obligations(spec: Spec) -> list[Obligation]:
     """A policy's membership subquery runs as the role under RLS on the relation table.  For every
     row x of that table with x.key = k, the role's effective SELECT must be TRUE."""
     out = []
-    seen: set[tuple[str, str, str]] = set()
+    seen: set[tuple[str, int, str, str]] = set()
     for i, p in enumerate(spec.policies()):
         for e in (p.using, p.check):
             for m in members_in(e, []):
-                rel = spec.relations[m.relation]
-                k = (m.relation, p.role, m.key.model_dump_json())
-                if k in seen:
-                    continue
-                seen.add(k)
-                enc = Encoder(spec)
-                kv, _ = enc.term(m.key, "x", rel.table)
-                assumptions = [*relation_axioms(spec, enc), eq(col_value_var("x", rel.key), kv),
-                               enc.T(row_constraints(spec, rel.table), "x", rel.table)]
-                goal = enc.T(effective(spec, rel.table, p.role, "select", "using"), "x", rel.table)
-                idx = spec.rules.index(p)
-                out.append(Obligation(
-                    "soundness", f"relation {m.relation} visible to {p.role}",
-                    assumptions, goal, {"x": rel.table}, [(m.relation, None)], [enc],
-                    path=f"$.rules[{idx}]",
-                    failure_message=f"policy '{p.name}' uses relation '{m.relation}', but a "
-                                    f"restrictive policy on '{rel.table}' can hide rows with "
-                                    f"{rel.key} = the key from role '{p.role}', so the membership "
-                                    f"subquery would be filtered and the atom would not mean "
-                                    f"'(key, {rel.value}) ∈ {m.relation}'",
-                    fix=f"relax the restrictive policies on '{rel.table}' for role '{p.role}' so "
-                        f"that every row with {rel.key} = key is visible").finish())
+                for lvl, rel in enumerate(levels(spec, m.relation)):
+                    # level 0: the rows with key = k; a hop (D56): the rows whose key is a value of
+                    # the previous level for k
+                    k = (m.relation, lvl, p.role, m.key.model_dump_json())
+                    if k in seen:
+                        continue
+                    seen.add(k)
+                    enc = Encoder(spec)
+                    if lvl == 0:
+                        kv, _ = enc.term(m.key, "x", rel.table)
+                        reach = eq(col_value_var("x", rel.key), kv)
+                        which = f"rows with {rel.key} = the key"
+                    else:
+                        prev = hop_prefix(spec, m.relation, lvl)
+                        reach = enc.T(Member(member=MemberBody(relation=prev, key=m.key, value=ColRef(col=rel.key))),
+                                      "x", rel.table)
+                        which = f"rows whose {rel.key} the previous level reaches from the key"
+                    assumptions = [*relation_axioms(spec, enc), reach,
+                                   enc.T(row_constraints(spec, rel.table), "x", rel.table)]
+                    goal = enc.T(effective(spec, rel.table, p.role, "select", "using"), "x", rel.table)
+                    idx = spec.rules.index(p)
+                    out.append(Obligation(
+                        "soundness", f"relation {m.relation} visible to {p.role}"
+                                     + (f" (hop {lvl}, {rel.table})" if lvl else ""),
+                        assumptions, goal, {"x": rel.table}, _relations_of(spec, e), [enc],
+                        path=f"$.rules[{idx}]",
+                        failure_message=f"policy '{p.name}' uses relation '{m.relation}', but a "
+                                        f"restrictive policy on '{rel.table}' can hide {which} from role "
+                                        f"'{p.role}', so the membership subquery would be filtered and the "
+                                        f"atom would not mean '(key, value) ∈ {m.relation}'",
+                        fix=f"relax the restrictive policies on '{rel.table}' for role '{p.role}' so "
+                            f"that those rows are visible").finish())
     return out
 
 

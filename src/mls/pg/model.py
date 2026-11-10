@@ -27,7 +27,22 @@ class Database:
     relations: dict[str, set[tuple[Any, Any]]]
     tables: dict[str, list[Row]] = field(default_factory=dict)
     opaque_eval: dict[str, Any] = field(default_factory=dict)  # name -> callable(row, ctx) -> TV
-    spec: Spec | None = None  # needed by in_group (hierarchy structure)
+    spec: Spec | None = None  # needed by in_group (hierarchy structure) and composed relations
+
+    def facts(self, name: str) -> set[tuple[Any, Any]]:
+        """A base relation's facts, or a composed one's (D56, also a prefix `name/i`): the base
+        facts followed through the hop tables' rows, as the nested subquery reads them."""
+        if name in self.relations:
+            return self.relations[name]
+        from mls.spec.chain import base_name, levels
+
+        pairs = self.relations[base_name(self.spec, name)]
+        for h in levels(self.spec, name)[1:]:
+            by_key: dict[Any, list[Any]] = {}
+            for r in self.tables.get(h.table, []):
+                by_key.setdefault(r[h.key], []).append(r[h.value])
+            pairs = {(k, v) for k, t in pairs for v in by_key.get(t, ())}
+        return pairs
 
 
 def eval_term(t, row: Row, ctx: dict[str, Any], old: Row | None = None, new: Row | None = None):
@@ -76,7 +91,7 @@ def eval_pred(p: Pred, row: Row, ctx: dict[str, Any], db: Database,
         k, v = term(p.member.key), term(p.member.value)
         if k is None or v is None:
             return None
-        return (k, v) in db.relations[p.member.relation]
+        return (k, v) in db.facts(p.member.relation)
     if isinstance(p, InGroup):
         k, v = term(p.in_group.key), term(p.in_group.value)
         if k is None or v is None:
@@ -289,7 +304,7 @@ class Oracle:
                 continue
             if any(r is not old and r[fk.column] == key for r in db.tables.get(fk.table, [])):
                 return True
-        for rname, rel in self.spec.relations.items():
+        for rname, rel in self.spec.base_relations().items():
             if rel.table != table:
                 continue
             pair = (old[rel.key], old[rel.value])

@@ -13,9 +13,10 @@ def test_vectors_file_is_current():
 
 def test_vectors_cover_every_layer():
     text = vectors.OUT.read_text()
-    assert text.count("#guard Pred.eval") == vectors.N_PRED + vectors.N_GROUP
-    assert text.count("#guard Pred.tf") == vectors.N_PRED + vectors.N_GROUP
+    assert text.count("#guard Pred.eval") == vectors.N_PRED + vectors.N_GROUP + vectors.N_CHAIN
+    assert text.count("#guard Pred.tf") == vectors.N_PRED + vectors.N_GROUP + vectors.N_CHAIN
     assert text.count("#guard Rules.") == vectors.N_OUTCOME
     for layer in ("Rules.visible", "Rules.insert", "Rules.update", "Rules.delete"):
         assert f"#guard {layer}" in text
+    assert '"tasks.id.project_id", "projects.id.team_id"' in text  # two-hop composed memberships (D56)
     assert "TV.unk" in text and "Outcome.filtered" in text and "Outcome.error" in text

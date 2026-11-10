@@ -81,6 +81,12 @@ union member the renderer does not cover.
   table) are drift `hardening` (`pg/drift.py:bypass_report`, also read by `mls status --dsn` and
   import's notes) unless the table assumes `{"bypass": "view v"}`; `tests/templates/test_bypass.py`
   has the positive and negative fixtures, the takeover test fixes the starter's two.
+- D56: a composed relation (`ComposedRelation`, `of` + `through` hops, `spec/chain.py:levels`;
+  a prefix is named `R/i` internally) is a policy atom, refused in invariants, inclusions,
+  hierarchies, opaque blocks and `monotone_in`.  Encoded with `hop.T.v` / `hop.T.v.k` functions
+  plus `obligations.hop_row_axioms`; compiled to nested `= any(array(...))`, a hop visibility
+  policy `mls_rel_<R>_h<i>_*` per hop (mutation `HOP_VISIBILITY_DROPPED`); fixture
+  `specs.composed_spec` on `examples/team_tasks.mls`; Lean `Pred.memberVia`.
 - Every compiler template has a `Mutation` (compile/mutations.py); `tests/templates` proves each
   mutation is caught by the differential test. Add a mutation when you add a template. The
   fixtures (`tests/templates/specs.py`) derive from the example specs; `test_specs.py` builds and

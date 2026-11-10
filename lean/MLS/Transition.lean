@@ -80,6 +80,7 @@ theorem eval_twoImage (ho : e.col "old" = e'.col "old") (hn : e.col "new" = e'.c
     show liftCmp op.holds (l.value e row) (r.value e row) = liftCmp op.holds (l.value e' row') (r.value e' row')
     rw [Term.value_isImage l hp.1 ho hn, Term.value_isImage r hp.2 ho hn]
   | .member _ _ _, hp => by simp [Pred.twoImage] at hp
+  | .memberVia _ _ _ _, hp => by simp [Pred.twoImage] at hp
   | .inGroup _ _ _, hp => by simp [Pred.twoImage] at hp
   | .nowBetween _ _, hp => by simp [Pred.twoImage] at hp
   | .opaqueRef _, hp => by simp [Pred.twoImage] at hp
@@ -90,7 +91,7 @@ theorem eval_twoImage (ho : e.col "old" = e'.col "old") (hn : e.col "new" = e'.c
 is the written one; relations are the state's. -/
 def Env.ofImages (st : State) (x : Extra) (ρ ρ' : Row) : Env :=
   { col := fun img => if img = "old" then ρ else ρ', ctx := x.ctx, rel := st.rel,
-    forest := x.forest, opaques := x.opaques }
+    forest := x.forest, opaques := x.opaques, hop := x.hop }
 
 variable {x : Extra} {st st' : State} {t : String} {ρ ρ' : Row}
 

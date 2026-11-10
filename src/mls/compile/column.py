@@ -4,13 +4,15 @@ Privileges per (role, table) are derived from the spec:
   * each permissive policy for (role, table, command) grants that command (ALL grants all four);
   * a `read` column rule turns SELECT into a column list; a `write` rule turns INSERT and
     UPDATE into column lists;
-  * every relation referenced by a policy of the role grants SELECT (key, value) on its table;
+  * every relation referenced by a policy of the role grants SELECT (key, value) on its table
+    (on every table of a composed relation, D56);
   * DELETE is always table-level; TRUNCATE is never granted (D13).
 """
 from __future__ import annotations
 
 from mls.compile.mutations import Mutation
 from mls.compile.sql import q
+from mls.spec.chain import levels
 from mls.spec.model import And, Member, Not, Or, Pred, Spec
 
 Priv = dict[str, "str | set[str]"]  # command -> "*" | set of columns
@@ -50,12 +52,12 @@ def privileges(spec: Spec) -> dict[tuple[str, str], Priv]:
         rels = relations_in(p.using, set())
         relations_in(p.check, rels)
         for rname in rels:
-            rel = spec.relations[rname]
-            g = privs.setdefault((p.role, rel.table), {})
-            cur = g.get("select")
-            if cur == "*":
-                continue
-            g["select"] = (cur or set()) | {rel.key, rel.value}
+            for lv in levels(spec, rname):  # D56: every level of a composed relation is read
+                g = privs.setdefault((p.role, lv.table), {})
+                cur = g.get("select")
+                if cur == "*":
+                    continue
+                g["select"] = (cur or set()) | {lv.key, lv.value}
     return privs
 
 

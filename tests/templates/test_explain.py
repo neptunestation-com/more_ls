@@ -81,3 +81,19 @@ def test_in_list_is_index_driven_at_scale(pg_dsn):
 def test_missing_indexes_are_detected(pg_dsn, example_spec):
     results = _run(pg_dsn, example_spec, {Mutation.INDEX_NONE})
     assert any(not r.ok for r in results)
+
+
+def test_composed_relations_are_index_driven_at_scale(pg_dsn):
+    """D56: tasks (one hop) and comments (two) at 1M rows each, projects and tasks as hop tables
+    at 1M rows: each level is an index lookup, as FINDINGS "Ownership two tables away" measured;
+    without the hop key indexes a hop table is scanned, and the check says so."""
+    from tests.templates import specs
+
+    spec = specs.composed_spec()
+    results = _run(pg_dsn, spec, set(), "tasks")
+    assert {r.table for r in results} >= {"tasks", "comments"}, [r.table for r in results]
+    bad = [f"{r.table}/{r.role}: {r.problems}" for r in results if not r.ok]
+    assert not bad, bad
+    results = _run(pg_dsn, spec, {Mutation.INDEX_NONE}, "tasks")
+    assert any("sequential scan of hop table projects" in p for r in results for p in r.problems), \
+        [r.problems for r in results]

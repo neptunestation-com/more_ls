@@ -143,3 +143,23 @@ def test_mutated_compile_drifts(deployed):
         assert any(i.kind == "hardening" for i in res.items)
     finally:
         bad.close()
+
+
+def test_composed_deploy_has_no_drift_and_a_dropped_hop_policy_is_missing(pg_dsn):
+    """D56: the hop visibility policies are the compiler's own objects: a fresh deploy is clean,
+    and one without them (the mutation) reports them missing."""
+    spec = specs.composed_spec()
+    h = Harness(spec, compile_spec(spec), pg_dsn, "mls_drift_composed")
+    h.deploy()
+    try:
+        res = drift(h.conn, spec, compile_spec(spec))
+        assert res.ok, [str(i) for i in res.items]
+    finally:
+        h.close()
+    bad = Harness(spec, compile_spec(spec, {Mutation.HOP_VISIBILITY_DROPPED}), pg_dsn, "mls_drift_composed_mut")
+    bad.deploy()
+    try:
+        items = [str(i) for i in drift(bad.conn, spec, compile_spec(spec)).items]
+        assert "missing: policy mls_rel_in_project_h1_authenticated_1 on projects" in items, items
+    finally:
+        bad.close()

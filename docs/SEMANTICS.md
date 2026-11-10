@@ -21,6 +21,7 @@ differential tests, and every compiler template must agree with it.
 | `cmp(col, op, ctx|const)` | ordinary comparison | `col` indexed |
 | `in(term, [c1, …, cn])` | sugar for `cmp(term, =, c1) ∨ … ∨ cmp(term, =, cn)`, expanded by the checker before encoding; compiled as `term in (c1, …, cn)` | `col` indexed (one `= any` condition) |
 | `member(rel, key=ctx, val=col)` | `(ctx, col) ∈ rel` | compiles to `col = any(array(select ...))` |
+| `member(R, key=ctx, val=col)`, `R` composed (§3.4) | `∃ t₁…tₙ: (ctx, t₁) ∈ base ∧ T₁(k₁ = t₁, v₁ = t₂) ∧ … ∧ Tₙ(kₙ = tₙ, vₙ = col)` | one nested `= any(array(select ...))` per level, each hop key indexed |
 | `now_between(from_col, until_col)` | `from <= now < until`, NULL bound = open | indexed bounds or small row set |
 | `in_group(hierarchy, key=ctx, value=col)` | `∃ g: (ctx, g) ∈ members ∧ g = col ∨ g = parent(col) ∨ … ∨ g = parentᵈ(col)` (the row's group is one of the user's groups or lies below one, within depth d) | array InitPlan from a recursive CTE descending from the user's groups |
 | `is_null(col)` | two-valued | — |
@@ -91,6 +92,39 @@ reads it gets a permissive `SELECT ... USING (true)` policy `mls_internal_<table
 on cardinality parents, which it locks), plus the matching grants.  Nobody can log in as it, no app
 role is a member of it (drift reports both), and the helpers are the only code it runs.
 
+### 3.4 Composed relations (D56)
+
+A composed relation is a base relation followed through up to three hops:
+`relation in_task = member_of . projects(team_id, id) . tasks(project_id, id)` (JSON `{"of":
+"member_of", "through": [{"table": "projects", "key": "team_id", "value": "id"}, ...]}`).  `(k,
+v) ∈ in_task` iff some `t` has `(k, t) ∈ member_of`, a stored `projects` row has `team_id = t`
+and `id = p`, and a stored `tasks` row has `project_id = p` and `id = v`.  Requirements, checked
+with the JSON path of the offending hop: the base is a declared base relation (not composed);
+each hop's `value` is its table's primary key or a NOT NULL unique column, its `key` and `value`
+NOT NULL, and its `key`'s type that of the previous level's value; at most three hops.  Because
+each hop's value is a key, the hop is a function from value to key and the ∃ disappears: the
+encoding is `hop.T.v(x)` (a row with `v = x` exists) and `hop.T.v.k(x)` (its key), so
+`(k, v) ∈ base . T(key, value)` is `hop.T.value(v) ∧ base(k, hop.T.value.key(v))`, unrolled
+per hop, quantifier-free with uninterpreted functions (invariant 6).  An obligation that also
+reads a stored row of a hop table (any image but `new`) adds `hop.T.v(row.v) ∧ hop.T.v.k(row.v)
+= row.k`.  NULL behaves as for any membership: a NULL key or value is UNKNOWN; the hop columns
+are NOT NULL.
+
+A composed relation is a policy atom (and may appear in goals, `must_allow` and
+`tenant_isolation`).  It is refused, with the alternative, in an invariant (a write to a hop
+table changes it, which the induction step does not model), as the relation of an inclusion rule
+(an FK names one table), as a hierarchy's members relation, in an opaque block's relations and in
+`monotone_in` (each is about one table's facts).  Compilation nests one subquery per level:
+`task_id = any(array(select id from tasks where project_id = any(array(select id from projects
+where team_id = any(array(select team_id from team_members where user_id = (select
+auth.uid())))))))`.  Every hop table is read as the app role, so D21 applies per hop: a
+permissive SELECT policy `mls_rel_<R>_h<i>_<role>_<n>` whose `using` is the hop key's
+membership in the previous level (`<R>` the shortest composed relation through that hop, so two
+relations sharing a prefix share the policy), a column grant on `(key, value)`, and the
+relation-visibility obligation per level (a restrictive policy on a hop table that could hide a
+reached row fails it).  The hop key is indexed on an owned table and required as an index
+condition by the EXPLAIN check.
+
 ## 4. NULL normalization (verified on PG 16)
 
 - RLS: UNKNOWN denies. CHECK: UNKNOWN passes. Therefore every CHECK is emitted as
@@ -155,6 +189,9 @@ All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered 
   `has_parent` functions; the depth bound d is the declared `max_depth`.  Two versions of a spec
   share these functions when the tree (table, columns, members relation) is the same, so a
   changed `max_depth` diffs exactly; a changed tree is a different function (tagged `@new`).
+- **Composed relations (D56):** the hop functions `hop.T.v`, `hop.T.v.k` are named by the hop, so
+  two versions of a spec (and two relations sharing a hop) share them; the stored-row axioms of
+  §3.4 tie them to every stored row an obligation reads.
 - **role_separation (D49):** `constraints ∧ effective_a ∧ effective_b` is UNSAT over the command's
   images (for update: `using` on `old`, `check` on `new`, plus the transition constraints), with one
   set of context values for both roles; a model is a row both roles may touch.

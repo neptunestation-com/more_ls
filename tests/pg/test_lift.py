@@ -292,3 +292,51 @@ def test_unparseable_text_is_one_block():
     assert sink.blocks["op1"]["columns"] == ["level"]
     with pytest.raises(Unreadable):
         parse("(level >")
+
+
+# ----------------------------------------------------------------------------- composed relations (D56)
+NESTED_ARRAY = ("(project_id = ANY (ARRAY( SELECT projects.id\n   FROM projects\n  WHERE (projects.team_id = ANY "
+                "(ARRAY( SELECT team_members.team_id\n           FROM team_members\n          WHERE "
+                "(team_members.user_id = ( SELECT auth.uid() AS uid))))))))")
+NESTED_ARRAY_2 = ("(task_id = ANY (ARRAY( SELECT tasks.id\n   FROM tasks\n  WHERE (tasks.project_id = ANY (ARRAY( "
+                  "SELECT projects.id\n           FROM projects\n          WHERE (projects.team_id = ANY (ARRAY( SELECT "
+                  "team_members.team_id\n                   FROM team_members\n                  WHERE "
+                  "(team_members.user_id = ( SELECT auth.uid() AS uid)))))))))))")
+NESTED_IN = ("(project_id IN ( SELECT projects.id\n   FROM projects\n  WHERE (projects.team_id IN ( SELECT "
+             "team_members.team_id\n           FROM team_members\n          WHERE (team_members.user_id = auth.uid())))))")
+
+
+def composed_env() -> Env:
+    env = Env.of_spec(specs.composed_spec())
+    env.composed = {}  # what the import starts from: no composed relation declared yet
+    env.invalidate()
+    return env
+
+
+@pytest.mark.parametrize("text, table, hops", [
+    (NESTED_ARRAY, "tasks", [("projects", "team_id", "id")]),
+    (NESTED_IN, "tasks", [("projects", "team_id", "id")]),
+    (NESTED_ARRAY_2, "comments", [("projects", "team_id", "id"), ("tasks", "project_id", "id")]),
+])
+def test_nested_memberships_lift_to_a_composed_relation(text, table, hops):
+    env = composed_env()
+    r, _ = do(text, env=env, table=table)
+    assert r.kind == "lifted", r.reasons
+    name = r.pred["member"]["relation"]
+    assert env.composed[name] == ("member_of", tuple(hops))
+    assert r.pred["member"]["key"] == {"ctx": "uid"}
+    # the same chain read again is the same relation
+    r2, _ = do(text, env=env, table=table)
+    assert r2.pred["member"]["relation"] == name and len(env.composed) == 1
+
+
+def test_a_nested_membership_through_a_column_that_is_not_a_key_stays_opaque():
+    env = composed_env()
+    env.keys["projects"] = [frozenset({"id", "team_id"})]
+    r, sink = do(NESTED_ARRAY, env=env, table="tasks")
+    assert r.kind == "opaque" and env.composed == {}
+    assert any("projects.id, which is not the primary key or a unique column of projects" in x for x in r.reasons), r.reasons
+    env = composed_env()
+    env.tables["projects"]["team_id"] = ("bigint", True)
+    r, _ = do(NESTED_ARRAY, env=env, table="tasks")
+    assert r.kind == "opaque" and any("must be NOT NULL" in x for x in r.reasons), r.reasons

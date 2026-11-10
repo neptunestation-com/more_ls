@@ -20,6 +20,7 @@ from mls.compile.plan import Script
 from mls.identity import Adapter, get_adapter
 from mls.pg.model import Database, Oracle, Row, holds
 from mls.props.effective import simple_fks
+from mls.spec.chain import levels
 from mls.spec.model import CONTEXT_NOW, INT_RANGE, Spec
 
 Outcome = str  # "filtered" | "ok" | "error"
@@ -33,8 +34,8 @@ class Dataset:
     now: dt.datetime
 
     def database(self, spec: Spec) -> Database:
-        rels = {}
-        for name, rel in spec.relations.items():
+        rels = {}  # composed relations (D56) are read through Database.facts
+        for name, rel in spec.base_relations().items():
             rels[name] = {(r[rel.key], r[rel.value]) for r in self.tables.get(rel.table, [])}
         return Database(rels, {t: list(rows) for t, rows in self.tables.items()}, spec=spec)
 
@@ -99,6 +100,7 @@ class ValueGen:
         self.rows: dict[str, list[Row]] = {}                  # table -> rows generated so far
         self.user_cols = user_columns(spec, adapter)
         self.user_ctx = adapter.user_context_name()
+        self.chained = chained_columns(spec)
 
     def value(self, type_: str, nullable: bool, null_p: float | None = None) -> Any:
         if nullable and self.rnd.random() < (self.null_p if null_p is None else null_p):
@@ -130,6 +132,12 @@ class ValueGen:
             if inc.table == table and pairs and self.rnd.random() < 0.7:
                 k, v = self.rnd.choice(pairs)
                 r[inc.columns[0]], r[inc.columns[1]] = k, v
+        # D56: a hop row's key and a composed membership's value column mostly name a value of the
+        # level before, so that chains actually connect
+        for col, (src_table, src_col) in self.chained.get(table, {}).items():
+            pool = [x[src_col] for x in self.rows.get(src_table, [])]
+            if pool and self.rnd.random() < 0.8:
+                r[col] = self.rnd.choice(pool)
         crowded = {c.group for c in self.spec.cardinalities() if c.table == table}
         for fk in simple_fks(self.spec):  # ... and an existing parent row (or NULL / none when allowed)
             if fk.table != table:
@@ -196,7 +204,7 @@ def user_columns(spec: Spec, adapter: Adapter) -> set[tuple[str, str]]:
                 if isinstance(r, CtxRef) and r.ctx == user_ctx and isinstance(l, ColRef):
                     out.add((pol.table, l.col))
     for rname in rel_keys:
-        rel = spec.relations[rname]
+        rel = levels(spec, rname)[0]
         out.add((rel.table, rel.key))
         for inc in spec.inclusions():
             if inc.relation == rname:
@@ -204,9 +212,33 @@ def user_columns(spec: Spec, adapter: Adapter) -> set[tuple[str, str]]:
     return out
 
 
+def chained_columns(spec: Spec) -> dict[str, dict[str, tuple[str, str]]]:
+    """D56: table -> column -> (table, column) whose values it should mostly take: each hop's key
+    takes the previous level's values, and the value column of a membership on a composed relation
+    in a policy takes the last level's values."""
+    from mls.props.effective import members_in
+    from mls.spec.model import ColRef
+
+    out: dict[str, dict[str, tuple[str, str]]] = {}
+    for name in spec.relations:
+        lv = levels(spec, name)
+        for prev, h in zip(lv, lv[1:]):
+            out.setdefault(h.table, {})[h.key] = (prev.table, prev.value)
+    for pol in spec.policies():
+        for e in (pol.using, pol.check):
+            for m in members_in(e, []):
+                lv = levels(spec, m.relation)
+                if len(lv) > 1 and isinstance(m.value, ColRef) and pol.table != lv[-1].table:
+                    out.setdefault(pol.table, {})[m.value.col] = (lv[-1].table, lv[-1].value)
+    return out
+
+
 def table_order(spec: Spec) -> list[str]:
-    """Tables ordered so that every FK target precedes its referencing table."""
+    """Tables ordered so that every FK target precedes its referencing table (and every level of
+    a composed relation the level after it, D56)."""
     deps = {t: set() for t in spec.governed()}
+    for t, cols in chained_columns(spec).items():
+        deps[t] |= {src for src, _ in cols.values() if src != t}
     for inc in spec.inclusions():
         target = spec.relations[inc.relation].table
         if target != inc.table:
@@ -246,7 +278,7 @@ def generate_dataset(spec: Spec, adapter: Adapter, rnd: Chooser, rows_per_table:
             if r is None:
                 continue
             rows.append(r)
-        for rname, rel in spec.relations.items():
+        for rname, rel in spec.base_relations().items():
             if rel.table == table:
                 gen.facts[rname] = [(r[rel.key], r[rel.value]) for r in rows]
     return ds

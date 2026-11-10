@@ -1,5 +1,7 @@
 """EXPLAIN (FORMAT JSON) checks (D14): every membership / comparison atom of a SELECT policy
-appears as an index condition and the protected table is not sequentially scanned."""
+appears as an index condition and the protected table is not sequentially scanned.  A membership
+on a composed relation (D56) also needs each hop's key as an index condition and no sequential
+scan of a hop table: one InitPlan per level, each an index lookup."""
 from __future__ import annotations
 
 import json
@@ -11,7 +13,8 @@ from psycopg import sql as psql
 
 from mls.compile.column import privileges
 from mls.identity import Adapter
-from mls.props.effective import effective
+from mls.props.effective import effective, members_in
+from mls.spec.chain import levels
 from mls.spec.expand import as_in_list
 from mls.spec.model import And, ColRef, Cmp, CtxRef, InGroup, Member, Not, Or, Pred, Spec
 
@@ -62,9 +65,19 @@ def check_plan(spec: Spec, table: str, role: str, plan: dict) -> ExplainResult:
             problems.append(f"sequential scan of {table}")
     conds = " ".join(str(n.get(k, "")) for n in nodes
                      for k in ("Index Cond", "Recheck Cond"))
-    for kind, col in index_atoms(effective(spec, table, role, "select", "using"), []):
-        if f'"{col}"' not in conds and f"{col} " not in conds and f"({col}" not in conds:
+    def indexed(col: str) -> bool:
+        return f'"{col}"' in conds or f"{col} " in conds or f"({col}" in conds
+
+    eff = effective(spec, table, role, "select", "using")
+    for kind, col in index_atoms(eff, []):
+        if not indexed(col):
             problems.append(f"{kind} atom on {col} is not an index condition")
+    hops = {h for m in members_in(eff, []) for h in levels(spec, m.relation)[1:]}
+    for h in sorted(hops, key=lambda h: (h.table, h.key)):
+        if any(n.get("Node Type") == "Seq Scan" and n.get("Relation Name") == h.table for n in nodes):
+            problems.append(f"sequential scan of hop table {h.table}")
+        if not indexed(h.key):
+            problems.append(f"hop key {h.table}.{h.key} is not an index condition")
     return ExplainResult(table, role, not problems, problems, plan)
 
 
@@ -108,7 +121,7 @@ def scale_load_sql(spec: Spec, adapter: Adapter, n_rows: int, n_users: int = 100
     other tables n_rows rows with values spread over the same pools.  Constraints are not needed
     for plan shape, so callers deploy the script without checks/fks/transitions."""
     out = []
-    relation_tables = {rel.table for rel in spec.relations.values()}
+    relation_tables = {rel.table for rel in spec.base_relations().values()}
     hier_tables = {h.table: h for h in spec.hierarchies.values()}
     for h in hier_tables.values():
         # node i has parent i // 10 (none for 1..9) and depth floor(log10 i): the pool of
@@ -151,7 +164,7 @@ def scale_load_sql(spec: Spec, adapter: Adapter, n_rows: int, n_users: int = 100
                 out.append(f'insert into "{table}" ({", ".join(f"\"{c}\"" for c in cols)}) '
                            f'select {", ".join(parts)} from generate_series({lo}, {hi}) i on conflict do nothing')
         elif table in relation_tables:
-            rel = next(r for r in spec.relations.values() if r.table == table)
+            rel = next(r for r in spec.base_relations().values() if r.table == table)
             parts = []
             for c in cols:
                 if c == rel.key:

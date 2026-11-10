@@ -347,13 +347,26 @@ class Parser:
         self.path = f"$.relations.{name}"
         self.mark(self.path)
         self.eat("=")
-        table = self.name("a table")
+        first = self.name("a table, or the base relation of a composed one")
+        if self.at("."):  # D56: base . table(key, value) [. table(key, value)]...
+            hops = []
+            while self.at("."):
+                self.advance()
+                self.mark(f"{self.path}.through[{len(hops)}]")
+                hop = {"table": self.name("a hop table")}
+                self.eat("(")
+                hop["key"] = self.name("the hop's key column")
+                self.eat(",")
+                hop["value"] = self.name("the hop's value column")
+                self.eat(")")
+                hops.append(hop)
+            return name, {"of": first, "through": hops}
         self.eat("(")
         key = self.name("the key column")
         self.eat(",")
         value = self.name("the value column")
         self.eat(")")
-        return name, {"table": table, "key": key, "value": value}
+        return name, {"table": first, "key": key, "value": value}
 
     def hierarchy(self) -> tuple[str, dict[str, Any]]:
         self.advance()

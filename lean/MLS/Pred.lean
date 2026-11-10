@@ -16,8 +16,10 @@ encoder's `row` argument; `old`/`new` references always read those two images):
   introduces (`row.col`, `row.col.null`, `ctx.name`, `rel.name`, `hier.name.has_parent/parent`,
   `opaque.name.T/F`).  Written clause for clause after `Encoder.tf`: a non-nullable column's null
   flag is the constant `FALSE`, a comparison is `(ok ∧ core, ok ∧ ¬core)` with
-  `ok = ¬(lnull ∨ rnull)`, membership likewise over the uninterpreted relation, `in_group` is the
-  unrolling to the declared depth, `now_between` is two-valued.
+  `ok = ¬(lnull ∨ rnull)`, membership likewise over the uninterpreted relation, a composed
+  membership (D56) the base relation read through one lookup per hop (`hop.T.v` exists,
+  `hop.T.v.k` its key), `in_group` is the unrolling to the declared depth, `now_between` is
+  two-valued.
 
 `Pred.tf_sound`: whenever the valuation describes the rows (`Agrees`), the pair is the encoding
 of the SQL value.  The assumptions are the ones the toolchain makes: non-nullable columns hold
@@ -63,6 +65,9 @@ inductive Pred where
   | isNull (t : Term)
   | cmp (l : Term) (op : Op) (r : Term)
   | member (rel : String) (key value : Term)
+  /-- A membership in a composed relation (D56): the base relation `rel` read through `hops`,
+  named and listed from the last hop back to the base, as the encoder walks them. -/
+  | memberVia (rel : String) (hops : List String) (key value : Term)
   | inGroup (hierarchy : String) (key value : Term)
   | nowBetween (lo hi : Option Term)
   | opaqueRef (name : String)
@@ -92,6 +97,9 @@ structure Env where
   forest : String → Forest
   /-- An opaque block is an uninterpreted predicate of the image: its value is given, as a pair. -/
   opaques : String → String → Pair
+  /-- A hop of a composed relation (D56): the key of the row whose value is `x`, if one is stored
+  (a function: the hop's value is a key of its table). -/
+  hop : String → Int → Option Int
 
 def ofBool (b : Bool) : TV := if b then .tt else .ff
 
@@ -131,6 +139,15 @@ def Env.upper (e : Env) (row : String) : Option Term → Bool
 def Env.inGroup (s : Schema) (e : Env) (hn : String) (k g : Int) : Bool :=
   (e.forest hn).walk (e.rel (s.hier hn).members) k g ((s.hier hn).maxDepth + 1)
 
+/-- `(k, v)` is in the base relation read through `hops` (last first): follow each hop from the
+value back to the base relation's value; a value no stored row has is not reached. -/
+def Env.chain (e : Env) (r : String) (k : Int) : List String → Int → Bool
+  | [], v => e.rel r k v
+  | h :: hs, v =>
+    match e.hop h v with
+    | none => false
+    | some w => e.chain r k hs w
+
 def Pred.eval (s : Schema) (e : Env) (row : String) : Pred → TV
   | .lit b => ofBool b
   | .and p q => TV.and (p.eval s e row) (q.eval s e row)
@@ -139,6 +156,7 @@ def Pred.eval (s : Schema) (e : Env) (row : String) : Pred → TV
   | .isNull t => ofBool (t.value e row).isNone
   | .cmp l op r => liftCmp op.holds (l.value e row) (r.value e row)
   | .member rel k v => liftCmp (e.rel rel) (k.value e row) (v.value e row)
+  | .memberVia rel hops k v => liftCmp (fun a b => e.chain rel a hops b) (k.value e row) (v.value e row)
   | .inGroup hn k v => liftCmp (e.inGroup s hn) (k.value e row) (v.value e row)
   | .nowBetween lo hi => ofBool (e.lower row lo && e.upper row hi)
   | .opaqueRef n => Pair.decode (e.opaques n row)
@@ -163,6 +181,10 @@ structure Valuation where
   opaqueT : String → String → Bool
   /-- `opaque.name.F` on an image -/
   opaqueF : String → String → Bool
+  /-- `hop.T.v`: a row with that value exists -/
+  hopEx : String → Int → Bool
+  /-- `hop.T.v.k`: its key -/
+  hopKey : String → Int → Int
 
 /-- `Encoder._col`: `(value, is_null)`; the null flag of a non-nullable column is `FALSE`. -/
 def Term.colTF (s : Schema) (σ : Valuation) (img n : String) : Int × Bool :=
@@ -186,6 +208,13 @@ def Term.upperTF (s : Schema) (σ : Valuation) (row : String) : Option Term → 
   | none => true
   | some t => (t.tf s σ row).2 || decide (σ.ctx CONTEXT_NOW < (t.tf s σ row).1)
 
+/-- The composed membership's `fact`: `and_(*guards, rel(k, node))` with the guards and the node
+built hop by hop from the value. -/
+def chainPy (ex : String → Int → Bool) (key : String → Int → Int) (rel : Int → Int → Bool) (k : Int) :
+    List String → Int → Bool
+  | [], v => rel k v
+  | h :: hs, v => ex h v && chainPy ex key rel k hs (key h v)
+
 /-- `Encoder.tf`, clause for clause. -/
 def Pred.tf (s : Schema) (σ : Valuation) (row : String) : Pred → Pair
   | .lit b => if b then ⟨true, false⟩ else ⟨false, true⟩
@@ -200,6 +229,10 @@ def Pred.tf (s : Schema) (σ : Valuation) (row : String) : Pred → Pair
   | .member rel k v =>
     let ok := !((k.tf s σ row).2 || (v.tf s σ row).2)
     let fact := σ.rel rel (k.tf s σ row).1 (v.tf s σ row).1
+    ⟨ok && fact, ok && !fact⟩
+  | .memberVia rel hops k v =>
+    let ok := !((k.tf s σ row).2 || (v.tf s σ row).2)
+    let fact := chainPy σ.hopEx σ.hopKey (σ.rel rel) (k.tf s σ row).1 hops (v.tf s σ row).1
     ⟨ok && fact, ok && !fact⟩
   | .inGroup hn k v =>
     let ok := !((k.tf s σ row).2 || (v.tf s σ row).2)
@@ -225,6 +258,8 @@ structure Agrees (s : Schema) (σ : Valuation) (e : Env) : Prop where
   forest : ∀ hn, (e.forest hn).Encodes (σ.has hn) (σ.par hn)
   opaqueT : ∀ n img, σ.opaqueT n img = (e.opaques n img).T
   opaqueF : ∀ n img, σ.opaqueF n img = (e.opaques n img).F
+  hopEx : ∀ h x, σ.hopEx h x = (e.hop h x).isSome
+  hopKey : ∀ h x w, e.hop h x = some w → σ.hopKey h x = w
 
 /-- The stored data satisfies the hierarchy FKs. -/
 def Env.hierarchiesWellFormed (s : Schema) (e : Env) : Prop :=
@@ -297,6 +332,18 @@ theorem Term.upperTF_sound (h : Agrees s σ e) (row : String) (hi : Option Term)
       rw [Term.tf_val h row t v ht, h.ctx]
       rfl
 
+/-- The unrolled lookups are the chain: where a hop's row exists its key is the one stored. -/
+theorem chainPy_eq (h : Agrees s σ e) (r : String) (k : Int) :
+    ∀ (hops : List String) (v : Int), chainPy σ.hopEx σ.hopKey (σ.rel r) k hops v = e.chain r k hops v
+  | [], v => by simp [chainPy, Env.chain, h.rel]
+  | hd :: hs, v => by
+    simp only [chainPy, Env.chain, h.hopEx]
+    cases hw : e.hop hd v with
+    | none => rfl
+    | some w =>
+      rw [h.hopKey hd v w hw]
+      simp [chainPy_eq h r k hs w]
+
 /-- The encoder is sound: under the schema, the opaque side conditions and the hierarchy FKs,
 the pair it emits is the encoding of the SQL truth value. -/
 theorem Pred.tf_sound (h : Agrees s σ e) (hop : ∀ n img, (e.opaques n img).consistent = true)
@@ -344,6 +391,22 @@ theorem Pred.tf_sound (h : Agrees s σ e) (hop : ∀ n img, (e.opaques n img).co
         rw [Term.tf_val h row k a hk, Term.tf_val h row v b hv, h.rel]
         show _ = Pair.encode (ofBool (e.rel rel a b))
         cases e.rel rel a b <;> rfl
+  | .memberVia rel hops k v => by
+    show (⟨!((k.tf s σ row).2 || (v.tf s σ row).2)
+             && chainPy σ.hopEx σ.hopKey (σ.rel rel) (k.tf s σ row).1 hops (v.tf s σ row).1,
+           !((k.tf s σ row).2 || (v.tf s σ row).2)
+             && !chainPy σ.hopEx σ.hopKey (σ.rel rel) (k.tf s σ row).1 hops (v.tf s σ row).1⟩ : Pair)
+        = Pair.encode (liftCmp (fun a b => e.chain rel a hops b) (k.value e row) (v.value e row))
+    rw [Term.tf_null h row k, Term.tf_null h row v]
+    cases hk : k.value e row with
+    | none => rfl
+    | some a =>
+      cases hv : v.value e row with
+      | none => rfl
+      | some b =>
+        rw [Term.tf_val h row k a hk, Term.tf_val h row v b hv, chainPy_eq h rel a hops b]
+        show _ = Pair.encode (ofBool (e.chain rel a hops b))
+        cases e.chain rel a hops b <;> rfl
   | .inGroup hn k v => by
     show (⟨!((k.tf s σ row).2 || (v.tf s σ row).2)
              && unrollPy (σ.has hn) (σ.par hn) (σ.rel (s.hier hn).members)

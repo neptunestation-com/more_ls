@@ -29,7 +29,7 @@ from typing import Any, Callable
 
 from pydantic import TypeAdapter
 
-from mls.spec.model import CONTEXT_NOW, INT_RANGE, ColType, Pred, Spec
+from mls.spec.model import CONTEXT_NOW, INT_RANGE, MAX_HOPS, ColType, Pred, Spec
 
 PG_TO_MLS: dict[str, ColType] = {"integer": "int", "bigint": "bigint", "text": "text", "boolean": "bool",
                                  "timestamp with time zone": "timestamp", "uuid": "uuid"}
@@ -555,6 +555,10 @@ class Env:
     keys: dict[str, list[frozenset[str]]] = field(default_factory=dict)  # table -> its PK and unique column sets
     roles: list[str] = field(default_factory=list)
     relations: dict[str, tuple[str, str, str]] = field(default_factory=dict)
+    # D56: composed relations, name -> (base relation, ((table, key, value), ...)), and the name a
+    # chain of n hops ending on a table should get (the compiler's hop policies carry it)
+    composed: dict[str, tuple[str, tuple[tuple[str, str, str], ...]]] = field(default_factory=dict)
+    composed_names: dict[tuple[str, int], str] = field(default_factory=dict)  # (last hop table, hops) -> name
     hierarchies: dict[str, dict] = field(default_factory=dict)
     opaques: dict[str, dict] = field(default_factory=dict)
     _spec: Spec | None = field(default=None, repr=False)
@@ -568,7 +572,9 @@ class Env:
                    governed=set(spec.governed()), roles=list(spec.roles),
                    keys={t: [frozenset(k) for k in ([tb.primary_key] if tb.primary_key else []) + list(tb.unique)]
                          for t, tb in spec.tables.items()},
-                   relations={n: (r.table, r.key, r.value) for n, r in spec.relations.items()},
+                   relations={n: (r.table, r.key, r.value) for n, r in spec.base_relations().items()},
+                   composed={n: (r.of, tuple((h.table, h.key, h.value) for h in r.through))
+                             for n, r in spec.relations.items() if n not in spec.base_relations()},
                    hierarchies={n: h.model_dump() for n, h in spec.hierarchies.items()},
                    opaques={n: o.model_dump() for n, o in spec.opaques.items()})
 
@@ -591,7 +597,9 @@ class Env:
                  "tables": {t: {"columns": {c: {"type": ty, "nullable": nu} for c, (ty, nu) in cols.items()},
                                 "mode": "adopted" if t in self.governed else "observed"}
                             for t, cols in self.tables.items()},
-                 "relations": {n: {"table": t, "key": k, "value": v} for n, (t, k, v) in self.relations.items()},
+                 "relations": {**{n: {"table": t, "key": k, "value": v} for n, (t, k, v) in self.relations.items()},
+                               **{n: {"of": of, "through": [{"table": t, "key": k, "value": v} for t, k, v in hops]}
+                                  for n, (of, hops) in self.composed.items()}},
                  "hierarchies": self.hierarchies,
                  "opaques": self.opaques, "rules": [], "properties": []}
             self._spec = Spec.model_validate(d)
@@ -835,22 +843,11 @@ class Lifter:
                 raise Unreadable("EXISTS without both a key filter and a correlation on the row")
             value_json = {"col": outer_col}
         else:
-            if not isinstance(sel.target, Col):
-                raise Unreadable("the membership subquery must select one column")
-            kind, val_col = inner.classify(sel.target)
-            if kind != "inner":
-                raise Unreadable("the membership subquery must select a column of its table")
-            if sel.where is None:
-                raise Unreadable("a membership subquery without a WHERE clause is not a relation lookup")
-            if not isinstance(sel.where, Cmp) or sel.where.op != "=":
-                raise Unreadable(f"`{self.src(sel.where)}`: the membership WHERE is not `key = <ctx>`")
-            sides = [inner.classify(sel.where.l), inner.classify(sel.where.r)]
-            kinds = sorted(k for k, _ in sides)
-            if kinds != ["inner", "key"]:
-                raise Unreadable(f"`{self.src(sel.where)}`: the membership WHERE is not `key = <ctx>`")
-            key_col = sides[0][1] if sides[0][0] == "inner" else sides[1][1]
-            key_term = sides[0][1] if sides[0][0] == "key" else sides[1][1]
+            (rel_table, key_col, val_col), key_term, hops = self.chain(sel)
             value_json, _ = self.term(value_node)
+            if hops:
+                name = self.composed_relation((rel_table, key_col, val_col), hops)
+                return {"member": {"relation": name, "key": key_term, "value": value_json}}
         if rel_table not in self.env.governed:
             raise Unreadable(f"the relation table {rel_table} is observed (not governed): no relation can be declared "
                              f"on it")
@@ -867,6 +864,83 @@ class Lifter:
 
     def exists(self, node: Exists) -> dict:
         return self.member(node, node.select, correlated=True)
+
+    def chain(self, sel: Select) -> tuple[tuple[str, str, str], dict, list[tuple[str, str, str]]]:
+        """`select V from R where K = <key>` is a base level; `select V from T where K = any (array(
+        <chain>))` or `... where K in (<chain>)` a hop over a chain (D56).  Returns the base level
+        (table, key, value), the key term, and the hops (table, key, value) in order."""
+        if sel.table is None:
+            raise Unreadable("a membership subquery needs a FROM table")
+        if sel.table not in self.env.tables:
+            raise Unreadable(f"subquery reads table {sel.table}, which is not in the spec")
+        inner = InnerScope(self, sel.table, sel.table_alias)
+        if not isinstance(sel.target, Col):
+            raise Unreadable("the membership subquery must select one column")
+        kind, val_col = inner.classify(sel.target)
+        if kind != "inner":
+            raise Unreadable("the membership subquery must select a column of its table")
+        w = sel.where
+        if w is None:
+            raise Unreadable("a membership subquery without a WHERE clause is not a relation lookup")
+        nested = None
+        if isinstance(w, AnyOf) and w.op == "=" and w.quant == "any" and isinstance(w.arr, ArrayQuery):
+            nested = (w.l, w.arr.select)
+        elif isinstance(w, InSelect) and not w.negated:
+            nested = (w.l, w.select)
+        if nested is not None:
+            kind, key_col = inner.classify(nested[0])
+            if kind != "inner":
+                raise Unreadable(f"`{self.src(w)}`: a nested membership must filter a column of {sel.table}")
+            base, key_term, hops = self.chain(nested[1])
+            return base, key_term, hops + [(sel.table, key_col, val_col)]
+        if not isinstance(w, Cmp) or w.op != "=":
+            raise Unreadable(f"`{self.src(w)}`: the membership WHERE is not `key = <ctx>`")
+        sides = [inner.classify(w.l), inner.classify(w.r)]
+        kinds = sorted(k for k, _ in sides)
+        if kinds != ["inner", "key"]:
+            raise Unreadable(f"`{self.src(w)}`: the membership WHERE is not `key = <ctx>`")
+        key_col = sides[0][1] if sides[0][0] == "inner" else sides[1][1]
+        key_term = sides[0][1] if sides[0][0] == "key" else sides[1][1]
+        return (sel.table, key_col, val_col), key_term, []
+
+    def composed_relation(self, base: tuple[str, str, str], hops: list[tuple[str, str, str]]) -> str:
+        """Declare (or reuse) the composed relation base . hops (D56); every hop must step through
+        a key of its table, else the nesting is a join and stays opaque."""
+        rel_table, key_col, val_col = base
+        if rel_table not in self.env.governed:
+            raise Unreadable(f"the relation table {rel_table} is observed (not governed): no relation can be declared "
+                             f"on it")
+        if frozenset((key_col, val_col)) not in self.env.keys.get(rel_table, []):
+            raise Unreadable(f"({key_col}, {val_col}) is not a primary key or unique constraint of {rel_table}; a "
+                             f"relation is a set of pairs (add a unique constraint on the pair to lift this)")
+        if len(hops) > MAX_HOPS:
+            raise Unreadable(f"{len(hops)} nested levels; a composed relation has at most {MAX_HOPS} hops")
+        for t, k, v in hops:
+            if t not in self.env.governed:
+                raise Unreadable(f"the nested subquery reads {t}, which is observed (not governed)")
+            if frozenset((v,)) not in self.env.keys.get(t, []):
+                raise Unreadable(f"the nested subquery selects {t}.{v}, which is not the primary key or a unique "
+                                 f"column of {t}: the step is a join, not a lookup (D56)")
+            if self.env.tables[t][k][1] or self.env.tables[t][v][1]:
+                raise Unreadable(f"the nested subquery steps through {t}({k}, {v}), and a hop's columns must be "
+                                 f"NOT NULL (D56)")
+        of = self.make_relation(rel_table, key_col, val_col)
+        if of is None:
+            raise Unreadable(f"no relation ({key_col}, {val_col}) of {rel_table} can be declared")
+        if of not in self.env.relations:
+            self.env.relations[of] = (rel_table, key_col, val_col)
+        sig = (of, tuple(hops))
+        for n, c in self.env.composed.items():
+            if c == sig:
+                return n
+        name = self.env.composed_names.get((hops[-1][0], len(hops))) or f"{of}_{hops[-1][0]}"
+        taken = set(self.env.relations) | set(self.env.composed)
+        base_n, i = name, 2
+        while name in taken:
+            name, i = f"{base_n}_{i}", i + 1
+        self.env.composed[name] = sig
+        self.env.invalidate()
+        return name
 
     # --- terms
     def term(self, node: Node) -> tuple[dict, ColType | None]:

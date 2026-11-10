@@ -48,6 +48,7 @@ from mls.pg.lift import (
     mls_type,
 )
 from mls.pg.lift import IsTrue as _IsTrue
+from mls.spec.chain import levels
 from mls.spec.model import Spec
 
 CMD = {"*": "all", "r": "select", "a": "insert", "w": "update", "d": "delete"}
@@ -317,6 +318,10 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
             continue
         for p in t["policies"]:
             for role in roles:
+                h = re.fullmatch(r"mls_rel_(.+)_h(\d+)_" + re.escape(role) + r"_\d+", p["name"])
+                if h and p["cmd"] == "select":  # D56: a hop's visibility policy names its composed relation
+                    env.composed_names.setdefault((name, int(h.group(2))), h.group(1))
+                    break
                 m = re.fullmatch(r"mls_rel_(.+)_" + re.escape(role) + r"_\d+", p["name"])
                 if m and p["using"] and p["cmd"] == "select":
                     r = lift(p["using"], name, env, "policy", lambda *a: "_", lambda *a: None)
@@ -614,12 +619,23 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
     from mls.compile.column import relations_in
     from mls.props.effective import implicit_policies
 
+    for cname, (of, hops) in env.composed.items():  # D56: the chains the lifter read
+        relations[cname] = {"of": of, "through": [{"table": t, "key": k, "value": v} for t, k, v in hops]}
+        notes.append(f"relation {cname} proposed: {of} . " + " . ".join(f"{t}({k}, {v})" for t, k, v in hops)
+                     + " (a nested membership subquery reads it)")
     checked = finish(rules)
-    implicit = {(p.name, p.table, p.role, p.command, p.mode): p.using for p in implicit_policies(checked)}
+    from mls.compile.sql import SqlCompiler
+    from mls.identity import get_adapter
+
+    sqlc = SqlCompiler(checked, get_adapter(checked))
+    # compared as the SQL they compile to: a hop's policy names a prefix of its chain (D56), which
+    # the lifter reads back as the composed relation with the same levels
+    implicit = {(p.name, p.table, p.role, p.command, p.mode): sqlc.pred(p.using, p.table)
+                for p in implicit_policies(checked)}
     drop: set[str] = set()
     for p in checked.policies():
         key = (p.name, p.table, p.role, p.command, p.mode)
-        if key in implicit and p.check is None and p.using == implicit[key]:
+        if key in implicit and p.check is None and sqlc.pred(p.using, p.table) == implicit[key]:
             drop.add(p.id)
             notes.append(f"policy {p.name} on {p.table} is the compiler's relation-visibility policy: not imported "
                          f"as a rule (the compiler regenerates it from the lifted membership)")
@@ -628,8 +644,8 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
         if p.id in drop:
             continue
         for rn in relations_in(p.using, relations_in(p.check, set())):
-            rel = checked.relations[rn]
-            rel_reads.setdefault((p.role, rel.table), set()).update((rel.key, rel.value))
+            for rel in levels(checked, rn):
+                rel_reads.setdefault((p.role, rel.table), set()).update((rel.key, rel.value))
     for r in checked.column_rules():
         if r.access == "read" and rel_reads.get((r.role, r.table)) == set(r.columns) and not any(
                 p.role == r.role and p.table == r.table and p.mode == "permissive" and p.command in ("select", "all")

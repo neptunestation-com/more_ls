@@ -257,3 +257,18 @@ def observed_spec() -> Spec:
     d["tables"]["audit"] = {"columns": {"id": {"type": "int", "nullable": False}}, "mode": "observed",
                             "tags": ["legacy"]}
     return make(d)
+
+
+def composed_spec() -> Spec:
+    """The team_tasks example (D56): in_project (one hop, member_of . projects) and in_task (two,
+    . tasks), without R1, so that projects are readable only through the hop's visibility policy,
+    and with an update policy on tasks (filtered updates, a nested WITH CHECK).  The mutation drops
+    the hops' visibility policies: the nested subqueries read no project as the role and every
+    task and comment disappears."""
+    d = json.loads((EXAMPLE.parent / "team_tasks.mls.json").read_text())
+    d["rules"] = [r for r in d["rules"] if r["id"] != "R1"]
+    member = {"member": {"relation": "in_project", "key": {"ctx": "uid"}, "value": {"col": "project_id"}}}
+    d["rules"].append({"id": "R5", "kind": "policy", "name": "member_updates_tasks", "table": "tasks",
+                       "role": "authenticated", "command": "update", "mode": "permissive",
+                       "using": member, "check": member})
+    return make(d)

@@ -1,7 +1,7 @@
 """Shared test vectors for the Lean transcription (D43).
 
-Generates `lean/MLS/Vectors.lean`: concrete predicates, rows, contexts, relation facts and
-hierarchy rows with (a) the truth value the Python evaluator gives (`pg/model.py:eval_pred`),
+Generates `lean/MLS/Vectors.lean`: concrete predicates, rows, contexts, relation facts,
+hierarchy rows and the rows of composed relations' hop tables (D56) with (a) the truth value the Python evaluator gives (`pg/model.py:eval_pred`),
 (b) the pair the Python encoder emits under the matching valuation (`logic/tvl.py`), and (c)
 the statement outcomes of the oracle (`pg/model.py:Oracle`) against random policy sets.  Each
 vector is a `#guard` on the Lean transcription (`MLS.Pred.eval`, `MLS.Pred.tf`, `MLS.Rules`),
@@ -24,7 +24,7 @@ from tests.logic.test_tvl import SPEC as BASE, evaluate
 
 OUT = Path(__file__).resolve().parents[2] / "lean" / "MLS" / "Vectors.lean"
 SEED = 20261104
-N_PRED, N_GROUP, N_OUTCOME = 160, 60, 120
+N_PRED, N_GROUP, N_OUTCOME, N_CHAIN = 160, 60, 120, 60
 
 UUIDS = ["00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"]
 UUID_ID = {s: i + 1 for i, s in enumerate(UUIDS)}
@@ -57,6 +57,33 @@ HIER_JSON = {
 }
 HIER = Spec.model_validate(HIER_JSON)
 IN_GROUP = {"in_group": {"hierarchy": "org", "key": {"ctx": "uid"}, "value": {"col": "group_id"}}}
+
+# composed relations (D56): in_project = members . projects(team_id, id), in_task = . tasks(project_id, id)
+CHAIN_JSON = {
+    "mls_version": "0.1",
+    "identity": {"adapter": "supabase", "context": {"uid": {"source": "auth.uid", "type": "uuid"}}},
+    "roles": ["app"],
+    "tables": {
+        "team_members": {"columns": {"user_id": {"type": "uuid", "nullable": False},
+                                     "team_id": {"type": "int", "nullable": False}},
+                         "primary_key": ["user_id", "team_id"]},
+        "projects": {"columns": {"id": {"type": "int", "nullable": False}, "team_id": {"type": "int", "nullable": False}},
+                     "primary_key": ["id"]},
+        "tasks": {"columns": {"id": {"type": "int", "nullable": False}, "project_id": {"type": "int", "nullable": False}},
+                  "primary_key": ["id"]},
+        "notes": {"columns": {"id": {"type": "int", "nullable": False}, "project_id": {"type": "int", "nullable": True},
+                              "task_id": {"type": "int", "nullable": True}, "u": {"type": "uuid", "nullable": True}},
+                  "primary_key": ["id"]},
+    },
+    "relations": {"members": {"table": "team_members", "key": "user_id", "value": "team_id"},
+                  "in_project": {"of": "members", "through": [{"table": "projects", "key": "team_id", "value": "id"}]},
+                  "in_task": {"of": "members", "through": [{"table": "projects", "key": "team_id", "value": "id"},
+                                                           {"table": "tasks", "key": "project_id", "value": "id"}]}},
+}
+CHAIN = Spec.model_validate(CHAIN_JSON)
+# the hop names, last first, as the encoder walks them (`hop.<table>.<value>.<key>` without the prefix)
+CHAIN_HOPS = {"in_project": ["projects.id.team_id"], "in_task": ["tasks.id.project_id", "projects.id.team_id"]}
+CHAIN_VALUE = {"in_project": "project_id", "in_task": "task_id"}
 
 
 # ----------------------------------------------------------------------------- Lean rendering
@@ -97,6 +124,9 @@ def lpred(p: dict) -> str:
     if k == "cmp":
         l, op, r = v
         return f"(Pred.cmp {lterm(l)} {OPS[op]} {lterm(r)})"
+    if k == "member" and v["relation"] in CHAIN_HOPS:
+        hops = "[" + ", ".join(lstr(h) for h in CHAIN_HOPS[v["relation"]]) + "]"
+        return f"(Pred.memberVia \"members\" {hops} {lterm(v['key'])} {lterm(v['value'])})"
     if k == "member":
         return f"(Pred.member {lstr(v['relation'])} {lterm(v['key'])} {lterm(v['value'])})"
     if k == "in_group":
@@ -123,6 +153,11 @@ def lfacts(rel: str, facts: list[tuple[int, int]]) -> str:
 
 def lforest(h: str, nodes: list[tuple[int, int | None]]) -> str:
     return "[(" + lstr(h) + ", [" + ", ".join(f"({lint(i)}, {lopt(p)})" for i, p in nodes) + "])]"
+
+
+def lhops(tables: dict[str, list[tuple[int, int]]]) -> str:
+    return "[" + ", ".join(f"({lstr(h)}, [" + ", ".join(f"({lint(v)}, {lint(k)})" for v, k in rows) + "])"
+                           for h, rows in tables.items()) + "]"
 
 
 def ltv(v: bool | None) -> str:
@@ -276,6 +311,49 @@ def group_vectors(r: random.Random) -> list[str]:
     return out
 
 
+def chain_vectors(r: random.Random) -> list[str]:
+    out = []
+    for i in range(N_CHAIN):
+        relation = r.choice(["in_project", "in_task"])
+        key = r.choice([{"ctx": "uid"}, {"col": "u"}])
+        p = {"member": {"relation": relation, "key": key, "value": {"col": CHAIN_VALUE[relation]}}}
+        if r.random() < 0.3:
+            p = {"not": p}
+        pred = TypeAdapter(Pred).validate_python(p)
+        # stored hop rows: ids are keys; a parent the previous level does not store is possible
+        projects = [{"id": x, "team_id": r.randint(0, 2)} for x in sorted(r.sample(range(4), r.randint(0, 4)))]
+        tasks = [{"id": x, "project_id": r.randint(0, 3)} for x in sorted(r.sample(range(4), r.randint(0, 4)))]
+        facts = sorted({(r.choice(UUIDS), r.randint(0, 2)) for _ in range(r.randint(0, 3))})
+        row = {"id": 1, "project_id": r.choice([None, 0, 1, 2, 3]), "task_id": r.choice([None, 0, 1, 2, 3, 4]),
+               "u": r.choice([None] + UUIDS)}
+        ctx = {"uid": r.choice(UUIDS), "now": 0}
+        db = Database({"members": set(facts)}, {"projects": projects, "tasks": tasks}, spec=CHAIN)
+        concrete = eval_pred(pred, row, ctx, db)
+        enc = Encoder(CHAIN)
+        T, F = enc.tf(pred, "r", "notes")
+        images = {"r": row_images(row)}
+        hop_rows = {"projects.id.team_id": [(x["id"], x["team_id"]) for x in projects],
+                    "tasks.id.project_id": [(x["id"], x["project_id"]) for x in tasks]}
+        rels = {"rel.members": lambda k, v, fs=facts: any(UUID_ID[fk] == k and fv == v for fk, fv in fs)}
+        for name, rows in hop_rows.items():
+            table, value, hkey = name.split(".")
+            rels[f"hop.{table}.{value}"] = lambda x, rs=rows: any(v == x for v, _ in rs)
+            rels[f"hop.{table}.{value}.{hkey}"] = lambda x, rs=rows: next((k for v, k in rs if v == x), 0)
+        t, f = evaluate(T, env := smt_env(images, ctx), rels), evaluate(F, env, rels)
+        assert not (t and f) and concrete == (True if t else (False if f else None))
+        ictx = {k: (UUID_ID[v] if isinstance(v, str) else v) for k, v in ctx.items()}
+        ifacts = [(UUID_ID[k], v) for k, v in facts]
+        out.append(f"-- C{i}\n"
+                   f"def cv{i} : Pred := {lpred(p)}\n"
+                   f"def cc{i} : Cols := {lcols(images)}\n"
+                   f"def cx{i} : Ctx := {lints(ictx)}\n"
+                   f"def cf{i} : Facts := {lfacts('members', ifacts)}\n"
+                   f"def ch{i} : Hops := {lhops(hop_rows)}\n"
+                   f"#guard Pred.eval SC (Vec.env cc{i} cx{i} cf{i} [] ch{i}) \"r\" cv{i} = {ltv(concrete)}\n"
+                   f"#guard Pred.tf SC (Vec.val cc{i} cx{i} cf{i} [] ch{i}) \"r\" cv{i} = {lpair(t, f)}\n")
+    return out
+
+
 def rand_policies(r: random.Random, cmd: str) -> list[dict]:
     """Permissive policies for `cmd` (or all) and for select — so the oracle's grants are table
     level and the outcome depends on the modelled layers only — plus restrictive ones."""
@@ -368,7 +446,7 @@ under the harness valuation, `Rules.visible/insert/update/delete` with `pg/model
 -/
 namespace MLS
 
-open Vec (Cols Ctx Facts Hiers)
+open Vec (Cols Ctx Facts Hiers Hops)
 
 /-- `tests/logic/test_tvl.py:SPEC`: nullable a, b, u, ts; g NOT NULL. -/
 def SB : Schema := Vec.schema ["a", "b", "u", "ts"] []
@@ -376,6 +454,9 @@ def SB : Schema := Vec.schema ["a", "b", "u", "ts"] []
 /-- The hierarchy spec of the generator: `org` over `groups`, members relation `members`,
 `max_depth` 2. -/
 def SH : Schema := Vec.schema ["parent_id"] [("org", "members", 2)]
+
+/-- The composed-relation spec of the generator: `notes` with nullable project_id, task_id, u. -/
+def SC : Schema := Vec.schema ["project_id", "task_id", "u"] []
 
 /-- `in_group(org, uid, group_id)` -/
 def GP : Pred := Pred.inGroup "org" (Term.ctx "uid") (Term.col "group_id")
@@ -391,6 +472,8 @@ def generate() -> str:
     parts += group_vectors(r)
     parts.append("\n/-! ## Statement outcomes -/\n\n")
     parts += outcome_vectors(r)
+    parts.append("\n/-! ## Composed relations: the hops and their lookups (D56) -/\n\n")
+    parts += chain_vectors(r)
     parts.append("\nend MLS\n")
     return "\n".join(parts)
 

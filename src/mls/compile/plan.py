@@ -29,6 +29,7 @@ from mls.compile.transition import transition_ddl
 from mls.errors import CompileError, MlsError
 from mls.identity import get_adapter
 from mls.props.effective import all_policies, all_transitions
+from mls.spec.chain import levels
 from mls.spec.model import Spec
 
 
@@ -76,16 +77,16 @@ def soundness_errors(spec: Spec) -> list[MlsError]:
         rels = relations_in(p.using, set())
         relations_in(p.check, rels)
         for rname in sorted(rels):
-            rel = spec.relations[rname]
-            g = privs.get((p.role, rel.table), {}).get("select")
-            if isinstance(g, set) and not {rel.key, rel.value} <= g:
-                errors.append(MlsError(
-                    path=f"$.rules[{spec.rules.index(p)}]",
-                    message=f"policy '{p.name}' uses relation '{rname}' but a column rule limits "
-                            f"role '{p.role}' to {sorted(g)} on '{rel.table}'; the membership "
-                            f"subquery needs SELECT on ({rel.key}, {rel.value})",
-                    fix=f"add '{rel.key}' and '{rel.value}' to the read column rule on '{rel.table}'",
-                    code="compile"))
+            for rel in levels(spec, rname):
+                g = privs.get((p.role, rel.table), {}).get("select")
+                if isinstance(g, set) and not {rel.key, rel.value} <= g:
+                    errors.append(MlsError(
+                        path=f"$.rules[{spec.rules.index(p)}]",
+                        message=f"policy '{p.name}' uses relation '{rname}' but a column rule limits "
+                                f"role '{p.role}' to {sorted(g)} on '{rel.table}'; the membership "
+                                f"subquery needs SELECT on ({rel.key}, {rel.value})",
+                        fix=f"add '{rel.key}' and '{rel.value}' to the read column rule on '{rel.table}'",
+                        code="compile"))
     for ob in relation_visibility_obligations(spec):
         res = run_obligation(spec, ob)
         if res.verdict != "PROVED":
@@ -134,6 +135,8 @@ def compile_spec(spec: Spec, mutations: frozenset[Mutation] | set[Mutation] = fr
             s.add("policies", replace_policies_ddl(name, [p.name for p in policies if p.table == name], sc),
                   f"replace:{name}")
     for p in policies:
+        if Mutation.HOP_VISIBILITY_DROPPED in mutations and p.id.startswith("implicit:hop:"):
+            continue
         s.add("policies", policy_ddl(p, sc), p.id)
     if Mutation.INDEX_NONE not in mutations:
         s.add("indexes", index_ddl(spec))

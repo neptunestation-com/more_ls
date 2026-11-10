@@ -32,6 +32,7 @@ ROUND_TRIP = {
     "session_setting": specs.session_spec,
     "bigint": specs.bigint_spec,
     "pg_roles": specs.pg_roles_spec,
+    "composed": specs.composed_spec,  # D56: the nested array shape reads back as composed relations
 }
 
 
@@ -178,5 +179,31 @@ def test_hierarchy_helper_stays_opaque_until_the_hierarchy_is_declared(pg_dsn):
         assert reads and "opaque" in reads[0]["using"]
         assert any("group_read" in n and "hierarchy the spec does not declare" in n for n in res.notes)
         assert any("trigger mls_h_org_depth" in n and "not imported" in n for n in res.notes)
+    finally:
+        h.close()
+
+
+def test_a_hand_written_nested_in_lifts_to_a_composed_relation(pg_dsn):
+    """D56 acceptance: the nested `IN (select .. where .. in (select ..))` most takeover schemas
+    already have reads back as a composed relation, with an empty behaviour diff against the spec
+    the deploy came from."""
+    source = specs.composed_spec()
+    h = deploy(source, pg_dsn, "mls_lift_nested_in")
+    try:
+        h.conn.execute("""
+            drop policy member_reads_tasks on tasks;
+            create policy member_reads_tasks on tasks as permissive for select to authenticated
+              using (project_id in (select id from projects
+                                    where team_id in (select team_id from team_members where user_id = auth.uid())));
+        """)
+        res = import_schema(h.conn)
+        assert res.spec["opaques"] == {}, res.notes
+        imported = renamed_like(source, res.spec)
+        r2 = next(p for p in imported.policies() if p.name == "member_reads_tasks")
+        rel = imported.relations[r2.using.member.relation]
+        assert rel.of == "member_of" and [(x.table, x.key, x.value) for x in rel.through] == [("projects", "team_id", "id")]
+        assert any("member_reads_tasks" in n and "lifted to a membership" in n for n in res.notes), res.notes
+        bad = [c for c in behaviour_diff(source, imported) if c.verdict != "PROVED"]
+        assert bad == [], [str(c) for c in bad]
     finally:
         h.close()

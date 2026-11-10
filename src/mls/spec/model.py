@@ -252,6 +252,38 @@ class Relation(Strict):
     value: str
 
 
+MAX_HOPS = 3  # D56: a composed relation's chain is at most this long (invariant 6)
+
+
+class Hop(Strict):
+    """One step of a composed relation (D56): from a value of the previous level, the rows of
+    `table` whose `key` is that value, to their `value`.  `value` is the primary key or a NOT NULL
+    unique column and `key` is NOT NULL, so each value has one key: the step is a function."""
+    table: str
+    key: str
+    value: str
+
+
+class ComposedRelation(Strict):
+    """A relation composed through keyed hops (D56): `(k, v)` is in it iff `(k, t)` is in the base
+    relation `of` and a chain of hop rows leads from `t` to `v`."""
+    of: str
+    through: list[Hop] = Field(min_length=1)
+
+
+def _relation_kind(v: Any) -> str:
+    if isinstance(v, dict):
+        return "of" if "of" in v else "table"
+    return "of" if isinstance(v, ComposedRelation) else "table"
+
+
+AnyRelation = Annotated[
+    Union[Annotated[Relation, Tag("table")], Annotated[ComposedRelation, Tag("of")]],
+    Discriminator(_relation_kind, custom_error_type="invalid_relation",
+                  custom_error_message="a relation is {table, key, value} or {of, through}"),
+]
+
+
 MAX_HIERARCHY_DEPTH = 16  # the solver unrolls reachability this many times at most
 
 
@@ -505,7 +537,7 @@ class Spec(Strict):
     identity: Identity
     roles: list[str] = Field(min_length=1)
     tables: dict[str, Table]
-    relations: dict[str, Relation] = Field(default_factory=dict)
+    relations: dict[str, AnyRelation] = Field(default_factory=dict)
     hierarchies: dict[str, Hierarchy] = Field(default_factory=dict)
     opaques: dict[str, Opaque] = Field(default_factory=dict)
     rules: list[Rule] = Field(default_factory=list)
@@ -515,6 +547,11 @@ class Spec(Strict):
     def expansions(self, rule_id: str) -> list[Rule]:
         """The rules a selector rule `rule_id` expanded into (empty when it is not a selector)."""
         return [r for r in self.rules if r.from_ == rule_id]
+
+    def base_relations(self) -> dict[str, Relation]:
+        """The relations that are one table's (key, value) projection; composed ones (D56) are
+        read through `spec/chain.py`."""
+        return {n: r for n, r in self.relations.items() if isinstance(r, Relation)}
 
     def governed(self) -> dict[str, Table]:
         """The tables MLS compiles for: `owned` and `adopted` (D45)."""

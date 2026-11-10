@@ -16,7 +16,7 @@ from tests.conftest import ROOT
 
 pytestmark = [pytest.mark.pg, pytest.mark.supabase]
 
-EXAMPLES = ["team_notes", "tenant_docs", "org_tree"]
+EXAMPLES = ["team_notes", "tenant_docs", "org_tree", "team_tasks"]
 
 
 @pytest.fixture(scope="module")

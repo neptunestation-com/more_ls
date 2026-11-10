@@ -320,3 +320,7 @@ evaluator, encoder and oracle computed on the same data; the fast suite checks t
 current, the Lean build checks the guards.  Still by hand: a change to a Python original must be
 carried to `lean/MLS` (CLAUDE.md) — the vectors catch a divergence in meaning on the sampled
 data, not a missing theorem.
+Composed relations (D56, #25): `Pred.memberVia` is a membership read through the hops' lookups
+(`Env.hop`: the key of the row whose value is `x`, a function because the value is a key), and
+`Pred.tf_sound` covers it (`chainPy_eq`: the encoder's guards and key functions are the chain
+when they describe the stored hop rows); the generator adds 60 vectors over one and two hops.

@@ -22,6 +22,7 @@ from pydantic import ValidationError
 
 from mls.errors import ErrorSink, MlsError, SpecError
 from mls.spec.model import (
+    MAX_HOPS, ComposedRelation, Relation,
     CONTEXT_NOW, And, BypassAssumed, CardinalityRule, CheckRule, ColRef, ColType, ColumnRule, Cmp, Const, CtxRef,
     INT_RANGE, In, Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
     RoleSeparation,
@@ -313,6 +314,11 @@ class Checker:
             if negated and scope.reject_negated_member:
                 self.err(path, "negated membership in a policy is an anti-join and cannot be "
                                "index-driven", "restate positively, or wrap it in an opaque block")
+            if isinstance(rel, ComposedRelation) and scope.name == "invariant":
+                self.err(f"{path}.member.relation", f"'{m.relation}' is a composed relation; an invariant "
+                                                    f"cannot read one (a write to a hop table would change "
+                                                    f"it, which the induction step does not model)",
+                         f"state the invariant over the base relation '{rel.of}' and the hop tables' columns")
             kt = self.term_type(m.key, scope, f"{path}.member.key")
             vt = self.term_type(m.value, scope, f"{path}.member.value")
             if isinstance(m.key, ColRef) and not scope.member_col_key:
@@ -328,14 +334,17 @@ class Checker:
                                                  f"NOT NULL in a policy (NULL makes the atom UNKNOWN "
                                                  f"and the row invisible)",
                          "declare the column NOT NULL, or guard with {\"is_null\": ...} in an or")
-            rkt = self.col_type(rel.table, rel.key)
-            rvt = self.col_type(rel.table, rel.value)
+            ends = self.relation_ends(m.relation)
+            if ends is None:
+                return
+            (kt_, kc), (vt_, vc) = ends
+            rkt, rvt = self.col_type(kt_, kc), self.col_type(vt_, vc)
             if kt is not None and rkt is not None and not comparable(kt, rkt):
                 self.err(f"{path}.member.key", f"key type {kt} does not match relation key "
-                                               f"{rel.table}.{rel.key}: {rkt}")
+                                               f"{kt_}.{kc}: {rkt}")
             if vt is not None and rvt is not None and not comparable(vt, rvt):
                 self.err(f"{path}.member.value", f"value type {vt} does not match relation value "
-                                                 f"{rel.table}.{rel.value}: {rvt}")
+                                                 f"{vt_}.{vc}: {rvt}")
             return
         if isinstance(p, InGroup):
             if not scope.member:
@@ -364,7 +373,7 @@ class Checker:
                                                    f"and the row invisible)",
                          "declare the column NOT NULL, or guard with {\"is_null\": ...} in an or")
             rel = self.spec.relations.get(h.members)
-            if rel is not None and rel.table in self.spec.tables:
+            if isinstance(rel, Relation) and rel.table in self.spec.tables:
                 rkt = self.col_type(rel.table, rel.key)
                 if kt is not None and rkt is not None and not comparable(kt, rkt):
                     self.err(f"{path}.in_group.key", f"key type {kt} does not match the members "
@@ -544,11 +553,82 @@ class Checker:
         out.extend(frozenset(u) for u in t.unique)
         return out
 
+    def relation_ends(self, name: str) -> tuple[tuple[str, str], tuple[str, str]] | None:
+        """((table, key column), (table, value column)) of a relation, or None when it does not
+        resolve (its own errors are reported by check_relations)."""
+        rel = self.spec.relations.get(name)
+        if isinstance(rel, Relation):
+            return (rel.table, rel.key), (rel.table, rel.value)
+        if isinstance(rel, ComposedRelation):
+            base = self.spec.relations.get(rel.of)
+            if isinstance(base, Relation):
+                last = rel.through[-1]
+                return (base.table, base.key), (last.table, last.value)
+        return None
+
+    def check_composed(self, rname: str, rel: ComposedRelation, path: str) -> None:
+        """D56: the base relation is a base relation; at most MAX_HOPS hops; each hop's value is a
+        key of its table (so the hop is a function) and its key NOT NULL and of the type of the
+        previous level's value."""
+        base = self.spec.relations.get(rel.of)
+        if base is None:
+            self.err(path + ".of", f"unknown relation '{rel.of}'",
+                     f"one of: {', '.join(n for n, r in self.spec.relations.items() if isinstance(r, Relation))}")
+            return
+        if isinstance(base, ComposedRelation):
+            self.err(path + ".of", f"'{rel.of}' is itself composed; compose from a base relation",
+                     f"set of to '{base.of}' and list all the hops in through")
+            return
+        if len(rel.through) > MAX_HOPS:
+            self.err(path + ".through", f"{len(rel.through)} hops; a composed relation has at most "
+                                        f"{MAX_HOPS} (the compiled nesting and the solver's unrolling "
+                                        f"are bounded)",
+                     "denormalize a column onto a nearer table, with an inclusion rule")
+        prev = (base.table, base.value)
+        for i, h in enumerate(rel.through):
+            hp = f"{path}.through[{i}]"
+            t = self.spec.tables.get(h.table)
+            if t is None:
+                self.err(hp + ".table", f"unknown table '{h.table}'", f"one of: {', '.join(self.spec.tables)}")
+                return
+            if not self.governed(h.table, hp + ".table", "a relation"):
+                return
+            ok = True
+            for fld in ("key", "value"):
+                c = getattr(h, fld)
+                if c not in t.columns:
+                    self.err(f"{hp}.{fld}", f"unknown column '{c}' of table '{h.table}'")
+                    ok = False
+                elif t.columns[c].nullable:
+                    self.err(f"{hp}.{fld}", f"hop column '{h.table}.{c}' must be NOT NULL (a NULL "
+                                            f"breaks the chain the compiled subquery follows)",
+                             "set nullable to false")
+            if not ok:
+                return
+            if h.key == h.value:
+                self.err(hp, "key and value must be different columns")
+            if frozenset((h.value,)) not in self.key_sets(h.table):
+                self.err(f"{hp}.value", f"'{h.table}.{h.value}' is not the primary key or a unique column "
+                                        f"of '{h.table}', so a value may have several '{h.key}'s and the "
+                                        f"hop is a join, not a lookup (the proofs stay quantifier-free "
+                                        f"only through a key)",
+                         f"make '{h.value}' the primary key or unique, or model the step as a membership "
+                         f"table (a base relation), or copy the column onto the referencing table with an "
+                         f"inclusion rule")
+            pt, kt = self.col_type(*prev), t.columns[h.key].type
+            if pt is not None and not comparable(pt, kt):
+                self.err(f"{hp}.key", f"type of {h.table}.{h.key} ({kt}) does not match the previous "
+                                      f"level's value {prev[0]}.{prev[1]} ({pt})")
+            prev = (h.table, h.value)
+
     def check_relations(self) -> None:
         for rname, rel in self.spec.relations.items():
             path = f"$.relations.{rname}"
             if not IDENT.match(rname):
                 self.err(path, f"'{rname}' is not a valid relation identifier")
+            if isinstance(rel, ComposedRelation):
+                self.check_composed(rname, rel, path)
+                continue
             if rel.table not in self.spec.tables:
                 self.err(path + ".table", f"unknown table '{rel.table}'",
                          f"one of: {', '.join(self.spec.tables)}")
@@ -610,6 +690,10 @@ class Checker:
             if rel is None:
                 self.err(f"{path}.members", f"unknown relation '{h.members}'",
                          f"one of: {', '.join(self.spec.relations) or 'none'}")
+            elif isinstance(rel, ComposedRelation):
+                self.err(f"{path}.members", f"'{h.members}' is a composed relation; a hierarchy's members "
+                                            f"are one table's (key, value)",
+                         f"use a base relation, e.g. '{rel.of}'")
             elif rel.table in self.spec.tables and self.col_type(rel.table, rel.value) is not None \
                     and self.col_type(rel.table, rel.value) != t.columns[h.id].type:
                 self.err(f"{path}.members", f"the value of relation '{h.members}' ({rel.table}.{rel.value}: "
@@ -635,6 +719,10 @@ class Checker:
             for i, r in enumerate(o.relations):
                 if r not in self.spec.relations:
                     self.err(f"{path}.relations[{i}]", f"unknown relation '{r}'")
+                elif isinstance(self.spec.relations[r], ComposedRelation):
+                    self.err(f"{path}.relations[{i}]", f"'{r}' is a composed relation; list the base "
+                                                       f"relation an opaque block reads",
+                             f"use '{self.spec.relations[r].of}'")
             if not o.sql.strip():
                 self.err(path + ".sql", "empty SQL")
 
@@ -736,6 +824,11 @@ class Checker:
             self.err(path + ".relation", f"unknown relation '{r.relation}'",
                      f"one of: {', '.join(self.spec.relations)}")
             return
+        if isinstance(rel, ComposedRelation):
+            self.err(path + ".relation", f"'{r.relation}' is a composed relation; an inclusion rule is a "
+                                         f"foreign key, which references one table's (key, value)",
+                     f"name a base relation, e.g. '{rel.of}'")
+            return
         t = self.spec.tables[r.table]
         ok = True
         for j, c in enumerate(r.columns):
@@ -779,6 +872,10 @@ class Checker:
             elif isinstance(p, MonotoneIn):
                 if p.relation not in self.spec.relations:
                     self.err(path + ".relation", f"unknown relation '{p.relation}'")
+                elif isinstance(self.spec.relations[p.relation], ComposedRelation):
+                    self.err(path + ".relation", f"'{p.relation}' is a composed relation; monotone_in is "
+                                                 f"about one table's facts",
+                             f"state it for the base relation '{self.spec.relations[p.relation].of}'")
             elif isinstance(p, LeastPrivilege):
                 for role, tabs in p.allowed.items():
                     if role not in self.spec.roles:

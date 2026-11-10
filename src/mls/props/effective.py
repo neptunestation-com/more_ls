@@ -57,24 +57,45 @@ def _implicit_policies(spec: Spec) -> list[PolicyRule]:
     on the relation's table for R: `key = k`.  This is the least grant that makes the membership
     atom mean "(k, col) ∈ relation" (D21).  Restrictive policies on the relation table still apply;
     the compiler proves they do not filter those rows (relation visibility obligation)."""
+    from mls.spec.chain import base_name, hop_prefix, levels
+
     out: list[PolicyRule] = []
     seen: set[tuple[str, str, str]] = set()
+    hops: dict[tuple[str, str, str, str], tuple] = {}  # (table, role, prev, key) -> first (key, column)
+    users: dict[tuple[str, str, str, str], set[str]] = {}  # ... -> the composed relations through it
     for p in spec.policies():
         for e in (p.using, p.check):
             for m in members_in(e, []):
-                rel = spec.relations[m.relation]
+                lv = levels(spec, m.relation)
+                base = base_name(spec, m.relation)
                 key_json = m.key.model_dump_json()
-                k = (rel.table, p.role, key_json)
-                if k in seen:
-                    continue
-                seen.add(k)
-                n = sum(1 for s_ in seen if s_[0] == rel.table and s_[1] == p.role)
-                out.append(PolicyRule(
-                    id=f"implicit:{m.relation}:{p.role}:{n}",
-                    name=f"mls_rel_{m.relation}_{p.role}_{n}",
-                    table=rel.table, kind="policy", role=p.role, command="select",
-                    mode="permissive",
-                    using=Cmp(cmp=(ColRef(col=rel.key), "=", m.key))))
+                k = (lv[0].table, p.role, key_json)
+                if k not in seen:
+                    seen.add(k)
+                    n = sum(1 for s_ in seen if s_[0] == lv[0].table and s_[1] == p.role)
+                    out.append(PolicyRule(
+                        id=f"implicit:{base}:{p.role}:{n}",
+                        name=f"mls_rel_{base}_{p.role}_{n}",
+                        table=lv[0].table, kind="policy", role=p.role, command="select",
+                        mode="permissive",
+                        using=Cmp(cmp=(ColRef(col=lv[0].key), "=", m.key))))
+                for i in range(1, len(lv)):
+                    hk = (lv[i].table, p.role, hop_prefix(spec, m.relation, i), key_json)
+                    hops.setdefault(hk, (m.key, lv[i].key, i))
+                    users.setdefault(hk, set()).add(m.relation.split("/")[0])
+    # D56: each hop table is read as the role too: its rows whose key is a value of the previous
+    # level for this key.  One policy per such hop, named after the shortest chain through it (so
+    # that the name does not depend on the order of the rules)
+    counts: dict[tuple[str, str], int] = {}
+    for hk, (key, col, i) in hops.items():
+        table, role, prev, _ = hk
+        rname = min(users[hk], key=lambda r: (len(levels(spec, r)), r))
+        counts[(table, role)] = n = counts.get((table, role), 0) + 1
+        out.append(PolicyRule(
+            id=f"implicit:hop:{rname}:{i}:{role}:{n}",
+            name=f"mls_rel_{rname}_h{i}_{role}_{n}",
+            table=table, kind="policy", role=role, command="select", mode="permissive",
+            using=Member(member=MemberBody(relation=prev, key=key, value=ColRef(col=col)))))
     return out
 
 
@@ -112,8 +133,11 @@ def in_groups_in(p: Pred | None, out: list) -> list:
 
 def relations_of(spec: Spec, p: Pred | None) -> set[str]:
     """Relations a predicate depends on: membership atoms and the members relation of every
-    hierarchy it uses."""
-    out = {m.relation for m in members_in(p, [])}
+    hierarchy it uses.  A composed relation (D56) depends on its base relation's facts (its hops
+    are the hop tables' lookup functions, `logic/tvl.py`)."""
+    from mls.spec.chain import base_name
+
+    out = {base_name(spec, m.relation) for m in members_in(p, [])}
     # (a hierarchy of the other version in an access diff is simply absent here)
     out |= {spec.hierarchies[g.hierarchy].members for g in in_groups_in(p, []) if g.hierarchy in spec.hierarchies}
     return out

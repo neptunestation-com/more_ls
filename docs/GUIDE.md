@@ -828,6 +828,27 @@ group below them:
 The tree has a declared maximum depth, which is what keeps the proofs exact.
 `examples/org_tree.mls` is the complete spec.
 
+**Ownership two or three tables away.**  You have `tasks.project_id → projects.team_id →
+team_members`, and no `team_id` on `tasks`.  Compose the relation instead of copying the
+column:
+
+    relation member_of = team_members(user_id, team_id)
+    relation in_project = member_of . projects(team_id, id)
+    relation in_task = member_of . projects(team_id, id) . tasks(project_id, id)
+    R2 policy member_reads_tasks on tasks: authenticated select permissive using in_project(@uid, project_id)
+    R4 policy member_reads_comments on comments: authenticated select permissive using in_task(@uid, task_id)
+    P1 tenant_isolation tasks: project_id in in_project(@uid) for select
+
+Each step must go through a key (`projects.id` is its primary key), so a step is a lookup, not
+a join; that keeps the proofs exact and the compiled policy one indexed subquery per level.  At
+most three steps.  The compiler also lets the role read the `(team_id, id)` of the projects
+it reaches (a policy `mls_rel_in_project_h1_authenticated_1` on `projects`), since the nested
+subquery runs as the user.  A step through a column that is not a key is refused; then use a
+membership table, or copy the column onto the child table with an inclusion rule.  Moving a
+project to another team moves its tasks with it; if that should not happen, add a transition
+on `projects`.  `examples/team_tasks.mls` is the complete spec, and `mls import` reads a
+hand-written nested `in (select ...)` policy as a composed relation.
+
 **Something the language cannot say.**  Declare an `opaque` block with the raw SQL and the
 columns and context values it reads (reference §8).  It is enforced like any other policy
 expression, but the prover treats it as an unknown, so every proof that depends on it says
@@ -1251,7 +1272,8 @@ These are decisions, not gaps; `docs/DECISIONS.md` has the reasoning.
   repeated in every report, or it is drift.  A hand-written policy is lifted into the fragment
   when the lifter reads it (D46) and adopted as an opaque block otherwise; a function of yours
   in a policy is never inlined, however short its body (D34).
-- **The fragment.**  No joins, subqueries, arithmetic or functions in predicates.  Comparison
+- **The fragment.**  No joins, subqueries, arithmetic or functions in predicates (a chain of
+  lookups through keys is a composed relation, section 6).  Comparison
   right-hand sides are context or constants; membership keys are context, not columns; negated
   membership is rejected in policies (it is an anti-join the planner cannot drive from an
   index); `in_group` is not allowed in checks and transitions (it reads other tables).  Anything

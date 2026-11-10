@@ -9,7 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 from mls.spec.model import (
-    CONTEXT_NOW, And, BypassAssumed, CardinalityRule, CheckRule, ColRef, ColumnImmutable, ColumnRule, Cmp, Const,
+    CONTEXT_NOW, And, BypassAssumed, CardinalityRule, CheckRule, ColRef, ComposedRelation, ColumnImmutable, ColumnRule, Cmp, Const,
     CtxRef, Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MonotoneIn,
     MustAllow, NewRef, Not, NowBetween, OldRef, OpaqueRef, Or, OwnerAssumed, PathAssumed, PolicyRule, Pred, Property,
     RlsAssumed,
@@ -178,6 +178,9 @@ def scenario(spec: Spec, sc) -> str:
     for name, pairs in sc.relations.items():
         shown = ", ".join(f"({_v(a)}, {_v(b)})" for a, b in pairs) if pairs else "no entries"
         parts.append(f"{name} has {shown}")
+    for name, pairs in getattr(sc, "hops", {}).items():
+        shown = ", ".join(f"({_v(a)}, {_v(b)})" for a, b in pairs) if pairs else "no rows"
+        parts.append(f"{name} has {shown}")
     return "; ".join(parts) + "." if parts else "(no particular data)"
 
 
@@ -236,6 +239,17 @@ def selector_line(spec: Spec, rule_id: str) -> str:
             f"{', '.join(r.table for r in exp)}")
 
 
+def composed_line(spec: Spec, name: str) -> str:
+    """A composed relation (D56), from the value back to the base relation."""
+    r = spec.relations[name]
+    steps = ", then ".join([r.of] + [f"{h.table} ({h.key} → {h.value})" for h in r.through])
+    hops = list(reversed(r.through))
+    phrase = f"the {hops[0].value} of every {hops[0].table} row"
+    for prev, h in zip(hops, hops[1:]):
+        phrase += f" whose {prev.key} is the {h.value} of a {h.table} row"
+    return f"{steps}: a user's {name} are {phrase} whose {hops[-1].key} is among that user's {r.of}."
+
+
 def spec_summary(spec: Spec) -> str:
     lines = ["# What the rules say", ""]
     seen: set[str] = set()
@@ -250,6 +264,10 @@ def spec_summary(spec: Spec) -> str:
     lines += ["", "# What is guaranteed (properties)", ""]
     for p in spec.properties:
         lines.append(f"- **{p.id}**: {prop(spec, p)}")
+    composed = {n: r for n, r in spec.relations.items() if isinstance(r, ComposedRelation)}
+    if composed:
+        lines += ["", "# Relations read through other tables", ""]
+        lines += [f"- **{n}**: {composed_line(spec, n)}" for n in composed]
     if spec.hierarchies:
         lines += ["", "# Group hierarchies", ""]
         for name, h in spec.hierarchies.items():

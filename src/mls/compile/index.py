@@ -4,6 +4,7 @@ and a key-leading index on every relation table."""
 from __future__ import annotations
 
 from mls.compile.sql import q
+from mls.spec.chain import levels
 from mls.spec.model import (
     And, ColRef, Cmp, InGroup, Member, NowBetween, Or, Pred, Spec, Not, IsNull,
 )
@@ -91,11 +92,12 @@ def index_specs(spec: Spec) -> list[tuple[str, str, tuple[str, ...]]]:
         want(h.table, [h.parent])          # the recursive CTE joins children on parent
     for c in spec.cardinalities():
         want(c.table, [c.group])           # the trigger counts rows per group
-    for rel in spec.relations.values():
-        t = spec.tables[rel.table]
-        keysets = ([tuple(t.primary_key)] if t.primary_key else []) + [tuple(u) for u in t.unique]
-        if not any(ks[0] == rel.key for ks in keysets):
-            want(rel.table, [rel.key, rel.value])
+    for name in spec.relations:  # D56: every level of a composed relation is looked up by its key
+        for rel in levels(spec, name):
+            t = spec.tables[rel.table]
+            keysets = ([tuple(t.primary_key)] if t.primary_key else []) + [tuple(u) for u in t.unique]
+            if not any(ks[0] == rel.key for ks in keysets):
+                want(rel.table, [rel.key, rel.value])
     out = []
     for table, groups in wanted.items():
         t = spec.tables[table]

@@ -4,7 +4,11 @@ Every predicate becomes a pair (T, F) of boolean terms: T = "is TRUE", F = "is F
 UNKNOWN is ¬T ∧ ¬F.  Column values are integers (`row.col`), with a null flag (`row.col.null`)
 for nullable columns.  Context values are `ctx.name` and never NULL.  Text/uuid constants are
 interned to distinct integers.  Relations are uninterpreted predicates `rel.<name>` (optionally
-tagged, e.g. `rel.<name>@before`, to talk about two states of one relation).  Opaque blocks are
+tagged, e.g. `rel.<name>@before`, to talk about two states of one relation).  A composed relation
+(D56) is its base relation read through one lookup per hop: `hop.<table>.<value>` (a row with that
+value exists) and `hop.<table>.<value>.<key>` (its key), functions because the hop's value is a key
+of its table; `(k, v) ∈ base . T(key, value)` is `hop.T.value(v) ∧ base(k, hop.T.value.key(v))`,
+quantifier-free like `in_group`'s unrolled parent.  Opaque blocks are
 pairs of uninterpreted predicates over their declared inputs, with ¬(T ∧ F) as a side condition.
 """
 from __future__ import annotations
@@ -14,6 +18,7 @@ from dataclasses import dataclass, field
 from mls.logic.term import (
     FALSE, TRUE, FunDecl, Sort, Term, Var, and_, bool_var, eq, fun, int_var, le, lt, not_, or_, IntVal,
 )
+from mls.spec.chain import base_name, levels
 from mls.spec.model import (
     CONTEXT_NOW, And, ColRef, Const, CtxRef, Cmp, InGroup, IsNull, Lit, Member, NewRef, Not,
     NowBetween, OldRef, OpaqueRef, Or, Pred, Spec,
@@ -36,6 +41,16 @@ def rel_fun(name: str, tag: str | None = None) -> FunDecl:
     return fun(f"rel.{name}" + (f"@{tag}" if tag else ""), Sort.INT, Sort.INT)
 
 
+def hop_exists_fun(table: str, value: str) -> FunDecl:
+    """hop.T.v(x): a row of T has v = x (D56)."""
+    return fun(f"hop.{table}.{value}", Sort.INT)
+
+
+def hop_key_fun(table: str, key: str, value: str) -> FunDecl:
+    """hop.T.v.k(x): the k of the row of T whose v = x (meaningful where hop.T.v(x))."""
+    return fun(f"hop.{table}.{value}.{key}", Sort.INT, ret=Sort.INT)
+
+
 def parent_fun(hierarchy: str, tag: str | None = None) -> FunDecl:
     """parent(x): the parent node of x (meaningful where has_parent(x))."""
     return fun(f"hier.{hierarchy}" + (f"@{tag}" if tag else "") + ".parent", Sort.INT, ret=Sort.INT)
@@ -56,6 +71,7 @@ class Encoder:
     const_types: dict[str, set[str]] = field(default_factory=dict)  # constant -> column types it met
     side_conditions: list[Term] = field(default_factory=list)
     opaque_deps: set[str] = field(default_factory=set)
+    hops_used: set[tuple[str, str, str]] = field(default_factory=set)  # (table, key, value) read by a chain
 
     # ------------------------------------------------------------------ symbols
     def rel(self, name: str) -> FunDecl:
@@ -134,15 +150,20 @@ class Encoder:
             return and_(ok, core), and_(ok, not_(core))
         if isinstance(p, Member):
             m = p.member
-            rel = self.spec.relations[m.relation]
-            rt = self.spec.tables[rel.table].columns
-            for t_, col in ((m.key, rel.key), (m.value, rel.value)):
+            lv = levels(self.spec, m.relation)
+            for t_, (tb, col) in ((m.key, (lv[0].table, lv[0].key)), (m.value, (lv[-1].table, lv[-1].value))):
                 if isinstance(t_, Const) and isinstance(t_.const, str):
-                    self.const_types.setdefault(t_.const, set()).add(rt[col].type)
+                    self.const_types.setdefault(t_.const, set()).add(self.spec.tables[tb].columns[col].type)
             kv, kn = self.term(m.key, row, table)
             vv, vn = self.term(m.value, row, table)
             ok = not_(or_(kn, vn))
-            fact = self.rel(m.relation)(kv, vv)
+            node: Term = vv
+            guards: list[Term] = []
+            for h in reversed(lv[1:]):  # D56: from the value back to the base relation's value
+                self.hops_used.add((h.table, h.key, h.value))
+                guards.append(hop_exists_fun(h.table, h.value)(node))
+                node = hop_key_fun(h.table, h.key, h.value)(node)
+            fact = and_(*guards, self.rel(base_name(self.spec, m.relation))(kv, node))
             return and_(ok, fact), and_(ok, not_(fact))
         if isinstance(p, InGroup):
             return self._in_group(p, row, table)

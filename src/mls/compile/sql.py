@@ -4,6 +4,7 @@ from __future__ import annotations
 from mls.compile.mutations import Mutation
 from mls.compile.opaque import opaque_sql
 from mls.compile.time import now_between_sql
+from mls.spec.chain import levels
 from mls.spec.expand import as_in_list
 from mls.identity.base import SQL_TYPE, Adapter
 from mls.spec.model import (
@@ -84,10 +85,13 @@ class SqlCompiler:
             return f"({self.term(l, table, ty)} {op} {self.term(r, table, ty)})"
         if isinstance(p, Member):
             m = p.member
-            rel = self.spec.relations[m.relation]
-            kt = self.spec.tables[rel.table].columns[rel.key].type
-            return (f"({self.term(m.value, table)} = any (array(select {q(rel.value)} from {q(rel.table)} "
-                    f"where {q(rel.key)} = {self.term(m.key, table, kt)})))")
+            lv = levels(self.spec, m.relation)
+            kt = self.spec.tables[lv[0].table].columns[lv[0].key].type
+            inner = (f"select {q(lv[0].value)} from {q(lv[0].table)} "
+                     f"where {q(lv[0].key)} = {self.term(m.key, table, kt)}")
+            for h in lv[1:]:  # D56: one uncorrelated InitPlan per level
+                inner = f"select {q(h.value)} from {q(h.table)} where {q(h.key)} = any (array({inner}))"
+            return f"({self.term(m.value, table)} = any (array({inner})))"
         if isinstance(p, InGroup):
             from mls.compile.hierarchy import reach_fn_name
 

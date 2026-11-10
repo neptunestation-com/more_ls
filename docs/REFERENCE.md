@@ -228,6 +228,29 @@ every role whose policies use the relation with that key, plus `GRANT SELECT (ke
 restrictive policy the spec puts on the relation table must keep those rows visible; the
 compiler proves this (the relation-visibility obligation) and refuses otherwise.
 
+**Composed relations** (D56, SEMANTICS §3.4) follow a base relation through up to three tables:
+
+    "relations": {
+      "member_of": {"table": "team_members", "key": "user_id", "value": "team_id"},
+      "in_project": {"of": "member_of", "through": [{"table": "projects", "key": "team_id", "value": "id"}]},
+      "in_task": {"of": "member_of", "through": [{"table": "projects", "key": "team_id", "value": "id"},
+                                                 {"table": "tasks", "key": "project_id", "value": "id"}]}
+    }
+
+`(k, v) ∈ in_task` when `(k, t) ∈ member_of`, a `projects` row has `team_id = t` and `id = p`,
+and a `tasks` row has `project_id = p` and `id = v`.  `of` is a base relation (not composed); at
+most three hops; each hop's `key` and `value` are different NOT NULL columns, the `key` has the
+type of the previous level's value, and the `value` is the table's primary key or a unique
+column (so each hop is a lookup, not a join).  A hop through a column that is not a key is
+refused at `$.relations.R.through[i].value`; the ways out are a membership table (a base
+relation) or the column copied onto the referencing table with an inclusion rule.  A composed
+relation is used with `member` like any relation, in policies, goals, `must_allow` and
+`tenant_isolation`; it is refused in an invariant, as an inclusion rule's relation, as a
+hierarchy's `members`, in an opaque block's `relations` and in `monotone_in`.  D21 applies to
+every hop table: a permissive SELECT policy `mls_rel_<R>_h<i>_<role>_<n>` (the hop key in the
+previous level's values; `<R>` is the shortest composed relation through the hop, so relations
+sharing a prefix share it), `GRANT SELECT (key, value)`, and the relation-visibility obligation.
+
 ## 7. `hierarchies`
 
     "hierarchies": {
@@ -314,7 +337,8 @@ compiles the same way.
 **`{"member": {"relation": R, "key": k, "value": v}}`**: `(k, v)` is a stored pair of relation
 `R`.  `k` is a context value (or, in invariants and goals, a column); `v` is a column of the
 relation's value type and must be NOT NULL when the predicate is a policy atom.  UNKNOWN if `v`
-is NULL.  Compiled as `v = any(array(select value from <table> where key = <k>))`.
+is NULL.  Compiled as `v = any(array(select value from <table> where key = <k>))`; over a
+composed relation, one nested `= any(array(select ...))` per hop, innermost the base relation.
 
 **`{"in_group": {"hierarchy": H, "key": k, "value": v}}`**: the group `v` is one of the key's
 groups in `H` or lies below one, within `max_depth`.  `k` is a context value, `v` a column of
@@ -575,7 +599,10 @@ roles are required.
 `mls explain` prints every rule, property and (in reports) scenario as an English sentence
 (`src/mls/english.py`).  This is the approval artifact (D10): it is what a product owner reads.
 A selector rule (§11) is printed once, *applies to every governed table that has column
-tenant_id: docs, files*, with its expansion as an indented list of concrete rules.
+tenant_id: docs, files*, with its expansion as an indented list of concrete rules.  A composed
+relation (§6) gets a sentence of its own under *Relations read through other tables*: *a user's
+in_task are the id of every tasks row whose project_id is the id of a projects row whose team_id
+is among that user's member_of*.
 
 The terse syntax (D44, completed to the whole spec by D50) is the second concrete syntax of
 the same model: `mls explain --terse` prints the whole spec in it (`src/mls/terse.py:render`),
@@ -596,6 +623,7 @@ grammar:
     option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
                 | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced' | 'bypass view v' | 'bypass function f(t)')
     relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
+                | 'relation' NAME '=' BASE ('.' TABLE '(' KEY ',' VALUE ')')+   (composed, D56)
     hierarchy  := 'hierarchy' NAME '=' TABLE 'id' COL 'parent' COL 'depth' COL 'max_depth' INT 'members' REL
     opaque     := 'opaque' NAME 'on' TABLE '(' [input (',' input)*] ')' 'relations' '(' [names] ')' 'sql' DOLLAR
     input      := COL | '@' CTX                                   DOLLAR := $$ sql $$ | $tag$ sql $tag$
@@ -665,6 +693,9 @@ relation facts, in the proof report as
     - r (docs): tenant_id = 2, owner_id = None, level = 0, archived = 2
     - member_of = {(uuid#3, 0), (uuid#3, 2)}
 
+plus, when a composed relation is read, the hop rows the scenario depends on (`- projects(team_id,
+id) = {(0, 4)}`).
+
 and in English in the diff (`the current user is uuid#2; the existing row of docs with ...`).
 `uuid#n` are distinct symbolic UUIDs.
 
@@ -679,6 +710,7 @@ All names are deterministic functions of the spec, so `mls drift` can match them
 | check constraint, foreign key, policy, trigger | the rule's `name` |
 | transition trigger function | `mls_tr_<table>_<name>()` |
 | implicit relation policy | `mls_rel_<relation>_<role>_<n>` |
+| hop visibility policy of a composed relation (D56) | `mls_rel_<relation>_h<i>_<role>_<n>` on the i-th hop table |
 | internal-role policy | `mls_internal_<table>` |
 | hierarchy depth check and parent foreign key | `mls_h_<hierarchy>_depth_max`, `mls_h_<hierarchy>_parent` |
 | hierarchy depth trigger and function | `mls_h_<hierarchy>_depth` |
@@ -713,7 +745,7 @@ constraint as `differs`.
 Indexes (D14): one composite index per conjunctive group of a permissive policy (membership
 columns first, then comparison columns), one on each foreign key's referencing columns, and a
 key-leading one on each relation table (its primary key or unique constraint usually supplies
-it).  A key that is a prefix of another wanted key is covered by it, whatever order the rules
+it), and a `(key, value)` one on each hop table of a composed relation.  A key that is a prefix of another wanted key is covered by it, whatever order the rules
 name them in, so the index set does not depend on rule order.
 
 Hardening (D13), on every deployment: the preamble refuses to run as an app role; app roles
@@ -925,6 +957,7 @@ reports each as `hardening` until it is fixed or the spec assumes it.
 | `col in (select value from rel where key = <ctx>)` | `member` (noted as lifted; the compiler writes the array shape) |
 | `exists (select 1 from rel where rel.key = <ctx> and rel.value = t.col)` | `member` (noted as the slow per-row shape of FINDINGS) |
 | `col = any ((select mls_reach_<h>(<ctx>))::t[])` | `in_group`, when the spec declares hierarchy `h` |
+| `col = any (array(select v from T where k = any (array(select ... from rel where key = <ctx>))))`, or the same nesting of `in (select ...)`, up to three levels | `member` over a composed relation (D56): an identical chain in the spec is reused, else one is proposed (named `<base>_<last table>`) with a note; when a hop's value is not a key or a hop column is nullable the policy stays opaque |
 | `col is [not] null`, `and`, `or`, `not`, `true`, `false` | the same |
 | `(f is null or f <= (select now())) and (u is null or (select now()) < u)` | `now_between` |
 | a bare boolean column `b` | `b = true` |
@@ -938,9 +971,9 @@ opaque block of its own text (an expression it cannot parse at all is one block)
 spec always checks.  Never read: a call to any function that is not an identity source or a
 compiler helper (a one-line SQL wrapper included: user functions are never inlined, D34),
 `like` (an opaque block over the column, which the leakproof lint reports), a negated
-membership (an anti-join), a membership subquery over more than one table, `IS TRUE` inside an
-expression (the fragment is three-valued), `CASE`, arithmetic.  The notes say which part of
-which policy stayed opaque and why.
+membership (an anti-join), a membership subquery that joins tables (nested subqueries are
+composed relations), `IS TRUE` inside an expression (the fragment is three-valued), `CASE`,
+arithmetic.  The notes say which part of which policy stayed opaque and why.
 
 ### `mls fmt SPEC [--to json|terse] [--out FILE]`
 
@@ -1046,6 +1079,14 @@ Classes of error, with the typical message:
   ...`; `'parent' must be nullable (roots have no parent)`; `'parent' needs a single-column
   primary key that 'group' ...`; `a second read column rule for role 'r' on 't'`;
 - **compiler** (soundness obligations): a restrictive policy on a relation table that hides
-  rows a membership atom needs (D21), with the policy's path and a fix.
+  rows a membership atom needs (D21), with the policy's path and a fix; for a composed
+  relation, the same on each hop table (`... can hide rows whose <key> the previous level
+  reaches ...`).
+- **composed relations** (D56): `'R' is itself composed; compose from a base relation`; `N hops;
+  a composed relation has at most 3`; `hop column 'T.c' must be NOT NULL`; `'T.v' is not the
+  primary key or a unique column of 'T'` (fix: a membership table, or the denormalized column
+  with an inclusion rule); `type of T.k (...) does not match the previous level's value`;
+  `'R' is a composed relation; an invariant cannot read one ...` (likewise for an inclusion
+  rule, a hierarchy's members, an opaque block's relations and `monotone_in`).
 
 `mls migrate` refusals, `mls preflight` notes and `mls import` errors use the same path convention.

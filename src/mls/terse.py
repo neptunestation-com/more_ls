@@ -16,6 +16,7 @@ approval artifact (D10, D33).  The grammar:
     option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
                 | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced' | 'bypass view v' | 'bypass function f(t)')
     relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
+                | 'relation' NAME '=' RELATION ('.' TABLE '(' KEY ',' VALUE ')')+   (D56, ≤ 3 hops)
     hierarchy  := 'hierarchy' NAME '=' TABLE 'id' COL 'parent' COL 'depth' COL 'max_depth' INT 'members' REL
     opaque     := 'opaque' NAME 'on' TABLE '(' [input (',' input)*] ')' 'relations' '(' [names] ')' 'sql' DOLLAR
     input      := COL | '@' CTX                                   DOLLAR := '$$' sql '$$' | '$tag$' sql '$tag$'
@@ -44,7 +45,7 @@ from mls.spec.model import (
     And, AppliesTo, CardinalityRule, CheckRule, ColRef, ColumnImmutable, ColumnRule, Cmp, Const, CtxRef, Custom,
     Hierarchy, Identity, In, InclusionRule, InGroup, InvariantPreserved, IsNull, LeastPrivilege, Lit, Member,
     MonotoneIn, MustAllow, NewRef, Not, NowBetween, OldRef, Opaque, OpaqueRef, Or, PolicyRule, Pred, Property,
-    Relation, RoleSeparation, Rule, RuleBase, Spec, Table, TenantIsolation, TransitionRule, WriteSubsetRead,
+    Relation, ComposedRelation, Hop, RoleSeparation, Rule, RuleBase, Spec, Table, TenantIsolation, TransitionRule, WriteSubsetRead,
     OwnerAssumed, BypassAssumed, RlsAssumed, PathAssumed, ContextVar, Column,
 )
 
@@ -71,7 +72,8 @@ RENDERED_FIELDS: dict[type, set[str]] = {
            "rules", "properties"},
     Identity: {"adapter", "context"}, ContextVar: {"source", "type"},
     Table: {"columns", "primary_key", "unique", "mode", "assume", "tags"}, Column: {"type", "nullable"},
-    Relation: {"table", "key", "value"},
+    Relation: {"table", "key", "value"}, ComposedRelation: {"of", "through"},
+    Hop: {"table", "key", "value"},
     Hierarchy: {"table", "id", "parent", "depth", "max_depth", "members"},
     Opaque: {"table", "columns", "context", "relations", "sql"},
     RuleBase: {"id", "name", "table", "applies_to", "from_", "requirement"},
@@ -281,6 +283,9 @@ def scenario(sc) -> str:
     for name, pairs in sc.relations.items():
         shown = ", ".join(f"({value(a)}, {value(b)})" for a, b in pairs)
         parts.append(f"{name} = {{{shown}}}")
+    for name, pairs in getattr(sc, "hops", {}).items():
+        shown = ", ".join(f"({value(a)}, {value(b)})" for a, b in pairs)
+        parts.append(f"{name} = {{{shown}}}")
     return "; ".join(parts) if parts else "(no particular data)"
 
 
@@ -318,7 +323,10 @@ def table(name: str, t: Table) -> list[str]:
     return [f"table {ident(name)} {t.mode} {{"] + [f"  {x}" for x in items] + ["}"]
 
 
-def relation(name: str, r: Relation) -> str:
+def relation(name: str, r: Relation | ComposedRelation) -> str:
+    if isinstance(r, ComposedRelation):
+        hops = " . ".join(f"{ident(h.table)}({ident(h.key)}, {ident(h.value)})" for h in r.through)
+        return f"relation {ident(name)} = {ident(r.of)} . {hops}"
     return f"relation {ident(name)} = {ident(r.table)}({ident(r.key)}, {ident(r.value)})"
 
 

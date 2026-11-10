@@ -66,10 +66,12 @@ structure Extra where
   ctx : String → Int
   forest : String → Forest
   opaques : String → String → Pair
+  hop : String → Int → Option Int
 
 /-- The environment of one stored row: the row under every image name, the state's relations. -/
 def Env.ofRow (st : State) (x : Extra) (ρ : Row) : Env :=
-  { col := fun _ => ρ, ctx := x.ctx, rel := st.rel, forest := x.forest, opaques := x.opaques }
+  { col := fun _ => ρ, ctx := x.ctx, rel := st.rel, forest := x.forest, opaques := x.opaques,
+    hop := x.hop }
 
 /-! ## A CHECK reads only its row -/
 
@@ -122,6 +124,7 @@ theorem eval_rowOnly (hcol : e.col row = e'.col row') :
     show liftCmp op.holds (l.value e row) (r.value e row) = liftCmp op.holds (l.value e' row') (r.value e' row')
     rw [Term.value_isRow l hp.1 hcol, Term.value_isRow r hp.2 hcol]
   | .member _ _ _, hp => by simp [Pred.rowOnly] at hp
+  | .memberVia _ _ _ _, hp => by simp [Pred.rowOnly] at hp
   | .inGroup _ _ _, hp => by simp [Pred.rowOnly] at hp
   | .nowBetween _ _, hp => by simp [Pred.rowOnly] at hp
   | .opaqueRef _, hp => by simp [Pred.rowOnly] at hp

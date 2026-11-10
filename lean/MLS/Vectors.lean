@@ -9,7 +9,7 @@ under the harness valuation, `Rules.visible/insert/update/delete` with `pg/model
 -/
 namespace MLS
 
-open Vec (Cols Ctx Facts Hiers)
+open Vec (Cols Ctx Facts Hiers Hops)
 
 /-- `tests/logic/test_tvl.py:SPEC`: nullable a, b, u, ts; g NOT NULL. -/
 def SB : Schema := Vec.schema ["a", "b", "u", "ts"] []
@@ -17,6 +17,9 @@ def SB : Schema := Vec.schema ["a", "b", "u", "ts"] []
 /-- The hierarchy spec of the generator: `org` over `groups`, members relation `members`,
 `max_depth` 2. -/
 def SH : Schema := Vec.schema ["parent_id"] [("org", "members", 2)]
+
+/-- The composed-relation spec of the generator: `notes` with nullable project_id, task_id, u. -/
+def SC : Schema := Vec.schema ["project_id", "task_id", "u"] []
 
 /-- `in_group(org, uid, group_id)` -/
 def GP : Pred := Pred.inGroup "org" (Term.ctx "uid") (Term.col "group_id")
@@ -2632,6 +2635,550 @@ def oc119 : Cols := [("old", "a", some 2), ("old", "b", some 0), ("old", "g", so
 def ox119 : Ctx := [("clr", 0), ("uid", 1), ("now", 0)]
 def of119 : Facts := [("rel", 1, 1), ("rel", 2, 0)]
 #guard Rules.update or119 SB "t" "app" false (Vec.env oc119 ox119 of119 []) = Outcome.filtered
+
+
+/-! ## Composed relations: the hops and their lookups (D56) -/
+
+
+-- C0
+def cv0 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id"))
+def cc0 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 0), ("r", "u", some 1)]
+def cx0 : Ctx := [("uid", 1), ("now", 0)]
+def cf0 : Facts := [("members", 1, 1), ("members", 2, 1)]
+def ch0 : Hops := [("projects.id.team_id", [(1, 0), (2, 0)]), ("tasks.id.project_id", [(3, 1)])]
+#guard Pred.eval SC (Vec.env cc0 cx0 cf0 [] ch0) "r" cv0 = TV.ff
+#guard Pred.tf SC (Vec.val cc0 cx0 cf0 [] ch0) "r" cv0 = (⟨false, true⟩ : Pair)
+
+-- C1
+def cv1 : Pred := (Pred.not (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id")))
+def cc1 : Cols := [("r", "id", some 1), ("r", "project_id", some 1), ("r", "task_id", some 3), ("r", "u", some 1)]
+def cx1 : Ctx := [("uid", 1), ("now", 0)]
+def cf1 : Facts := [("members", 2, 0), ("members", 2, 2)]
+def ch1 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [(2, 0)])]
+#guard Pred.eval SC (Vec.env cc1 cx1 cf1 [] ch1) "r" cv1 = TV.tt
+#guard Pred.tf SC (Vec.val cc1 cx1 cf1 [] ch1) "r" cv1 = (⟨true, false⟩ : Pair)
+
+-- C2
+def cv2 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc2 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 3), ("r", "u", some 1)]
+def cx2 : Ctx := [("uid", 1), ("now", 0)]
+def cf2 : Facts := [("members", 2, 0), ("members", 2, 1)]
+def ch2 : Hops := [("projects.id.team_id", [(2, 0)]), ("tasks.id.project_id", [(0, 2), (3, 0)])]
+#guard Pred.eval SC (Vec.env cc2 cx2 cf2 [] ch2) "r" cv2 = TV.ff
+#guard Pred.tf SC (Vec.val cc2 cx2 cf2 [] ch2) "r" cv2 = (⟨false, true⟩ : Pair)
+
+-- C3
+def cv3 : Pred := (Pred.not (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id")))
+def cc3 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 2), ("r", "u", some 2)]
+def cx3 : Ctx := [("uid", 1), ("now", 0)]
+def cf3 : Facts := []
+def ch3 : Hops := [("projects.id.team_id", [(0, 2), (1, 0), (2, 0)]), ("tasks.id.project_id", [(0, 0), (1, 3), (2, 2), (3, 1)])]
+#guard Pred.eval SC (Vec.env cc3 cx3 cf3 [] ch3) "r" cv3 = TV.tt
+#guard Pred.tf SC (Vec.val cc3 cx3 cf3 [] ch3) "r" cv3 = (⟨true, false⟩ : Pair)
+
+-- C4
+def cv4 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc4 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 0), ("r", "u", some 2)]
+def cx4 : Ctx := [("uid", 1), ("now", 0)]
+def cf4 : Facts := []
+def ch4 : Hops := [("projects.id.team_id", [(1, 2), (2, 2), (3, 0)]), ("tasks.id.project_id", [(0, 0)])]
+#guard Pred.eval SC (Vec.env cc4 cx4 cf4 [] ch4) "r" cv4 = TV.ff
+#guard Pred.tf SC (Vec.val cc4 cx4 cf4 [] ch4) "r" cv4 = (⟨false, true⟩ : Pair)
+
+-- C5
+def cv5 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc5 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 2), ("r", "u", some 2)]
+def cx5 : Ctx := [("uid", 2), ("now", 0)]
+def cf5 : Facts := [("members", 1, 0), ("members", 1, 1), ("members", 2, 2)]
+def ch5 : Hops := [("projects.id.team_id", [(1, 1), (2, 0)]), ("tasks.id.project_id", [(1, 1), (3, 2)])]
+#guard Pred.eval SC (Vec.env cc5 cx5 cf5 [] ch5) "r" cv5 = TV.ff
+#guard Pred.tf SC (Vec.val cc5 cx5 cf5 [] ch5) "r" cv5 = (⟨false, true⟩ : Pair)
+
+-- C6
+def cv6 : Pred := (Pred.not (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id")))
+def cc6 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 2), ("r", "u", some 2)]
+def cx6 : Ctx := [("uid", 1), ("now", 0)]
+def cf6 : Facts := []
+def ch6 : Hops := [("projects.id.team_id", [(0, 1), (1, 1), (2, 2), (3, 0)]), ("tasks.id.project_id", [(0, 0), (1, 2), (2, 1), (3, 3)])]
+#guard Pred.eval SC (Vec.env cc6 cx6 cf6 [] ch6) "r" cv6 = TV.tt
+#guard Pred.tf SC (Vec.val cc6 cx6 cf6 [] ch6) "r" cv6 = (⟨true, false⟩ : Pair)
+
+-- C7
+def cv7 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc7 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 1), ("r", "u", some 1)]
+def cx7 : Ctx := [("uid", 2), ("now", 0)]
+def cf7 : Facts := [("members", 2, 2)]
+def ch7 : Hops := [("projects.id.team_id", [(0, 0)]), ("tasks.id.project_id", [(0, 3), (1, 2), (2, 0), (3, 0)])]
+#guard Pred.eval SC (Vec.env cc7 cx7 cf7 [] ch7) "r" cv7 = TV.unk
+#guard Pred.tf SC (Vec.val cc7 cx7 cf7 [] ch7) "r" cv7 = (⟨false, false⟩ : Pair)
+
+-- C8
+def cv8 : Pred := (Pred.not (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id")))
+def cc8 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 4), ("r", "u", none)]
+def cx8 : Ctx := [("uid", 1), ("now", 0)]
+def cf8 : Facts := [("members", 1, 0), ("members", 1, 2), ("members", 2, 0)]
+def ch8 : Hops := [("projects.id.team_id", [(0, 0), (1, 0), (2, 2), (3, 1)]), ("tasks.id.project_id", [(2, 0)])]
+#guard Pred.eval SC (Vec.env cc8 cx8 cf8 [] ch8) "r" cv8 = TV.unk
+#guard Pred.tf SC (Vec.val cc8 cx8 cf8 [] ch8) "r" cv8 = (⟨false, false⟩ : Pair)
+
+-- C9
+def cv9 : Pred := (Pred.not (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id")))
+def cc9 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 0), ("r", "u", none)]
+def cx9 : Ctx := [("uid", 2), ("now", 0)]
+def cf9 : Facts := [("members", 1, 1)]
+def ch9 : Hops := [("projects.id.team_id", [(1, 1)]), ("tasks.id.project_id", [(0, 1), (1, 0), (2, 3), (3, 1)])]
+#guard Pred.eval SC (Vec.env cc9 cx9 cf9 [] ch9) "r" cv9 = TV.unk
+#guard Pred.tf SC (Vec.val cc9 cx9 cf9 [] ch9) "r" cv9 = (⟨false, false⟩ : Pair)
+
+-- C10
+def cv10 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc10 : Cols := [("r", "id", some 1), ("r", "project_id", some 1), ("r", "task_id", none), ("r", "u", some 1)]
+def cx10 : Ctx := [("uid", 2), ("now", 0)]
+def cf10 : Facts := [("members", 1, 2), ("members", 2, 0)]
+def ch10 : Hops := [("projects.id.team_id", [(1, 1), (2, 0)]), ("tasks.id.project_id", [(1, 2), (2, 0)])]
+#guard Pred.eval SC (Vec.env cc10 cx10 cf10 [] ch10) "r" cv10 = TV.ff
+#guard Pred.tf SC (Vec.val cc10 cx10 cf10 [] ch10) "r" cv10 = (⟨false, true⟩ : Pair)
+
+-- C11
+def cv11 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id"))
+def cc11 : Cols := [("r", "id", some 1), ("r", "project_id", some 1), ("r", "task_id", some 2), ("r", "u", none)]
+def cx11 : Ctx := [("uid", 1), ("now", 0)]
+def cf11 : Facts := []
+def ch11 : Hops := [("projects.id.team_id", [(0, 2), (1, 1), (3, 1)]), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc11 cx11 cf11 [] ch11) "r" cv11 = TV.ff
+#guard Pred.tf SC (Vec.val cc11 cx11 cf11 [] ch11) "r" cv11 = (⟨false, true⟩ : Pair)
+
+-- C12
+def cv12 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id"))
+def cc12 : Cols := [("r", "id", some 1), ("r", "project_id", some 3), ("r", "task_id", none), ("r", "u", some 1)]
+def cx12 : Ctx := [("uid", 1), ("now", 0)]
+def cf12 : Facts := [("members", 1, 0), ("members", 2, 0), ("members", 2, 1)]
+def ch12 : Hops := [("projects.id.team_id", [(0, 0), (1, 2)]), ("tasks.id.project_id", [(0, 2), (1, 2), (2, 3)])]
+#guard Pred.eval SC (Vec.env cc12 cx12 cf12 [] ch12) "r" cv12 = TV.ff
+#guard Pred.tf SC (Vec.val cc12 cx12 cf12 [] ch12) "r" cv12 = (⟨false, true⟩ : Pair)
+
+-- C13
+def cv13 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id"))
+def cc13 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 1), ("r", "u", some 2)]
+def cx13 : Ctx := [("uid", 1), ("now", 0)]
+def cf13 : Facts := [("members", 1, 2)]
+def ch13 : Hops := [("projects.id.team_id", [(2, 2)]), ("tasks.id.project_id", [(0, 0), (1, 1), (2, 2)])]
+#guard Pred.eval SC (Vec.env cc13 cx13 cf13 [] ch13) "r" cv13 = TV.unk
+#guard Pred.tf SC (Vec.val cc13 cx13 cf13 [] ch13) "r" cv13 = (⟨false, false⟩ : Pair)
+
+-- C14
+def cv14 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc14 : Cols := [("r", "id", some 1), ("r", "project_id", some 3), ("r", "task_id", some 3), ("r", "u", some 1)]
+def cx14 : Ctx := [("uid", 1), ("now", 0)]
+def cf14 : Facts := [("members", 1, 0), ("members", 2, 1)]
+def ch14 : Hops := [("projects.id.team_id", [(1, 2)]), ("tasks.id.project_id", [(1, 1), (2, 0)])]
+#guard Pred.eval SC (Vec.env cc14 cx14 cf14 [] ch14) "r" cv14 = TV.ff
+#guard Pred.tf SC (Vec.val cc14 cx14 cf14 [] ch14) "r" cv14 = (⟨false, true⟩ : Pair)
+
+-- C15
+def cv15 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id"))
+def cc15 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 4), ("r", "u", some 2)]
+def cx15 : Ctx := [("uid", 1), ("now", 0)]
+def cf15 : Facts := [("members", 1, 2), ("members", 2, 0)]
+def ch15 : Hops := [("projects.id.team_id", [(3, 0)]), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc15 cx15 cf15 [] ch15) "r" cv15 = TV.ff
+#guard Pred.tf SC (Vec.val cc15 cx15 cf15 [] ch15) "r" cv15 = (⟨false, true⟩ : Pair)
+
+-- C16
+def cv16 : Pred := (Pred.not (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id")))
+def cc16 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 2), ("r", "u", some 2)]
+def cx16 : Ctx := [("uid", 2), ("now", 0)]
+def cf16 : Facts := [("members", 1, 0)]
+def ch16 : Hops := [("projects.id.team_id", [(2, 2), (3, 2)]), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc16 cx16 cf16 [] ch16) "r" cv16 = TV.tt
+#guard Pred.tf SC (Vec.val cc16 cx16 cf16 [] ch16) "r" cv16 = (⟨true, false⟩ : Pair)
+
+-- C17
+def cv17 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id"))
+def cc17 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 2), ("r", "u", some 1)]
+def cx17 : Ctx := [("uid", 1), ("now", 0)]
+def cf17 : Facts := [("members", 1, 2), ("members", 2, 1)]
+def ch17 : Hops := [("projects.id.team_id", [(0, 0), (1, 0), (2, 1), (3, 1)]), ("tasks.id.project_id", [(1, 0), (2, 2)])]
+#guard Pred.eval SC (Vec.env cc17 cx17 cf17 [] ch17) "r" cv17 = TV.ff
+#guard Pred.tf SC (Vec.val cc17 cx17 cf17 [] ch17) "r" cv17 = (⟨false, true⟩ : Pair)
+
+-- C18
+def cv18 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc18 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", none), ("r", "u", none)]
+def cx18 : Ctx := [("uid", 2), ("now", 0)]
+def cf18 : Facts := [("members", 1, 0), ("members", 1, 2), ("members", 2, 1)]
+def ch18 : Hops := [("projects.id.team_id", [(0, 0)]), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc18 cx18 cf18 [] ch18) "r" cv18 = TV.ff
+#guard Pred.tf SC (Vec.val cc18 cx18 cf18 [] ch18) "r" cv18 = (⟨false, true⟩ : Pair)
+
+-- C19
+def cv19 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc19 : Cols := [("r", "id", some 1), ("r", "project_id", some 1), ("r", "task_id", none), ("r", "u", some 1)]
+def cx19 : Ctx := [("uid", 1), ("now", 0)]
+def cf19 : Facts := []
+def ch19 : Hops := [("projects.id.team_id", [(2, 1)]), ("tasks.id.project_id", [(1, 1), (2, 0)])]
+#guard Pred.eval SC (Vec.env cc19 cx19 cf19 [] ch19) "r" cv19 = TV.ff
+#guard Pred.tf SC (Vec.val cc19 cx19 cf19 [] ch19) "r" cv19 = (⟨false, true⟩ : Pair)
+
+-- C20
+def cv20 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc20 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", none), ("r", "u", some 1)]
+def cx20 : Ctx := [("uid", 2), ("now", 0)]
+def cf20 : Facts := [("members", 1, 2), ("members", 2, 1)]
+def ch20 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [(2, 1)])]
+#guard Pred.eval SC (Vec.env cc20 cx20 cf20 [] ch20) "r" cv20 = TV.ff
+#guard Pred.tf SC (Vec.val cc20 cx20 cf20 [] ch20) "r" cv20 = (⟨false, true⟩ : Pair)
+
+-- C21
+def cv21 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id"))
+def cc21 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 2), ("r", "u", some 1)]
+def cx21 : Ctx := [("uid", 1), ("now", 0)]
+def cf21 : Facts := [("members", 2, 1)]
+def ch21 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [(2, 1), (3, 0)])]
+#guard Pred.eval SC (Vec.env cc21 cx21 cf21 [] ch21) "r" cv21 = TV.unk
+#guard Pred.tf SC (Vec.val cc21 cx21 cf21 [] ch21) "r" cv21 = (⟨false, false⟩ : Pair)
+
+-- C22
+def cv22 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc22 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 3), ("r", "u", none)]
+def cx22 : Ctx := [("uid", 2), ("now", 0)]
+def cf22 : Facts := [("members", 1, 2), ("members", 2, 1)]
+def ch22 : Hops := [("projects.id.team_id", [(1, 1), (2, 1), (3, 2)]), ("tasks.id.project_id", [(0, 2)])]
+#guard Pred.eval SC (Vec.env cc22 cx22 cf22 [] ch22) "r" cv22 = TV.unk
+#guard Pred.tf SC (Vec.val cc22 cx22 cf22 [] ch22) "r" cv22 = (⟨false, false⟩ : Pair)
+
+-- C23
+def cv23 : Pred := (Pred.not (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id")))
+def cc23 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 2), ("r", "u", some 2)]
+def cx23 : Ctx := [("uid", 1), ("now", 0)]
+def cf23 : Facts := [("members", 1, 1), ("members", 2, 2)]
+def ch23 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc23 cx23 cf23 [] ch23) "r" cv23 = TV.unk
+#guard Pred.tf SC (Vec.val cc23 cx23 cf23 [] ch23) "r" cv23 = (⟨false, false⟩ : Pair)
+
+-- C24
+def cv24 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc24 : Cols := [("r", "id", some 1), ("r", "project_id", some 1), ("r", "task_id", some 0), ("r", "u", some 2)]
+def cx24 : Ctx := [("uid", 2), ("now", 0)]
+def cf24 : Facts := [("members", 1, 1)]
+def ch24 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [(2, 1), (3, 1)])]
+#guard Pred.eval SC (Vec.env cc24 cx24 cf24 [] ch24) "r" cv24 = TV.ff
+#guard Pred.tf SC (Vec.val cc24 cx24 cf24 [] ch24) "r" cv24 = (⟨false, true⟩ : Pair)
+
+-- C25
+def cv25 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id"))
+def cc25 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 1), ("r", "u", some 1)]
+def cx25 : Ctx := [("uid", 2), ("now", 0)]
+def cf25 : Facts := [("members", 1, 1)]
+def ch25 : Hops := [("projects.id.team_id", [(1, 2), (3, 2)]), ("tasks.id.project_id", [(0, 1), (1, 0), (2, 1), (3, 0)])]
+#guard Pred.eval SC (Vec.env cc25 cx25 cf25 [] ch25) "r" cv25 = TV.unk
+#guard Pred.tf SC (Vec.val cc25 cx25 cf25 [] ch25) "r" cv25 = (⟨false, false⟩ : Pair)
+
+-- C26
+def cv26 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc26 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 3), ("r", "u", some 2)]
+def cx26 : Ctx := [("uid", 1), ("now", 0)]
+def cf26 : Facts := [("members", 1, 1), ("members", 1, 2), ("members", 2, 2)]
+def ch26 : Hops := [("projects.id.team_id", [(1, 0)]), ("tasks.id.project_id", [(1, 3)])]
+#guard Pred.eval SC (Vec.env cc26 cx26 cf26 [] ch26) "r" cv26 = TV.ff
+#guard Pred.tf SC (Vec.val cc26 cx26 cf26 [] ch26) "r" cv26 = (⟨false, true⟩ : Pair)
+
+-- C27
+def cv27 : Pred := (Pred.not (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id")))
+def cc27 : Cols := [("r", "id", some 1), ("r", "project_id", some 1), ("r", "task_id", none), ("r", "u", some 1)]
+def cx27 : Ctx := [("uid", 1), ("now", 0)]
+def cf27 : Facts := [("members", 1, 0)]
+def ch27 : Hops := [("projects.id.team_id", [(0, 1)]), ("tasks.id.project_id", [(0, 2), (1, 2), (2, 2), (3, 1)])]
+#guard Pred.eval SC (Vec.env cc27 cx27 cf27 [] ch27) "r" cv27 = TV.unk
+#guard Pred.tf SC (Vec.val cc27 cx27 cf27 [] ch27) "r" cv27 = (⟨false, false⟩ : Pair)
+
+-- C28
+def cv28 : Pred := (Pred.not (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id")))
+def cc28 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 4), ("r", "u", some 2)]
+def cx28 : Ctx := [("uid", 2), ("now", 0)]
+def cf28 : Facts := [("members", 2, 0)]
+def ch28 : Hops := [("projects.id.team_id", [(2, 2)]), ("tasks.id.project_id", [(0, 3), (3, 0)])]
+#guard Pred.eval SC (Vec.env cc28 cx28 cf28 [] ch28) "r" cv28 = TV.tt
+#guard Pred.tf SC (Vec.val cc28 cx28 cf28 [] ch28) "r" cv28 = (⟨true, false⟩ : Pair)
+
+-- C29
+def cv29 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc29 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 0), ("r", "u", some 2)]
+def cx29 : Ctx := [("uid", 2), ("now", 0)]
+def cf29 : Facts := []
+def ch29 : Hops := [("projects.id.team_id", [(0, 2), (2, 1)]), ("tasks.id.project_id", [(0, 2), (1, 0), (3, 2)])]
+#guard Pred.eval SC (Vec.env cc29 cx29 cf29 [] ch29) "r" cv29 = TV.ff
+#guard Pred.tf SC (Vec.val cc29 cx29 cf29 [] ch29) "r" cv29 = (⟨false, true⟩ : Pair)
+
+-- C30
+def cv30 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id"))
+def cc30 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 3), ("r", "u", some 1)]
+def cx30 : Ctx := [("uid", 2), ("now", 0)]
+def cf30 : Facts := []
+def ch30 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc30 cx30 cf30 [] ch30) "r" cv30 = TV.ff
+#guard Pred.tf SC (Vec.val cc30 cx30 cf30 [] ch30) "r" cv30 = (⟨false, true⟩ : Pair)
+
+-- C31
+def cv31 : Pred := (Pred.not (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id")))
+def cc31 : Cols := [("r", "id", some 1), ("r", "project_id", some 3), ("r", "task_id", none), ("r", "u", some 2)]
+def cx31 : Ctx := [("uid", 1), ("now", 0)]
+def cf31 : Facts := [("members", 2, 0)]
+def ch31 : Hops := [("projects.id.team_id", [(0, 2)]), ("tasks.id.project_id", [(0, 1), (1, 1), (2, 2), (3, 0)])]
+#guard Pred.eval SC (Vec.env cc31 cx31 cf31 [] ch31) "r" cv31 = TV.unk
+#guard Pred.tf SC (Vec.val cc31 cx31 cf31 [] ch31) "r" cv31 = (⟨false, false⟩ : Pair)
+
+-- C32
+def cv32 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id"))
+def cc32 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 1), ("r", "u", some 1)]
+def cx32 : Ctx := [("uid", 1), ("now", 0)]
+def cf32 : Facts := [("members", 2, 1)]
+def ch32 : Hops := [("projects.id.team_id", [(1, 1), (2, 1)]), ("tasks.id.project_id", [(0, 3), (3, 1)])]
+#guard Pred.eval SC (Vec.env cc32 cx32 cf32 [] ch32) "r" cv32 = TV.ff
+#guard Pred.tf SC (Vec.val cc32 cx32 cf32 [] ch32) "r" cv32 = (⟨false, true⟩ : Pair)
+
+-- C33
+def cv33 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id"))
+def cc33 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 4), ("r", "u", some 1)]
+def cx33 : Ctx := [("uid", 1), ("now", 0)]
+def cf33 : Facts := []
+def ch33 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [(0, 2), (1, 0), (2, 1), (3, 0)])]
+#guard Pred.eval SC (Vec.env cc33 cx33 cf33 [] ch33) "r" cv33 = TV.ff
+#guard Pred.tf SC (Vec.val cc33 cx33 cf33 [] ch33) "r" cv33 = (⟨false, true⟩ : Pair)
+
+-- C34
+def cv34 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc34 : Cols := [("r", "id", some 1), ("r", "project_id", some 1), ("r", "task_id", some 4), ("r", "u", none)]
+def cx34 : Ctx := [("uid", 1), ("now", 0)]
+def cf34 : Facts := [("members", 1, 2)]
+def ch34 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc34 cx34 cf34 [] ch34) "r" cv34 = TV.ff
+#guard Pred.tf SC (Vec.val cc34 cx34 cf34 [] ch34) "r" cv34 = (⟨false, true⟩ : Pair)
+
+-- C35
+def cv35 : Pred := (Pred.not (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id")))
+def cc35 : Cols := [("r", "id", some 1), ("r", "project_id", some 3), ("r", "task_id", some 0), ("r", "u", none)]
+def cx35 : Ctx := [("uid", 2), ("now", 0)]
+def cf35 : Facts := []
+def ch35 : Hops := [("projects.id.team_id", [(2, 1)]), ("tasks.id.project_id", [(0, 3), (1, 1), (2, 2), (3, 2)])]
+#guard Pred.eval SC (Vec.env cc35 cx35 cf35 [] ch35) "r" cv35 = TV.tt
+#guard Pred.tf SC (Vec.val cc35 cx35 cf35 [] ch35) "r" cv35 = (⟨true, false⟩ : Pair)
+
+-- C36
+def cv36 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id"))
+def cc36 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 0), ("r", "u", some 2)]
+def cx36 : Ctx := [("uid", 1), ("now", 0)]
+def cf36 : Facts := []
+def ch36 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [(0, 0), (1, 3), (2, 2)])]
+#guard Pred.eval SC (Vec.env cc36 cx36 cf36 [] ch36) "r" cv36 = TV.ff
+#guard Pred.tf SC (Vec.val cc36 cx36 cf36 [] ch36) "r" cv36 = (⟨false, true⟩ : Pair)
+
+-- C37
+def cv37 : Pred := (Pred.not (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id")))
+def cc37 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 1), ("r", "u", some 2)]
+def cx37 : Ctx := [("uid", 1), ("now", 0)]
+def cf37 : Facts := [("members", 2, 0), ("members", 2, 1)]
+def ch37 : Hops := [("projects.id.team_id", [(0, 0), (1, 1), (3, 0)]), ("tasks.id.project_id", [(0, 2), (1, 1), (2, 3), (3, 2)])]
+#guard Pred.eval SC (Vec.env cc37 cx37 cf37 [] ch37) "r" cv37 = TV.tt
+#guard Pred.tf SC (Vec.val cc37 cx37 cf37 [] ch37) "r" cv37 = (⟨true, false⟩ : Pair)
+
+-- C38
+def cv38 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc38 : Cols := [("r", "id", some 1), ("r", "project_id", some 1), ("r", "task_id", some 3), ("r", "u", some 2)]
+def cx38 : Ctx := [("uid", 1), ("now", 0)]
+def cf38 : Facts := [("members", 1, 1), ("members", 2, 0)]
+def ch38 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [(3, 3)])]
+#guard Pred.eval SC (Vec.env cc38 cx38 cf38 [] ch38) "r" cv38 = TV.ff
+#guard Pred.tf SC (Vec.val cc38 cx38 cf38 [] ch38) "r" cv38 = (⟨false, true⟩ : Pair)
+
+-- C39
+def cv39 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc39 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 1), ("r", "u", some 1)]
+def cx39 : Ctx := [("uid", 1), ("now", 0)]
+def cf39 : Facts := []
+def ch39 : Hops := [("projects.id.team_id", [(0, 2), (1, 2), (2, 2)]), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc39 cx39 cf39 [] ch39) "r" cv39 = TV.ff
+#guard Pred.tf SC (Vec.val cc39 cx39 cf39 [] ch39) "r" cv39 = (⟨false, true⟩ : Pair)
+
+-- C40
+def cv40 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id"))
+def cc40 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 4), ("r", "u", some 2)]
+def cx40 : Ctx := [("uid", 2), ("now", 0)]
+def cf40 : Facts := [("members", 1, 1), ("members", 2, 1), ("members", 2, 2)]
+def ch40 : Hops := [("projects.id.team_id", [(1, 0), (2, 2), (3, 1)]), ("tasks.id.project_id", [(0, 3), (1, 2), (2, 2), (3, 2)])]
+#guard Pred.eval SC (Vec.env cc40 cx40 cf40 [] ch40) "r" cv40 = TV.tt
+#guard Pred.tf SC (Vec.val cc40 cx40 cf40 [] ch40) "r" cv40 = (⟨true, false⟩ : Pair)
+
+-- C41
+def cv41 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc41 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 2), ("r", "u", none)]
+def cx41 : Ctx := [("uid", 1), ("now", 0)]
+def cf41 : Facts := [("members", 2, 2)]
+def ch41 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc41 cx41 cf41 [] ch41) "r" cv41 = TV.unk
+#guard Pred.tf SC (Vec.val cc41 cx41 cf41 [] ch41) "r" cv41 = (⟨false, false⟩ : Pair)
+
+-- C42
+def cv42 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc42 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 2), ("r", "u", some 2)]
+def cx42 : Ctx := [("uid", 1), ("now", 0)]
+def cf42 : Facts := [("members", 1, 0), ("members", 1, 2)]
+def ch42 : Hops := [("projects.id.team_id", [(0, 2), (1, 1), (2, 0), (3, 2)]), ("tasks.id.project_id", [(3, 0)])]
+#guard Pred.eval SC (Vec.env cc42 cx42 cf42 [] ch42) "r" cv42 = TV.tt
+#guard Pred.tf SC (Vec.val cc42 cx42 cf42 [] ch42) "r" cv42 = (⟨true, false⟩ : Pair)
+
+-- C43
+def cv43 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc43 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 0), ("r", "u", none)]
+def cx43 : Ctx := [("uid", 1), ("now", 0)]
+def cf43 : Facts := [("members", 1, 1), ("members", 1, 2), ("members", 2, 0)]
+def ch43 : Hops := [("projects.id.team_id", [(0, 1), (3, 1)]), ("tasks.id.project_id", [(0, 3), (1, 1), (2, 1), (3, 1)])]
+#guard Pred.eval SC (Vec.env cc43 cx43 cf43 [] ch43) "r" cv43 = TV.tt
+#guard Pred.tf SC (Vec.val cc43 cx43 cf43 [] ch43) "r" cv43 = (⟨true, false⟩ : Pair)
+
+-- C44
+def cv44 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc44 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", none), ("r", "u", some 2)]
+def cx44 : Ctx := [("uid", 1), ("now", 0)]
+def cf44 : Facts := []
+def ch44 : Hops := [("projects.id.team_id", [(0, 0), (1, 1), (2, 0), (3, 1)]), ("tasks.id.project_id", [(0, 2), (1, 2), (2, 3)])]
+#guard Pred.eval SC (Vec.env cc44 cx44 cf44 [] ch44) "r" cv44 = TV.unk
+#guard Pred.tf SC (Vec.val cc44 cx44 cf44 [] ch44) "r" cv44 = (⟨false, false⟩ : Pair)
+
+-- C45
+def cv45 : Pred := (Pred.not (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id")))
+def cc45 : Cols := [("r", "id", some 1), ("r", "project_id", some 1), ("r", "task_id", none), ("r", "u", some 2)]
+def cx45 : Ctx := [("uid", 1), ("now", 0)]
+def cf45 : Facts := [("members", 1, 1)]
+def ch45 : Hops := [("projects.id.team_id", [(1, 0), (2, 0), (3, 2)]), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc45 cx45 cf45 [] ch45) "r" cv45 = TV.unk
+#guard Pred.tf SC (Vec.val cc45 cx45 cf45 [] ch45) "r" cv45 = (⟨false, false⟩ : Pair)
+
+-- C46
+def cv46 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id"))
+def cc46 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 2), ("r", "u", some 2)]
+def cx46 : Ctx := [("uid", 2), ("now", 0)]
+def cf46 : Facts := [("members", 2, 1), ("members", 2, 2)]
+def ch46 : Hops := [("projects.id.team_id", [(0, 2)]), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc46 cx46 cf46 [] ch46) "r" cv46 = TV.ff
+#guard Pred.tf SC (Vec.val cc46 cx46 cf46 [] ch46) "r" cv46 = (⟨false, true⟩ : Pair)
+
+-- C47
+def cv47 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id"))
+def cc47 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 4), ("r", "u", none)]
+def cx47 : Ctx := [("uid", 1), ("now", 0)]
+def cf47 : Facts := [("members", 1, 1), ("members", 2, 0), ("members", 2, 2)]
+def ch47 : Hops := [("projects.id.team_id", [(1, 2), (2, 0)]), ("tasks.id.project_id", [(0, 2)])]
+#guard Pred.eval SC (Vec.env cc47 cx47 cf47 [] ch47) "r" cv47 = TV.unk
+#guard Pred.tf SC (Vec.val cc47 cx47 cf47 [] ch47) "r" cv47 = (⟨false, false⟩ : Pair)
+
+-- C48
+def cv48 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc48 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 3), ("r", "u", none)]
+def cx48 : Ctx := [("uid", 2), ("now", 0)]
+def cf48 : Facts := [("members", 1, 1), ("members", 2, 1), ("members", 2, 2)]
+def ch48 : Hops := [("projects.id.team_id", [(2, 1)]), ("tasks.id.project_id", [(0, 0), (1, 2), (2, 3), (3, 3)])]
+#guard Pred.eval SC (Vec.env cc48 cx48 cf48 [] ch48) "r" cv48 = TV.ff
+#guard Pred.tf SC (Vec.val cc48 cx48 cf48 [] ch48) "r" cv48 = (⟨false, true⟩ : Pair)
+
+-- C49
+def cv49 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc49 : Cols := [("r", "id", some 1), ("r", "project_id", some 1), ("r", "task_id", some 0), ("r", "u", none)]
+def cx49 : Ctx := [("uid", 1), ("now", 0)]
+def cf49 : Facts := []
+def ch49 : Hops := [("projects.id.team_id", [(0, 1), (1, 0)]), ("tasks.id.project_id", [(3, 1)])]
+#guard Pred.eval SC (Vec.env cc49 cx49 cf49 [] ch49) "r" cv49 = TV.ff
+#guard Pred.tf SC (Vec.val cc49 cx49 cf49 [] ch49) "r" cv49 = (⟨false, true⟩ : Pair)
+
+-- C50
+def cv50 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc50 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 2), ("r", "u", some 2)]
+def cx50 : Ctx := [("uid", 1), ("now", 0)]
+def cf50 : Facts := [("members", 2, 1)]
+def ch50 : Hops := [("projects.id.team_id", [(1, 1), (2, 2), (3, 2)]), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc50 cx50 cf50 [] ch50) "r" cv50 = TV.ff
+#guard Pred.tf SC (Vec.val cc50 cx50 cf50 [] ch50) "r" cv50 = (⟨false, true⟩ : Pair)
+
+-- C51
+def cv51 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc51 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 2), ("r", "u", none)]
+def cx51 : Ctx := [("uid", 2), ("now", 0)]
+def cf51 : Facts := [("members", 1, 1), ("members", 2, 0)]
+def ch51 : Hops := [("projects.id.team_id", [(2, 1)]), ("tasks.id.project_id", [(1, 0)])]
+#guard Pred.eval SC (Vec.env cc51 cx51 cf51 [] ch51) "r" cv51 = TV.unk
+#guard Pred.tf SC (Vec.val cc51 cx51 cf51 [] ch51) "r" cv51 = (⟨false, false⟩ : Pair)
+
+-- C52
+def cv52 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id"))
+def cc52 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 4), ("r", "u", some 2)]
+def cx52 : Ctx := [("uid", 2), ("now", 0)]
+def cf52 : Facts := [("members", 1, 1), ("members", 2, 0)]
+def ch52 : Hops := [("projects.id.team_id", [(0, 1), (2, 0), (3, 1)]), ("tasks.id.project_id", [(1, 3)])]
+#guard Pred.eval SC (Vec.env cc52 cx52 cf52 [] ch52) "r" cv52 = TV.ff
+#guard Pred.tf SC (Vec.val cc52 cx52 cf52 [] ch52) "r" cv52 = (⟨false, true⟩ : Pair)
+
+-- C53
+def cv53 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc53 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 3), ("r", "u", none)]
+def cx53 : Ctx := [("uid", 2), ("now", 0)]
+def cf53 : Facts := [("members", 1, 2), ("members", 2, 2)]
+def ch53 : Hops := [("projects.id.team_id", [(0, 2), (3, 2)]), ("tasks.id.project_id", [(0, 2), (1, 0), (2, 3), (3, 1)])]
+#guard Pred.eval SC (Vec.env cc53 cx53 cf53 [] ch53) "r" cv53 = TV.ff
+#guard Pred.tf SC (Vec.val cc53 cx53 cf53 [] ch53) "r" cv53 = (⟨false, true⟩ : Pair)
+
+-- C54
+def cv54 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc54 : Cols := [("r", "id", some 1), ("r", "project_id", none), ("r", "task_id", some 2), ("r", "u", some 1)]
+def cx54 : Ctx := [("uid", 1), ("now", 0)]
+def cf54 : Facts := [("members", 1, 0), ("members", 1, 1)]
+def ch54 : Hops := [("projects.id.team_id", [(0, 0), (1, 0), (3, 0)]), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc54 cx54 cf54 [] ch54) "r" cv54 = TV.unk
+#guard Pred.tf SC (Vec.val cc54 cx54 cf54 [] ch54) "r" cv54 = (⟨false, false⟩ : Pair)
+
+-- C55
+def cv55 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.ctx "uid") (Term.col "project_id"))
+def cc55 : Cols := [("r", "id", some 1), ("r", "project_id", some 0), ("r", "task_id", some 4), ("r", "u", some 1)]
+def cx55 : Ctx := [("uid", 2), ("now", 0)]
+def cf55 : Facts := [("members", 1, 2), ("members", 2, 2)]
+def ch55 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [(0, 2), (1, 0), (2, 1), (3, 1)])]
+#guard Pred.eval SC (Vec.env cc55 cx55 cf55 [] ch55) "r" cv55 = TV.ff
+#guard Pred.tf SC (Vec.val cc55 cx55 cf55 [] ch55) "r" cv55 = (⟨false, true⟩ : Pair)
+
+-- C56
+def cv56 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id"))
+def cc56 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 1), ("r", "u", some 2)]
+def cx56 : Ctx := [("uid", 2), ("now", 0)]
+def cf56 : Facts := [("members", 1, 2), ("members", 2, 2)]
+def ch56 : Hops := [("projects.id.team_id", [(3, 1)]), ("tasks.id.project_id", [(0, 1), (2, 3)])]
+#guard Pred.eval SC (Vec.env cc56 cx56 cf56 [] ch56) "r" cv56 = TV.ff
+#guard Pred.tf SC (Vec.val cc56 cx56 cf56 [] ch56) "r" cv56 = (⟨false, true⟩ : Pair)
+
+-- C57
+def cv57 : Pred := (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.ctx "uid") (Term.col "task_id"))
+def cc57 : Cols := [("r", "id", some 1), ("r", "project_id", some 3), ("r", "task_id", some 1), ("r", "u", none)]
+def cx57 : Ctx := [("uid", 2), ("now", 0)]
+def cf57 : Facts := []
+def ch57 : Hops := [("projects.id.team_id", [(0, 0), (1, 0), (2, 0)]), ("tasks.id.project_id", [(1, 0), (3, 2)])]
+#guard Pred.eval SC (Vec.env cc57 cx57 cf57 [] ch57) "r" cv57 = TV.ff
+#guard Pred.tf SC (Vec.val cc57 cx57 cf57 [] ch57) "r" cv57 = (⟨false, true⟩ : Pair)
+
+-- C58
+def cv58 : Pred := (Pred.memberVia "members" ["projects.id.team_id"] (Term.col "u") (Term.col "project_id"))
+def cc58 : Cols := [("r", "id", some 1), ("r", "project_id", some 2), ("r", "task_id", some 0), ("r", "u", none)]
+def cx58 : Ctx := [("uid", 2), ("now", 0)]
+def cf58 : Facts := [("members", 1, 1), ("members", 2, 0)]
+def ch58 : Hops := [("projects.id.team_id", [(0, 2), (1, 1), (3, 2)]), ("tasks.id.project_id", [])]
+#guard Pred.eval SC (Vec.env cc58 cx58 cf58 [] ch58) "r" cv58 = TV.unk
+#guard Pred.tf SC (Vec.val cc58 cx58 cf58 [] ch58) "r" cv58 = (⟨false, false⟩ : Pair)
+
+-- C59
+def cv59 : Pred := (Pred.not (Pred.memberVia "members" ["tasks.id.project_id", "projects.id.team_id"] (Term.col "u") (Term.col "task_id")))
+def cc59 : Cols := [("r", "id", some 1), ("r", "project_id", some 3), ("r", "task_id", some 4), ("r", "u", none)]
+def cx59 : Ctx := [("uid", 1), ("now", 0)]
+def cf59 : Facts := [("members", 2, 1)]
+def ch59 : Hops := [("projects.id.team_id", []), ("tasks.id.project_id", [(0, 3), (2, 3)])]
+#guard Pred.eval SC (Vec.env cc59 cx59 cf59 [] ch59) "r" cv59 = TV.unk
+#guard Pred.tf SC (Vec.val cc59 cx59 cf59 [] ch59) "r" cv59 = (⟨false, false⟩ : Pair)
 
 
 end MLS
