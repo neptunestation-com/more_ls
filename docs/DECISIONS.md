@@ -711,7 +711,8 @@ tables and the data model exist and stay: foreign keys are likely, functions com
 occasional, CHECK constraints rare, custom types and transition rules absent. The RLS policies
 either do not exist or are a half-hearted attempt nobody is attached to. The user keeps the data
 model and hands the policies to MLS. D51–D55 make that path first-class. D51 and D55 are settled
-(2026-11-05); D52–D54 are *proposed, not yet settled: review before implementation.* D56 is settled (2026-11-06).
+(2026-11-05); D52 and D54 are *proposed, not yet settled: review before implementation.* D53 and D56 are
+settled (2026-11-06).
 
 **D51. The spec owns the whole policy set of every governed table (amends D45).** D45 already
 says this for drift: on an `adopted` table an undeclared policy is `unexpected`, not `foreign`,
@@ -766,6 +767,22 @@ tables are still created `text`. Every other unmodelled type is still left out w
 `now()` depends on the session time zone). Lean: the column type enumeration gains `bigint`
 with `int`'s semantics. Rejected: reading every integer type as `int` (a `bigint` constant
 would overflow the compiled `::integer` cast).
+*Implementation defaults (2026-11-06, #19):* the comparison rule is `model.comparable` (equal
+types, or both integer types), used for comparisons, memberships, `in_group` keys and values,
+inclusions and cardinality groups; a hierarchy's own columns (id, parent, members value) keep
+one type, and its depth stays `int`.  A constant takes the type of the other side and is
+bounded by `model.INT_RANGE`.  The encoder is unchanged: column values were already unbounded
+integers, so an `int` column is over-approximated as before (a counterexample may use a value
+Postgres cannot store; a proof is not weakened).  Lean needs no change: `lean/MLS` has no column
+type enumeration (every value is an `Int`), and the regenerated vectors are identical.  The
+harness draws `bigint` from the `int` values plus 2³¹ and 2⁴⁰+1 (bigint keys likewise), so int
+and bigint columns meet and an `integer` left in the script fails the load; a value copied
+into an `int` column that does not fit is redrawn; `session_setting` user ids of type bigint
+start at 2³²+1.  Drift gives an adopted table's stand-in the live `varchar(n)` type of a
+column declared `text`, so constraints over it deparse as the live ones.  The lifter reads
+`(col)::text` of a text column as the column and `(ARRAY['a'::character varying, ...])::text[]`
+as an IN list, so a CHECK or policy over a varchar column lifts; a bigint constant deparses as
+`'3000000000'::bigint`.  `mls migrate` still refuses a type change (int → bigint included).
 
 **D54. Bypass paths on adopted tables are reported (amends D13).** On an existing database the
 holes are rarely BYPASSRLS; they are views and functions. A view runs with its owner's

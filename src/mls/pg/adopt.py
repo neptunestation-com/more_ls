@@ -31,7 +31,8 @@ from mls.compile.internal import INTERNAL_ROLE
 from mls.errors import MlsError, SpecError
 from mls.pg.catalog import _strip_schema
 from mls.pg.lift import (
-    CAST_TO_MLS, PG_TO_MLS, Env, Unreadable, lift, nullable_columns, parse, strip_check, transition_expr,
+    CAST_TO_MLS, Env, Unreadable, lift, nullable_columns, parse, strip_check, transition_expr,
+    mls_type,
 )
 from mls.pg.lift import IsTrue as _IsTrue
 from mls.spec.model import Spec
@@ -198,7 +199,7 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
     for name, t in tables.items():
         cols: dict[str, dict] = {}
         for c in t["columns"]:
-            ty = PG_TO_MLS.get(c["type"])
+            ty = mls_type(c["type"])
             if ty is None:
                 notes.append(f"column {name}.{c['name']} has type {c['type']}, not an MLS type: left out of the "
                              f"spec (drift lists it as foreign)")
@@ -591,9 +592,9 @@ def verify_adopted(conn: psycopg.Connection, spec: Spec, schema: str = "public")
                 errors.append(MlsError(f"{path}.columns.{c}", f"adopted table '{name}' has no column '{c}'",
                                        f"remove it from the spec, or add it outside MLS; the table has: "
                                        f"{', '.join(live_cols)}", "check"))
-            elif PG_TO_MLS.get(lc["type"]) != col.type:
+            elif mls_type(lc["type"]) != col.type:
                 errors.append(MlsError(f"{path}.columns.{c}.type", f"column '{name}.{c}' is {lc['type']} in the "
                                                                    f"catalog, declared {col.type}",
-                                       f"declare it as {PG_TO_MLS.get(lc['type'], 'a type MLS does not model')}",
+                                       f"declare it as {mls_type(lc['type']) or 'a type MLS does not model'}",
                                        "check"))
     return errors

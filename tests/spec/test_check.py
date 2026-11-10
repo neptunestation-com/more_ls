@@ -90,6 +90,28 @@ def test_type_mismatch_and_ordering_on_uuid():
     assert has(errors(d), "$.rules[0].using.and[1].cmp", "type mismatch: int = uuid")
 
 
+def test_bigint_compares_with_int_and_bounds_constants():
+    """D53: int and bigint compare (in a comparison, a membership, an inclusion and a cardinality
+    group); a constant outside the type's range is an error naming the fix."""
+    d = base()
+    d["identity"]["context"]["clearance"]["type"] = "bigint"   # level <= @clearance: int vs bigint
+    for t in ("memberships", "admins"):
+        d["tables"][t]["columns"]["tenant_id"]["type"] = "bigint"  # member_of value and the inclusions
+    assert errors(d) == []
+    d["rules"][5]["predicate"]["and"][1]["cmp"][2] = {"const": 2**31}  # level <= 2147483648, level is int
+    errs = errors(d)
+    e = next(e for e in errs if e.path == "$.rules[5].predicate.and[1].cmp[2]")
+    assert "out of range for int" in e.message and "bigint" in e.fix
+    d["tables"]["docs"]["columns"]["level"]["type"] = "bigint"
+    assert errors(d) == []
+    d["rules"][5]["predicate"]["and"][1]["cmp"][2] = {"const": 2**63}
+    assert has(errors(d), "$.rules[5].predicate.and[1].cmp[2]", "out of range for bigint")
+    d = base()
+    d["identity"]["context"]["clearance"]["type"] = "bigint"
+    d["rules"][0]["using"]["and"][1]["cmp"] = [{"col": "owner_id"}, "=", {"ctx": "clearance"}]
+    assert has(errors(d), "$.rules[0].using.and[1].cmp", "type mismatch: uuid = bigint")
+
+
 def test_old_new_only_in_transitions():
     d = base()
     d["rules"][5]["predicate"]["and"][0]["cmp"][0] = {"new": "level"}

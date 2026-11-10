@@ -30,7 +30,15 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
 
-ColType = Literal["int", "text", "bool", "timestamp", "uuid"]
+ColType = Literal["int", "bigint", "text", "bool", "timestamp", "uuid"]
+# D53: the integer types differ only in range (the fragment has no arithmetic), so they compare
+# with each other and share the SMT sort; the range bounds constants
+INT_RANGE: dict[str, tuple[int, int]] = {"int": (-2**31, 2**31 - 1), "bigint": (-2**63, 2**63 - 1)}
+
+
+def comparable(a: str, b: str) -> bool:
+    """Whether values of the two column types compare (equal types, or both integer types)."""
+    return a == b or (a in INT_RANGE and b in INT_RANGE)
 Command = Literal["select", "insert", "update", "delete", "all"]
 CmpOp = Literal["=", "<>", "<", "<=", ">", ">="]
 

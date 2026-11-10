@@ -223,6 +223,20 @@ def test_the_renderer_covers_the_whole_model():
         assert set(cls.model_fields) - terse.RENDERED_FIELDS[terse.RuleBase] == own[kind], cls.__name__
 
 
+def test_every_column_type_is_a_word_of_the_grammar():
+    """A type added to ColType without a terse word fails here (D53 added bigint)."""
+    from mls.spec.model import ColType
+    from mls.spec.syntax import TYPES, parse
+
+    assert set(typing.get_args(ColType)) == set(TYPES)
+    text = ("mls 0.1\n\nidentity session_setting { uid: app.uid bigint }\nroles app\n\n"
+            "table t owned {\n  id bigint not null,\n  n int;\n  primary_key (id)\n}\n\n"
+            "rules {\n  R1 check big on t: id <> 3000000000 and n <= 2147483647\n}\n\nproperties {\n}\n")
+    spec = parse(text)
+    assert spec.tables["t"].columns["id"].type == "bigint" and spec.identity.context["uid"].type == "bigint"
+    assert terse.render(spec) == text
+
+
 def _corpus() -> list[tuple[str, dict]]:
     from mls.evals import case_files, load_case
     from tests.conftest import ROOT

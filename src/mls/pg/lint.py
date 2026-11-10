@@ -14,10 +14,11 @@ STATIC_NON_LEAKPROOF = {
     "text": ["~~ (LIKE)", "~~* (ILIKE)", "~ (regex)", "~* (regex, case-insensitive)", "<", "<=", ">", ">="],
     "timestamp": [],
     "int": [],
+    "bigint": [],
     "bool": [],
     "uuid": [],
 }
-PG_TYPE = {"int": "integer", "text": "text", "bool": "boolean", "timestamp": "timestamptz", "uuid": "uuid"}
+PG_TYPE = {"int": "integer", "bigint": "bigint", "text": "text", "bool": "boolean", "timestamp": "timestamptz", "uuid": "uuid"}
 
 
 @dataclass

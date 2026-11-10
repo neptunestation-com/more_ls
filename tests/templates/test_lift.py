@@ -30,6 +30,7 @@ ROUND_TRIP = {
     "column": specs.column_rule_spec,
     "fk": specs.fk_spec,
     "session_setting": specs.session_spec,
+    "bigint": specs.bigint_spec,
     "pg_roles": specs.pg_roles_spec,
 }
 

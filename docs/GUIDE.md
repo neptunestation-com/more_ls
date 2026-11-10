@@ -995,7 +995,8 @@ it is built from the shapes MLS itself emits or from the usual hand-written idio
 what it cannot read, a call to a function of yours for instance, becomes an `opaque` block
 carrying the columns, context values and relations the SQL reads, and the notes say which part
 of which policy and why.  A CHECK it reads becomes a check rule.  The notes printed on stderr
-list what was left out: a column whose type MLS does not model, a trigger (listed, not
+list what was left out: a column whose type MLS does not model (`bigint` keys, Supabase's
+default, are modelled; a `varchar` column is read as `text`), a trigger (listed, not
 imported), a grant with no policy behind it, a policy whose name is not an identifier; the ones
 prefixed `lint:` name shapes a deploy improves on.  The hardening state is recorded as
 assumptions:

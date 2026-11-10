@@ -29,15 +29,24 @@ from typing import Any, Callable
 
 from pydantic import TypeAdapter
 
-from mls.spec.model import CONTEXT_NOW, ColType, Pred, Spec
+from mls.spec.model import CONTEXT_NOW, INT_RANGE, ColType, Pred, Spec
 
-PG_TO_MLS: dict[str, ColType] = {"integer": "int", "text": "text", "boolean": "bool",
+PG_TO_MLS: dict[str, ColType] = {"integer": "int", "bigint": "bigint", "text": "text", "boolean": "bool",
                                  "timestamp with time zone": "timestamp", "uuid": "uuid"}
-CAST_TO_MLS: dict[str, ColType] = {"uuid": "uuid", "integer": "int", "int": "int", "int4": "int", "text": "text",
+CAST_TO_MLS: dict[str, ColType] = {"uuid": "uuid", "integer": "int", "int": "int", "int4": "int", "bigint": "bigint",
+                                   "int8": "bigint", "text": "text", "character varying": "text", "varchar": "text",
                                    "boolean": "bool", "bool": "bool", "timestamptz": "timestamp",
                                    "timestamp with time zone": "timestamp"}
-SQL_TYPE_OF: dict[ColType, str] = {"int": "integer", "text": "text", "bool": "boolean", "timestamp": "timestamptz",
-                                   "uuid": "uuid"}
+SQL_TYPE_OF: dict[ColType, str] = {"int": "integer", "bigint": "bigint", "text": "text", "bool": "boolean",
+                                   "timestamp": "timestamptz", "uuid": "uuid"}
+
+
+def mls_type(pg_type: str) -> ColType | None:
+    """The MLS type of a catalog column type (format_type), or None when MLS does not model it.
+    `character varying(n)` compares as text (D53); the length limit is the table's, not a rule's."""
+    if pg_type == "character varying" or pg_type.startswith("character varying("):
+        return "text"
+    return PG_TO_MLS.get(pg_type)
 FLIP = {"=": "=", "<>": "<>", "<": ">", "<=": ">=", ">": "<", ">=": "<="}
 REACH_FN = re.compile(r"^mls_reach_([a-z_][a-z0-9_]*)$")
 _PRED = TypeAdapter(Pred)
@@ -753,6 +762,9 @@ class Lifter:
             raise Unreadable(f"{node.op} ALL is not in the fragment")
         if node.op != "=":
             raise Unreadable(f"{node.op} ANY is not in the fragment")
+        if isinstance(arr, Cast) and isinstance(arr.x, ArrayLit) and CAST_TO_MLS.get(arr.type.removesuffix("[]")) \
+                and arr.type.endswith("[]"):
+            arr = arr.x  # (ARRAY['a'::character varying, ...])::text[], an IN list over a varchar column (D53)
         if isinstance(arr, ArrayLit):
             l, _ = self.term(node.l)
             p = {"in": [l, [self.const(x)[0] for x in arr.items]]}
@@ -870,6 +882,11 @@ class Lifter:
             if node.name not in cols:
                 raise Unreadable(f"column {node.name} is not modelled on {self.table}")
             return {"col": node.name}, cols[node.name][0]
+        if isinstance(node, Cast) and isinstance(node.x, Col) and CAST_TO_MLS.get(node.type) == "text":
+            # a varchar column compared as text deparses as (col)::text (D53): the column itself
+            t, ty = self.term(node.x)
+            if ty == "text":
+                return t, ty
         ctx = self.context(node)
         if ctx is not None:
             name, ty = ctx
@@ -891,11 +908,11 @@ class Lifter:
                 raise Unreadable(f"a cast to {node.type}, not an MLS type")
             inner, _ = self.const(node.x)
             v = inner["const"]
-            if ty == "int":
+            if ty in INT_RANGE:
                 if isinstance(v, bool) or not isinstance(v, (int, str)) or (isinstance(v, str)
                                                                             and not re.fullmatch(r"-?\d+", v)):
                     raise Unreadable(f"`{self.src(node)}` is not an integer constant")
-                return {"const": int(v)}, "int"
+                return {"const": int(v)}, ty
             if ty == "bool":
                 if isinstance(v, bool):
                     return {"const": v}, "bool"

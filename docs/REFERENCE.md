@@ -58,13 +58,22 @@ match `[a-z_][a-z0-9_]*`.  They are emitted double-quoted, so Postgres keywords 
 
 | MLS | Postgres | Comparisons | Notes |
 |---|---|---|---|
-| `int` | `integer` | `= <> < <= > >=` | |
-| `text` | `text` | `= <>` | ordering is not in the fragment |
+| `int` | `integer` | `= <> < <= > >=` | constants −2³¹ … 2³¹−1 |
+| `bigint` | `bigint` | `= <> < <= > >=` | constants −2⁶³ … 2⁶³−1; Supabase's identity key type |
+| `text` | `text` | `= <>` | ordering is not in the fragment; an adopted `varchar(n)` column is `text` |
 | `bool` | `boolean` | `= <>` | |
 | `timestamp` | `timestamptz` | via `now_between` only | no timestamp constants in v1 |
 | `uuid` | `uuid` | `= <>` | constants are canonical UUID strings |
 
-**Constants** (`{"const": v}`): a JSON integer, string or boolean.  A string compared with a
+`int` and `bigint` compare with each other, in a comparison, a membership, an inclusion and a
+cardinality group (D53): the fragment has no arithmetic, so they differ only in range.  A
+context value may be declared `bigint` too (`org_id: jwt.claims.org_id bigint`).  On an
+adopted table a `character varying(n)` column is declared `text`: Postgres compares it as text,
+`mls import` reads it so, `check --dsn` and `drift` accept it; MLS creates owned tables `text`.
+
+**Constants** (`{"const": v}`): a JSON integer, string or boolean.  An integer constant must be
+within the range of the type it is compared with (`constant 2147483648 is out of range for int`,
+fix: declare the column bigint).  A string compared with a
 `uuid` column must be a UUID literal.  There are no NULL constants; use `is_null`.  There are no
 timestamp constants.
 
@@ -962,7 +971,8 @@ Classes of error, with the typical message:
   nothing is assumed`; `'r' is not an app role of this spec`; `'disabled' is not an assumption
   the proofs can state`; with `--dsn`: `adopted table 't' has no column 'c'`; `column 't.c' is
   bigint in the catalog, declared int`; `owned table 't' is owned by app role 'r'`;
-- **types**: `type mismatch: int = text`; `operator < is not allowed on text values`; a uuid
+- **types**: `type mismatch: int = text`; `operator < is not allowed on text values`;
+  `constant 2147483648 is out of range for int (...)`; a uuid
   constant that is not a UUID; `timestamp constants are not supported in v1`; `'in' needs at
   least one constant`;
 - **fragment**: `context values are not allowed in a check predicate`; `membership is not

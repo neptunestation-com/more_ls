@@ -23,7 +23,7 @@ TEMPLATES = ("tenant_isolation", "column_immutable", "monotone_in", "write_subse
              "invariant_preserved", "custom", "must_allow", "role_separation")
 COMMANDS = ("select", "insert", "update", "delete", "all")
 MODES = ("permissive", "restrictive")
-TYPES = ("int", "text", "bool", "timestamp", "uuid")
+TYPES = ("int", "bigint", "text", "bool", "timestamp", "uuid")
 TABLE_MODES = ("owned", "adopted", "observed")
 CMP_OPS = ("=", "<>", "<", "<=", ">", ">=")
 

@@ -117,7 +117,7 @@ def scale_load_sql(spec: Spec, adapter: Adapter, n_rows: int, n_users: int = 100
 
     def expr(col, i: str) -> str:
         t = spec.tables  # noqa
-        if col.type == "int":
+        if col.type in ("int", "bigint"):
             return f"(({i} % {n_groups}) + 1)"
         if col.type == "uuid":
             return f"(('00000000-0000-0000-0000-' || lpad((({i} % {n_users}) + 1)::text, 12, '0'))::uuid)"
@@ -169,7 +169,7 @@ def scale_load_sql(spec: Spec, adapter: Adapter, n_rows: int, n_users: int = 100
             pk = t.primary_key or []
             for c in cols:
                 col = t.columns[c]
-                if c in pk and col.type == "int" and len(pk) == 1:
+                if c in pk and col.type in ("int", "bigint") and len(pk) == 1:
                     parts.append("i")
                 else:
                     parts.append(expr(col, "i"))

@@ -68,6 +68,10 @@ union member the renderer does not cover.
   image as its non-superuser `postgres` role (`pg/server.py:supabase_container`; each test database
   gets the image's auth schema, default privileges and GoTrue's auth functions via `prepare`).
   A template that works as a superuser can still fail there: FINDINGS "Supabase as a platform".
+- D53: `int` and `bigint` are one SMT sort and compare with each other (`model.comparable`);
+  only constants are bounded (`model.INT_RANGE`). The `bigint` fixture (`specs.bigint_spec`)
+  draws values beyond 2³¹, so an `integer` left anywhere in a template fails its load. An
+  adopted `varchar(n)` column is `text` (`lift.mls_type`); drift's stand-in takes the live type.
 - Every compiler template has a `Mutation` (compile/mutations.py); `tests/templates` proves each
   mutation is caught by the differential test. Add a mutation when you add a template. The
   fixtures (`tests/templates/specs.py`) derive from the example specs; `test_specs.py` builds and

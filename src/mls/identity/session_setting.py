@@ -74,4 +74,6 @@ class SessionSettingAdapter(Adapter):
             return [str(uuid.UUID(int=i + 1)) for i in range(n)]
         if type_ == "int":
             return list(range(1, n + 1))
+        if type_ == "bigint":  # beyond 2³¹, so that an integer cast would fail (D53)
+            return [2**32 + i for i in range(1, n + 1)]
         return [f"u{i + 1}" for i in range(n)]

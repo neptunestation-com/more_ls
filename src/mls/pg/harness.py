@@ -20,7 +20,7 @@ from mls.compile.plan import Script
 from mls.identity import Adapter, get_adapter
 from mls.pg.model import Database, Oracle, Row, holds
 from mls.props.effective import simple_fks
-from mls.spec.model import CONTEXT_NOW, Spec
+from mls.spec.model import CONTEXT_NOW, INT_RANGE, Spec
 
 Outcome = str  # "filtered" | "ok" | "error"
 EXPECTED_SQLSTATES = ("23", "42501", "22")  # integrity, RLS/privilege, data exceptions
@@ -88,7 +88,10 @@ class ValueGen:
         self.rnd = rnd
         self.users = adapter.harness_user_values(n_users)
         self.ints = list(range(-1, n_ints))
+        # bigint (D53): the int values, so that int and bigint columns meet, and values beyond 2³¹
+        self.bigints = self.ints + [2**31, 2**40 + 1]
         self.ids = list(range(0, 40))  # single-column int primary keys (trees and parents need many rows)
+        self.bigids = self.ids[:-2] + [2**31 + 1, 2**40 + 2]
         self.texts = ["a", "b", "c"]
         self.now = now or dt.datetime.now(dt.timezone.utc).replace(microsecond=0)
         self.null_p = null_p
@@ -102,6 +105,8 @@ class ValueGen:
             return None
         if type_ == "int":
             return self.rnd.choice(self.ints)
+        if type_ == "bigint":
+            return self.rnd.choice(self.bigints)
         if type_ == "uuid":
             return self.rnd.choice(self.users)
         if type_ == "text":
@@ -116,8 +121,9 @@ class ValueGen:
         t = self.spec.tables[table]
         r = {c: (self.value("uuid", col.nullable) if (table, c) in self.user_cols
                  else self.value(col.type, col.nullable)) for c, col in t.columns.items()}
-        if t.primary_key and len(t.primary_key) == 1 and t.columns[t.primary_key[0]].type == "int":
-            r[t.primary_key[0]] = self.rnd.choice(self.ids)
+        if t.primary_key and len(t.primary_key) == 1 and t.columns[t.primary_key[0]].type in INT_RANGE:
+            pk = t.primary_key[0]
+            r[pk] = self.rnd.choice(self.ids if t.columns[pk].type == "int" else self.bigids)
         # most rows reference an existing relation pair, so FK-constrained tables fill up
         for inc in self.spec.inclusions():
             pairs = self.facts.get(inc.relation)
@@ -136,6 +142,9 @@ class ValueGen:
         for h in self.spec.hierarchies.values():  # roots are rarer than children: deeper trees
             if h.table == table and r[h.parent] is not None and self.rnd.random() < 0.15:
                 r[h.parent] = None
+        for c, col in t.columns.items():  # a bigint value copied into an int column (D53 lets them meet)
+            if col.type == "int" and isinstance(r[c], int) and not INT_RANGE["int"][0] <= r[c] <= INT_RANGE["int"][1]:
+                r[c] = self.value("int", False)
         return r
 
     def context(self, role: str) -> dict[str, Any]:

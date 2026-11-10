@@ -103,6 +103,21 @@ def session_spec() -> Spec:
     return make(json.loads(SESSION.read_text()))
 
 
+def bigint_spec() -> Spec:
+    """The session example with every key `bigint` (D53): the user id, the tenant ids and the
+    document id, and the clearance a bigint context value compared with an int column.  The
+    harness draws bigint values beyond 2³¹ (and user ids above 2³²), so an `integer` anywhere in
+    the compiled script fails."""
+    d = json.loads(SESSION.read_text())
+    d["identity"]["context"]["uid"]["type"] = "bigint"
+    d["identity"]["context"]["clearance"]["type"] = "bigint"
+    for t, cols in (("memberships", ("user_id", "tenant_id")), ("admins", ("user_id", "tenant_id")),
+                    ("docs", ("id", "tenant_id", "owner_id"))):
+        for c in cols:
+            d["tables"][t]["columns"][c]["type"] = "bigint"
+    return make(d)
+
+
 def pg_roles_spec() -> Spec:
     """The pg_roles rendering of the example (`examples/pg_roles_docs.mls.json`): same tables and
     rule shape (two permissive SELECT policies on docs, so the all-restrictive mutation is

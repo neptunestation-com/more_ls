@@ -24,9 +24,11 @@ from psycopg import sql as psql
 
 from mls.compile.internal import INTERNAL_ROLE, needs_internal_role
 from mls.compile.plan import Script
+from mls.compile.sql import q
 from mls.compile.table import table_ddl
 from mls.identity import get_adapter
 from mls.pg.catalog import Snapshot, snapshot
+from mls.pg.lift import mls_type
 from mls.spec.model import BypassAssumed, OwnerAssumed, RlsAssumed, Spec
 
 FAILING = ("missing", "unexpected", "differs", "hardening")
@@ -60,8 +62,12 @@ class DriftResult:
         return [i for i in self.items if i.kind == kind]
 
 
-def shadow_snapshot(conn: psycopg.Connection, spec: Spec, script: Script) -> Snapshot:
-    """Deploy the script into a throwaway schema inside the current transaction and snapshot it."""
+def shadow_snapshot(conn: psycopg.Connection, spec: Spec, script: Script,
+                    live_types: dict[str, dict[str, str]] | None = None) -> Snapshot:
+    """Deploy the script into a throwaway schema inside the current transaction and snapshot it.
+    `live_types` are the catalog types an adopted table's stand-in takes in place of the spec's
+    (a `character varying(n)` column the spec reads as text, D53), so that its constraints and
+    indexes deparse as the live ones do."""
     shadow = "mls_shadow_" + secrets.token_hex(4)
     with conn.cursor() as cur:
         cur.execute(psql.SQL("create schema {}").format(psql.Identifier(shadow)))
@@ -70,11 +76,27 @@ def shadow_snapshot(conn: psycopg.Connection, spec: Spec, script: Script) -> Sna
             if t.mode == "adopted":  # the script does not create it: stand in for the existing table
                 for s in table_ddl(name, t):
                     cur.execute(s)
+                for c, ty in (live_types or {}).get(name, {}).items():
+                    cur.execute(f"alter table {q(name)} alter column {q(c)} type {ty}")
         for st in script.statements:
             if st.section == "roles":
                 continue  # roles are global; their attributes are compared directly
             cur.execute(st.sql)
     return snapshot(conn, shadow, list(spec.governed()), _roles(spec), _observed(spec))
+
+
+def _live_types(spec: Spec, actual: Snapshot) -> dict[str, dict[str, str]]:
+    """The adopted columns declared text whose live type is another that MLS reads as text."""
+    out: dict[str, dict[str, str]] = {}
+    for name, t in spec.tables.items():
+        live = actual["tables"].get(name)
+        if t.mode != "adopted" or live is None:
+            continue
+        for c, col in t.columns.items():
+            lc = live["columns"].get(c)
+            if col.type == "text" and lc is not None and lc["type"] != "text" and mls_type(lc["type"]) == "text":
+                out.setdefault(name, {})[c] = lc["type"]
+    return out
 
 
 def _roles(spec: Spec) -> list[str]:
@@ -206,8 +228,8 @@ def compare(spec: Spec, expected: Snapshot, actual: Snapshot) -> tuple[list[Drif
 
 def drift(conn: psycopg.Connection, spec: Spec, script: Script, schema: str = "public") -> DriftResult:
     with conn.transaction(force_rollback=True):  # nests as a savepoint inside a caller's transaction
-        expected = shadow_snapshot(conn, spec, script)
         actual = snapshot(conn, schema, list(spec.governed()), _roles(spec), _observed(spec))
+        expected = shadow_snapshot(conn, spec, script, _live_types(spec, actual))
     items, notes = compare(spec, expected, actual)
     notes += [f"table '{t}' in schema '{schema}' is not in the spec" for t in actual["other_tables"]]
     return DriftResult(items, notes)

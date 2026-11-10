@@ -249,6 +249,22 @@ def test_proposed_relation_is_reused_by_pair():
     assert r.kind == "partial"  # (user_id, level) is not a key of memberships
 
 
+def test_varchar_and_bigint_shapes():
+    """D53: a varchar column read as text deparses with casts on the column and its constants;
+    a bigint constant beyond 2³¹ deparses as a cast string, a bigint context as ::bigint."""
+    env = env_of(status=("text", False), big=("bigint", False))
+    r, _ = do("((status)::text = 'open'::text)", env=env)
+    assert r.pred == {"cmp": [{"col": "status"}, "=", {"const": "open"}]}
+    text = "((status)::text = ANY ((ARRAY['open'::character varying, 'closed'::character varying])::text[]))"
+    r, _ = do(strip_check(f"CHECK ({text})"), scope="check", env=env)
+    assert r.pred == {"in": [{"col": "status"}, [{"const": "open"}, {"const": "closed"}]]}
+    r, _ = do("(big <> '3000000000'::bigint)", env=env)
+    assert r.pred == {"cmp": [{"col": "big"}, "<>", {"const": 3000000000}]}
+    # the text cast of a column that is not text is not dropped
+    r, _ = do("((level)::text = '1'::text)", env=env)
+    assert r.kind == "opaque"
+
+
 def test_context_type_must_match_the_declaration():
     r, _ = do("(level <= ( SELECT ((auth.jwt() ->> 'clearance'::text))::text AS text))")
     assert r.kind == "opaque" and "declared int" in r.reasons[0]

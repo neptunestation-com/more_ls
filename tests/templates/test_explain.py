@@ -47,6 +47,17 @@ def test_policies_are_index_driven_at_scale(pg_dsn, example_spec, adapter):
     assert not bad, bad
 
 
+def test_bigint_policies_are_index_driven_at_scale(pg_dsn):
+    """D53: bigint keys, and an int column compared with a bigint context value, stay index
+    conditions (the integer operator family is cross-type)."""
+    from tests.templates import specs
+
+    results = _run(pg_dsn, specs.bigint_spec(), set())
+    assert results, "no plans checked"
+    bad = [f"{r.table}/{r.role}: {r.problems}" for r in results if not r.ok]
+    assert not bad, bad
+
+
 def test_hierarchy_policies_are_index_driven_at_scale(pg_dsn, org_spec):
     results = _run(pg_dsn, org_spec, set(), "files")
     assert any(("in_group", "group_id") in index_atoms(effective(org_spec, r.table, r.role, "select", "using"), [])

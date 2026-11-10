@@ -5,8 +5,9 @@ differential tests, and every compiler template must agree with it.
 
 ## 1. Values and logic
 
-- Column values are integers, text (compared for equality only in v1), booleans, timestamps
-  (modeled as integers), or NULL if the column is nullable. Context values are never NULL.
+- Column values are integers (`int` or `bigint`: one sort, the type only bounds constants),
+  text (compared for equality only in v1), booleans, timestamps (modeled as integers), or NULL
+  if the column is nullable. Context values are never NULL.
 - Predicates evaluate to TRUE, FALSE or UNKNOWN with SQL semantics:
   - comparison with a NULL operand → UNKNOWN; `IS NULL` is two-valued;
   - AND: FALSE dominates, then UNKNOWN; OR: TRUE dominates, then UNKNOWN; NOT swaps TRUE/FALSE.

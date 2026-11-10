@@ -23,14 +23,14 @@ from pydantic import ValidationError
 from mls.errors import ErrorSink, MlsError, SpecError
 from mls.spec.model import (
     CONTEXT_NOW, And, BypassAssumed, CardinalityRule, CheckRule, ColRef, ColType, ColumnRule, Cmp, Const, CtxRef,
-    In, Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
+    INT_RANGE, In, Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
     RoleSeparation,
     NowBetween, OldRef, OpaqueRef, Or, OwnerAssumed, PolicyRule, RlsAssumed, Spec, TenantIsolation,
-    ColumnImmutable, WriteSubsetRead, LeastPrivilege, TransitionRule,
+    ColumnImmutable, WriteSubsetRead, LeastPrivilege, TransitionRule, comparable,
 )
 
 IDENT = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
-ORDERED_TYPES = {"int", "timestamp"}
+ORDERED_TYPES = {"int", "bigint", "timestamp"}
 
 
 def _json_path(loc: tuple) -> str:
@@ -190,10 +190,18 @@ class Checker:
         return None
 
     def const_ok_for(self, term, ty: ColType, path: str) -> bool:
-        """Constants: int<->int, bool<->bool, str<->text|uuid (uuid-shaped). No timestamp constants."""
+        """Constants: int<->int|bigint (within the type's range), bool<->bool, str<->text|uuid
+        (uuid-shaped). No timestamp constants."""
         if not isinstance(term, Const):
             return True
         v = term.const
+        if ty in INT_RANGE and isinstance(v, int) and not isinstance(v, bool):
+            lo, hi = INT_RANGE[ty]
+            if not lo <= v <= hi:
+                self.err(path, f"constant {v} is out of range for {ty} ({lo}..{hi})",
+                         "declare the column (or context value) bigint" if ty == "int"
+                         else "use a constant within the range")
+                return False
         if ty == "uuid":
             if isinstance(v, str):
                 try:
@@ -235,11 +243,15 @@ class Checker:
         if isinstance(l, Const) and not isinstance(r, Const):
             if not self.const_ok_for(l, rt, lpath):
                 return
-        if lt != rt and not ({lt, rt} == {"uuid", "text"} and (isinstance(l, Const) or isinstance(r, Const))):
+        if not comparable(lt, rt) and not ({lt, rt} == {"uuid", "text"}
+                                           and (isinstance(l, Const) or isinstance(r, Const))):
             self.err(path, f"type mismatch: {lt} {op} {rt}",
                      "compare values of the same type")
             return
-        ty = lt if lt != "text" else rt
+        if isinstance(l, Const) or isinstance(r, Const):
+            ty = rt if isinstance(l, Const) else lt  # a constant takes the other side's type
+        else:
+            ty = lt
         if op not in ("=", "<>") and ty not in ORDERED_TYPES:
             self.err(path, f"operator {op} is not allowed on {ty} values "
                                     f"(v1 compares {ty} for equality only)", "use = or <>")
@@ -316,10 +328,10 @@ class Checker:
                          "declare the column NOT NULL, or guard with {\"is_null\": ...} in an or")
             rkt = self.col_type(rel.table, rel.key)
             rvt = self.col_type(rel.table, rel.value)
-            if kt is not None and rkt is not None and kt != rkt:
+            if kt is not None and rkt is not None and not comparable(kt, rkt):
                 self.err(f"{path}.member.key", f"key type {kt} does not match relation key "
                                                f"{rel.table}.{rel.key}: {rkt}")
-            if vt is not None and rvt is not None and vt != rvt:
+            if vt is not None and rvt is not None and not comparable(vt, rvt):
                 self.err(f"{path}.member.value", f"value type {vt} does not match relation value "
                                                  f"{rel.table}.{rel.value}: {rvt}")
             return
@@ -352,11 +364,11 @@ class Checker:
             rel = self.spec.relations.get(h.members)
             if rel is not None and rel.table in self.spec.tables:
                 rkt = self.col_type(rel.table, rel.key)
-                if kt is not None and rkt is not None and kt != rkt:
+                if kt is not None and rkt is not None and not comparable(kt, rkt):
                     self.err(f"{path}.in_group.key", f"key type {kt} does not match the members "
                                                      f"relation key {rel.table}.{rel.key}: {rkt}")
             it = self.col_type(h.table, h.id)
-            if vt is not None and it is not None and vt != it:
+            if vt is not None and it is not None and not comparable(vt, it):
                 self.err(f"{path}.in_group.value", f"value type {vt} does not match the hierarchy id "
                                                    f"{h.table}.{h.id}: {it}")
             return
@@ -705,7 +717,7 @@ class Checker:
                                        f"references")
             return
         pk = parent.primary_key[0]
-        if parent.columns[pk].type != t.columns[r.group].type:
+        if not comparable(parent.columns[pk].type, t.columns[r.group].type):
             self.err(path + ".group", f"type of {r.table}.{r.group} ({t.columns[r.group].type}) does not "
                                       f"match {r.parent}.{pk} ({parent.columns[pk].type})")
 
@@ -727,7 +739,7 @@ class Checker:
             self.err(path + ".columns", "the two columns must differ")
         for j, (c, rc) in enumerate(zip(r.columns, (rel.key, rel.value))):
             ct, rt = self.col_type(r.table, c), self.col_type(rel.table, rc)
-            if ct is not None and rt is not None and ct != rt:
+            if ct is not None and rt is not None and not comparable(ct, rt):
                 self.err(f"{path}.columns[{j}]", f"type of {r.table}.{c} ({ct}) does not match "
                                                  f"{rel.table}.{rc} ({rt})")
 
