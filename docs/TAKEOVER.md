@@ -170,8 +170,9 @@ And the properties, one upper bound per table and a lower bound per grant (`must
 
 Or let the LLM loop write them: `uv run mls generate requirements.txt --skeleton spec.mls --out
 spec.mls` proposes properties for you to approve, then rules, and repairs them until the
-properties are proved (`docs/LLM.md`).  It writes the rules section as a whole: check that the
-two imported CHECKs are still there, and add them back if the model left them out.
+properties are proved (`docs/LLM.md`).  The two imported CHECKs are kept as they are: both
+passes are shown them as rules the spec already has, the model numbers its own rules from R3,
+and the result is its rules followed by R1 and R2.
 
 ## 7. Prove
 

@@ -276,5 +276,6 @@ subquery.
   `mls diff` used to report every app role's access to it as `before: false`; it now skips the
   table with a note.  Its real change (open to every app role → own memberships only) is the one
   the runbook states in prose.
-- `mls generate --skeleton` writes the whole rules section, so the imported CHECKs are kept only
-  if the model keeps them; the runbook says to check.
+- `mls generate --skeleton` wrote the whole rules section, so the imported CHECKs were kept only
+  if the model restated them; since #26 they are fixed rules, shown to both passes and added
+  after the model's.

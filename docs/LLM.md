@@ -26,6 +26,15 @@ how well it does that on the corpus in `evals/cases`.
    properties are still refuted (each with its scenario and the rules pass's notes, for a human to
    decide whether the rules or the property is wrong), otherwise `proved`.
 
+Fixed rules (#26).  A skeleton may already have rules: `mls import --policies discard` writes the
+CHECKs and FK-shaped inclusions it read.  Both passes are shown them after the schema, under
+*Rules the spec already has (read from the database)*, as JSON or as a terse `rules { ... }`
+section, with the instruction not to restate or reuse them and the first free id (`number your
+rules from R3`).  Step 3 checks the model's rules followed by the fixed ones it did not restate
+verbatim; a model rule with a fixed rule's id, or its name on the same table, is an error at the
+model's own path, so the feedback and its line:col point into the answer.  `mls eval` passes no
+fixed rules (a case's skeleton is its reference without the rules), so the corpus is unaffected.
+
 Prompts: `src/mls/llm/prompts.py`.  The stable part (role, language reference, skeleton, schema) is
 the system prompt and is cached; requirements and feedback follow.
 

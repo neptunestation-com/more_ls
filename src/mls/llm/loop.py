@@ -7,13 +7,13 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 
 from mls import english
 from mls.errors import CompileError, MlsError, SpecError
 from mls.llm.client import Client, LlmError, Request
 from mls.llm.prompts import (
-    ROLE_PROPERTIES, ROLE_RULES, errors_text, system_prompt, user_repair, user_requirements,
+    ROLE_PROPERTIES, ROLE_RULES, errors_text, next_rule_id, system_prompt, user_repair, user_requirements,
 )
 from mls.llm.schemas import properties_schema, rules_schema
 from mls.spec import check_spec
@@ -201,13 +201,28 @@ def _parse(text: str, key: str) -> tuple[list[dict] | None, str, list[MlsError]]
     return data[key], notes, []
 
 
+_RULE = TypeAdapter(Rule)
+
+
+def _normal(rule) -> dict | None:
+    """A rule as its canonical JSON, to tell a verbatim restatement of a fixed rule; None if invalid."""
+    try:
+        return _RULE.dump_python(_RULE.validate_python(rule), mode="json", by_alias=True, exclude_none=True)
+    except ValidationError:
+        return None
+
+
 class Loop:
     def __init__(self, requirements: str, skeleton: dict, client: Client, max_repairs: int = 3,
-                 timeout_ms: int = 20000, syntax: str = DEFAULT_SYNTAX):
+                 timeout_ms: int = 20000, syntax: str = DEFAULT_SYNTAX, fixed_rules: list[dict] = ()):
+        """`fixed_rules` are the rules the skeleton already has (#26: what `mls import` read from
+        the database, its CHECKs and FK-shaped inclusions): both passes are shown them, and they
+        are added, as they are, after the rules the model writes."""
         if syntax not in ("json", "terse"):
             raise ValueError(f"syntax is json or terse, not {syntax!r}")
         self.requirements = requirements
         self.skeleton = skeleton
+        self.fixed = [_normal(r) or r for r in fixed_rules]
         self.client = client
         self.max_repairs = max_repairs
         self.timeout_ms = timeout_ms
@@ -215,8 +230,8 @@ class Loop:
         self.rounds = 0
         self.steps: list[Step] = []
         self.notes: dict[str, str] = {}
-        self._sys = {"properties": system_prompt(ROLE_PROPERTIES, skeleton, properties_schema(), syntax),
-                     "rules": system_prompt(ROLE_RULES, skeleton, rules_schema(), syntax)}
+        self._sys = {"properties": system_prompt(ROLE_PROPERTIES, skeleton, properties_schema(), syntax, self.fixed),
+                     "rules": system_prompt(ROLE_RULES, skeleton, rules_schema(), syntax, self.fixed)}
         self._schema = {"properties": properties_schema(), "rules": rules_schema()} if syntax == "json" else {}
         self._texts: dict[str, str] = {}       # terse: the last usable section text per pass, as written
         self._sources: dict[str, Source] = {}  # terse: its spans, to locate the checker's errors in it
@@ -273,7 +288,35 @@ class Loop:
         return items, errors
 
     # --- assemble and judge
+    def _with_fixed(self, rules: list[dict]) -> tuple[list[dict], list[MlsError]]:
+        """The model's rules followed by the fixed ones it did not restate verbatim; a model rule
+        that takes a fixed rule's id, or its name on the same table, is an error at the model's
+        own path (the fixed rules come after, so every path into the answer stays the model's)."""
+        restated = [_normal(r) for r in rules]
+        fixed = [f for f in self.fixed if f not in restated]
+        ids = {f.get("id"): f for f in fixed}
+        names = {(f.get("table"), f.get("name")): f for f in fixed if f.get("name")}
+        errors = []
+        for i, r in enumerate(rules):
+            if not isinstance(r, dict):
+                continue
+            if r.get("id") in ids:
+                errors.append(MlsError(f"$.rules[{i}].id", f"rule id '{r['id']}' is taken by a rule the spec "
+                                                           f"already has (read from the database, kept as it is)",
+                                       f"number your rules from {next_rule_id(self.fixed)}; do not restate "
+                                       f"the existing rules"))
+            elif r.get("name") and (r.get("table"), r.get("name")) in names:
+                f = names[(r.get("table"), r.get("name"))]
+                errors.append(MlsError(f"$.rules[{i}].name", f"rule name '{r['name']}' on '{r.get('table')}' is "
+                                                             f"taken by rule {f.get('id')}, which the spec already "
+                                                             f"has (kept as it is)",
+                                       f"give the rule another name, or leave it out if it restates {f.get('id')}"))
+        return rules + fixed, errors
+
     def _spec(self, rules: list[dict], props: list[dict]) -> tuple[Spec | None, list[MlsError]]:
+        rules, errors = self._with_fixed(rules)
+        if errors:
+            return None, errors
         data = {**self.skeleton, "rules": rules, "properties": props}
         try:
             spec = Spec.model_validate(data)
@@ -291,6 +334,12 @@ class Loop:
         return spec, errs
 
     def run(self, start_rules: list[dict] | None = None, start_properties: list[dict] | None = None) -> LoopResult:
+        """The loop; the result's rules are the model's followed by the fixed rules (#26)."""
+        res = self._run(start_rules, start_properties)
+        res.rules = self._with_fixed(res.rules)[0]
+        return res
+
+    def _run(self, start_rules: list[dict] | None, start_properties: list[dict] | None) -> LoopResult:
         try:
             props, perrs = (start_properties, []) if start_properties is not None else self._pass("properties")
             rules, rerrs = (start_rules, []) if start_rules is not None else self._pass("rules")
@@ -390,7 +439,9 @@ class Loop:
 
 def generate(requirements: str, skeleton: dict, client: Client, max_repairs: int = 3, timeout_ms: int = 20000,
              start_rules: list[dict] | None = None, start_properties: list[dict] | None = None,
-             syntax: str = DEFAULT_SYNTAX) -> LoopResult:
+             syntax: str = DEFAULT_SYNTAX, fixed_rules: list[dict] = ()) -> LoopResult:
     """Run the loop.  `start_rules` / `start_properties` skip the corresponding pass (used to
-    evaluate repair from a given rule set).  `syntax` is what the passes answer in (D50)."""
-    return Loop(requirements, skeleton, client, max_repairs, timeout_ms, syntax).run(start_rules, start_properties)
+    evaluate repair from a given rule set).  `syntax` is what the passes answer in (D50).
+    `fixed_rules` are the skeleton's own rules, kept as they are (#26)."""
+    return Loop(requirements, skeleton, client, max_repairs, timeout_ms, syntax,
+                fixed_rules).run(start_rules, start_properties)

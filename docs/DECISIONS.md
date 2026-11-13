@@ -932,3 +932,14 @@ schema's own foreign keys (a parent outside the spec such as `auth.users` is see
 values the data uses), and a statement only such a foreign key rejects is counted, not compared:
 Postgres checks it after the privileges, the policies and the CHECKs, so the model's verdict
 up to that point is already compared on the statements that pass.
+
+Implementation defaults (#26, 2026-11-13).  `mls generate --skeleton` keeps the skeleton's own
+rules as *fixed rules* (`llm/loop.py:Loop(fixed_rules=...)`): both passes are shown them with the
+first free id; the spec checked and proved is the model's rules followed by the fixed ones not
+restated verbatim; a model rule that takes a fixed id, or a fixed name on the same table, is a
+structural error at the model's own path (the fixed rules come last so the paths into the answer
+are unchanged).  The result's rules include them, and `--out` writes the spec as written, not as
+the checker expanded it (an imported `in` list stays one).  Rejected: refusing an answer that
+drops a skeleton rule (a repair round spent on restating what is already known, and a restatement
+could still change it); letting the model edit the imported rules (they describe the data as it
+is, and changing them is a migration, not a generation step).

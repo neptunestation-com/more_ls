@@ -130,7 +130,7 @@ def test_import_cli_with_observe_and_generate_from_the_skeleton(starter, tmp_pat
     script.write_text(json.dumps([
         "properties {\n  P1 must_allow projects authenticated select: team_members(@uid, team_id) "
         "description 'a member reads the projects of their teams'\n}",
-        "rules {\n  R1 policy member_read on projects: authenticated select permissive "
+        "rules {\n  R3 policy member_read on projects: authenticated select permissive "
         "using team_members(@uid, team_id)\n}"]))
     monkeypatch.setenv("MLS_LLM_SCRIPT", str(script))
     req = tmp_path / "req.txt"
@@ -140,3 +140,5 @@ def test_import_cli_with_observe_and_generate_from_the_skeleton(starter, tmp_pat
     assert "status: proved" in capsys.readouterr().out
     spec = load_spec(spec_out)
     assert spec.tables["projects"].mode == "adopted" and [p.name for p in spec.policies()] == ["member_read"]
+    # the skeleton's imported CHECKs are kept as fixed rules (#26), after the generated policy
+    assert [r.id for r in spec.rules] == ["R3", "R1", "R2"]

@@ -1004,9 +1004,13 @@ The JSON Schema of the spec language (draft 2020-12, from the pydantic model).
 
 The LLM loop (`docs/LLM.md`).  `REQUIREMENTS` is a text file or `-` for stdin; `SKELETON` is a
 spec or a spec without rules and properties (either syntax, by extension: the `.mls` that
-`mls import --policies discard --out spec.mls` writes is taken as it is).  The passes write
-the rules section as a whole: a skeleton's imported check rules are kept only if the model
-keeps them, so check the result for them.  Defaults: model
+`mls import --policies discard --out spec.mls` writes is taken as it is).  The skeleton's own
+rules (an import's check and inclusion rules) are *fixed* (#26): both passes are shown them,
+with the first free id `R<n>`; the result is the model's rules followed by the fixed ones (a
+verbatim restatement is not duplicated); a model rule that takes a fixed rule's id, or its name
+on the same table, is an error at the answer's path (`rule id 'R1' is taken by a rule the spec
+already has`, fix: number from `R<n>`), repaired like any other.  `--out` writes the spec as
+written (an `in` list stays one), not as the checker expands it.  Defaults: model
 `claude-opus-5-5`, effort `high`, 3 repairs, syntax `terse` (D50 as amended).  With `terse`
 the passes answer with `rules { ... }` / `properties { ... }` sections: the prompt carries the
 grammar and three examples instead of the JSON Schema, the skeleton is shown in terse, and

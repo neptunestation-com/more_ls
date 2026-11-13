@@ -461,10 +461,13 @@ def cmd_generate(a) -> int:
     requirements = sys.stdin.read() if a.requirements == "-" else Path(a.requirements).read_text()
     from mls.spec import is_terse, load_spec
 
-    skeleton = skeleton_of(load_spec(a.skeleton).model_dump(mode="json", by_alias=True, exclude_none=True)
-                           if is_terse(a.skeleton) else json.loads(Path(a.skeleton).read_text()))
+    data = (load_spec(a.skeleton).model_dump(mode="json", by_alias=True, exclude_none=True)
+            if is_terse(a.skeleton) else json.loads(Path(a.skeleton).read_text()))
+    skeleton = skeleton_of(data)
     client = client_from_env(a.model, a.effort)
-    result = generate(requirements, skeleton, client, a.max_repairs, syntax=a.syntax)
+    # the skeleton's own rules (an import's CHECKs and inclusions) are kept as they are (#26)
+    result = generate(requirements, skeleton, client, a.max_repairs, syntax=a.syntax,
+                      fixed_rules=data.get("rules") or [])
     if a.transcript:
         Path(a.transcript).write_text(json.dumps(
             {"result": result.to_dict(), "spec_terse": _terse_lines(result.spec),
@@ -472,10 +475,17 @@ def cmd_generate(a) -> int:
                             "response": x.response, "usage": x.usage} for x in getattr(client, "exchanges", [])]},
             indent=1, default=str))
     if a.out and result.spec is not None:
+        from pydantic import ValidationError
+
         from mls.spec import is_terse, spec_to_json
+        from mls.spec.model import Spec
         from mls.terse import render
 
-        Path(a.out).write_text(render(result.spec) if is_terse(a.out) else spec_to_json(result.spec))
+        try:  # as written (`in` lists kept), not as the checker expanded it
+            out = Spec.model_validate({**skeleton, "rules": result.rules, "properties": result.properties})
+        except ValidationError:
+            out = result.spec
+        Path(a.out).write_text(render(out) if is_terse(a.out) else spec_to_json(out))
     if a.json:
         print(json.dumps(result.to_dict(), indent=1, default=str))
         return 0 if result.status == "proved" else 1

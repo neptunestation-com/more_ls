@@ -239,9 +239,9 @@ runbook is `docs/TAKEOVER.md`, replayed by `tests/platform/test_runbook.py` on t
 proved, the two old policies dropped, the differential test on the deployed database, rollback
 and redeploy); its spec is `examples/starter_takeover.mls`.  The guide's main path starts from
 an existing schema (GUIDE §3), the tour is the greenfield side path, the recipes start from what
-the schema has, and the nesting recipe is a composed relation.  Left open: `mls generate
---skeleton` rewrites the whole rules section, so a skeleton's imported CHECKs survive only if
-the model keeps them (the runbook says to check).
+the schema has, and the nesting recipe is a composed relation.  Follow-up #26 (2026-11-13):
+`mls generate --skeleton` keeps the skeleton's own rules (the imported CHECKs) as fixed rules
+instead of letting the model rewrite them.
 
 Not in scope: rewriting the user's views, functions or triggers; enums and other custom types
 (not met in practice); hops through a non-unique column (D56);

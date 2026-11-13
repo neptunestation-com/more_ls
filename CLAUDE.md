@@ -87,7 +87,9 @@ union member the renderer does not cover.
   `examples/starter_takeover.mls`.  A change to import, diff, drift, status or deploy notices
   updates the runbook in the same change.  A policy on a relation's own table may not read the
   relation (Postgres: infinite recursion; `spec/check.py`).  `Harness(foreign=catalog.foreign_keys(..))`
-  runs the differential on a deployed brownfield database.
+  runs the differential on a deployed brownfield database.  #26: `mls generate --skeleton` keeps
+  the skeleton's own rules as fixed rules (`Loop(fixed_rules=...)`), shown to both passes and
+  appended after the model's; a clash of id or name is an error at the answer's path.
 - D56: a composed relation (`ComposedRelation`, `of` + `through` hops, `spec/chain.py:levels`;
   a prefix is named `R/i` internally) is a policy atom, refused in invariants, inclusions,
   hierarchies, opaque blocks and `monotone_in`.  Encoded with `hop.T.v` / `hop.T.v.k` functions

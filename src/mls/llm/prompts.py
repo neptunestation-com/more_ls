@@ -4,6 +4,7 @@ feedback come last."""
 from __future__ import annotations
 
 import json
+import re
 
 from mls.errors import MlsError
 from mls.llm.terse_prompt import LANGUAGE_TERSE, terse_output_reference
@@ -112,16 +113,41 @@ policies: make membership columns and comparisons NULL-safe where the requiremen
 doubt about the requirements in "notes".  Answer with JSON only, matching the output schema."""
 
 
-def system_prompt(role: str, skeleton: dict, schema: dict, syntax: str = "json") -> str:
-    """Role, language reference, the fixed skeleton, and the output contract: the JSON Schema
-    of the pass, or (terse, D50) the grammar and three examples."""
+def next_rule_id(fixed_rules: list[dict]) -> str:
+    """The first `R<n>` after the fixed rules' ids (`R1` when there are none)."""
+    ns = [int(m.group(1)) for r in fixed_rules if (m := re.fullmatch(r"R(\d+)", str(r.get("id", ""))))]
+    return f"R{max(ns, default=0) + 1}"
+
+
+def fixed_rules_text(fixed_rules: list[dict], syntax: str) -> str:
+    """The rules the skeleton already has (#26: an import's CHECKs, FK-shaped inclusions): kept as
+    they are and added to the answer, so the model must neither restate nor reuse them."""
+    head = (f"# Rules the spec already has (read from the database): they are kept as they are and "
+            f"added to your rules.  Do not restate or change them, and do not reuse their ids or names; "
+            f"number your rules from {next_rule_id(fixed_rules)}.\n")
+    if syntax == "json":
+        return head + json.dumps(fixed_rules, indent=1)
+    from pydantic import TypeAdapter
+
+    from mls.spec.model import Rule
+    from mls.terse import section
+
+    return head + section("rules", TypeAdapter(list[Rule]).validate_python(fixed_rules))
+
+
+def system_prompt(role: str, skeleton: dict, schema: dict, syntax: str = "json",
+                  fixed_rules: list[dict] = ()) -> str:
+    """Role, language reference, the fixed skeleton (and the rules it already has), and the output
+    contract: the JSON Schema of the pass, or (terse, D50) the grammar and three examples."""
     # `$comment` is the author's note on the spec, not part of the schema: in the eval corpus it
     # names the case (and, for a bad reference, the planted defect), so the model never sees it.
     skel = {k: v for k, v in skeleton.items() if k != "$comment"}
+    fixed = [fixed_rules_text(list(fixed_rules), syntax)] if fixed_rules else []
     if syntax == "json":
         return "\n\n".join([
             role, LANGUAGE,
             "# The schema (tables, relations, hierarchies, identity, roles) is fixed:\n" + json.dumps(skel, indent=1),
+            *fixed,
             "# Output JSON Schema:\n" + json.dumps(schema, separators=(",", ":")),
         ])
     from mls.spec.model import Spec
@@ -133,6 +159,7 @@ def system_prompt(role: str, skeleton: dict, schema: dict, syntax: str = "json")
         role_text(role, syntax), LANGUAGE_TERSE,
         "# The schema (identity, roles, tables, relations, hierarchies) is fixed; your section completes it:\n"
         + skel_text,
+        *fixed,
         terse_output_reference(),
     ])
 
