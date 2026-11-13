@@ -353,7 +353,12 @@ def cmd_import(a) -> int:
         return 1
     text = json.dumps(res.spec, indent=1) + "\n"
     if a.out:
-        Path(a.out).write_text(text)
+        from mls.spec import is_terse
+        from mls.spec.model import Spec
+        from mls.terse import render
+
+        # the extension picks the syntax, as for every other command (D50)
+        Path(a.out).write_text(render(Spec.model_validate(res.spec)) if is_terse(a.out) else text)
     if a.json:
         print(json.dumps({"ok": True, "spec": res.spec, "notes": res.notes}, indent=1))
     else:
@@ -454,7 +459,10 @@ def cmd_generate(a) -> int:
     from mls.llm.schemas import skeleton_of
 
     requirements = sys.stdin.read() if a.requirements == "-" else Path(a.requirements).read_text()
-    skeleton = skeleton_of(json.loads(Path(a.skeleton).read_text()))
+    from mls.spec import is_terse, load_spec
+
+    skeleton = skeleton_of(load_spec(a.skeleton).model_dump(mode="json", by_alias=True, exclude_none=True)
+                           if is_terse(a.skeleton) else json.loads(Path(a.skeleton).read_text()))
     client = client_from_env(a.model, a.effort)
     result = generate(requirements, skeleton, client, a.max_repairs, syntax=a.syntax)
     if a.transcript:

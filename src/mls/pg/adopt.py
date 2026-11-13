@@ -23,12 +23,12 @@ column grant or opaque block is imported (the notes list each discarded policy w
 and relations are proposed from the schema alone: a table whose two-column primary or unique
 key has a foreign key on each column is a membership table, keyed by the column that refers to
 the user table (`auth.users`, or the type of the identity's `uid`).  Without policy text the
-identity is guessed from the schema: a foreign key to `auth.users` means Supabase.  The trusted
-platform roles (D55: `service_role`) are not app roles.
+identity is guessed from the schema: a foreign key to `auth.users` means Supabase.
 
-Either way the bypass paths of the adopted tables (D54: views that are not `security_invoker`,
-SECURITY DEFINER functions whose owner bypasses the policies) are listed with their fix; the
-import never assumes one (drift reports them as `hardening` until they are fixed or assumed).
+Either way the trusted platform roles (D55: `service_role`) are not app roles, and the bypass
+paths of the adopted tables (D54: views that are not `security_invoker`, SECURITY DEFINER
+functions whose owner bypasses the policies) are listed with their fix; the import never
+assumes one (drift reports them as `hardening` until they are fixed or assumed).
 """
 from __future__ import annotations
 
@@ -227,7 +227,7 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
                 found.update(p["roles"])
             found.update(g for g, _, _ in t["acl"])
         owners = {t["owner"] for t in tables.values()}
-        trusted = set(_trusted_roles(adapter)) if discard else set()
+        trusted = set(_trusted_roles(adapter))  # D55, both modes
         skipped = sorted(r for r in found if r in owners or r in cat["superusers"] or r == INTERNAL_ROLE
                          or r.startswith("pg_") or r == "public" or r in trusted)
         roles = sorted(r for r in found if r not in skipped and r in cat["roles"])

@@ -1,4 +1,4 @@
-"""The tour of the user guide (docs/GUIDE.md §3) is replayed on `examples/team_notes.mls`: each
+"""The tour of the user guide (docs/GUIDE.md §4) is replayed on `examples/team_notes.mls`: each
 step's spec is the example with the later steps taken out, every spec fragment the tour quotes
 is a line of one of those specs, and every command it shows prints the lines it shows (`...`
 marks an elision).  A change to the CLI's output, the solver's counterexamples or the example
@@ -35,7 +35,7 @@ def steps() -> dict[str, str]:
 
 def tour() -> str:
     text = GUIDE.read_text()
-    return text[text.index("## 3. A ten-minute tour"):text.index("## 4. ")]
+    return text[text.index("## 4. Starting from nothing: a ten-minute tour"):text.index("## 5. ")]
 
 
 def blocks(text: str) -> list[list[str]]:

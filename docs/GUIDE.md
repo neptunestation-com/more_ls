@@ -7,11 +7,14 @@ every row.  MLS lets you state who may see and change which rows once, *proves* 
 guarantees you care about before anything is deployed, and compiles the rules to ordinary
 Postgres objects that have been tested against the real server.
 
-The guide starts with a short tour (section 3) that builds a small spec one requirement at a
-time and lets the prover catch two real mistakes along the way.  Then come a complete worked
-example, recipes for common requirements, what to do when a proof fails, and the work that
-comes after: deploying, adopting a schema you already have, changing a live spec, and having
-an LLM write specs for you.
+Most projects that come to MLS already have a database: tables, data, and policies written by
+hand.  The guide starts there (section 3): keep the schema, replace the policies with rules
+that are proved, and see exactly what changes for whom before you switch.  If you are starting
+from nothing, the tour (section 4) builds a small spec one requirement at a time and lets the
+prover catch two real mistakes along the way; it is also the quickest way to learn the
+language.  Then come a complete worked example, recipes for common requirements stated in terms
+of the schema you have, what to do when a proof fails, and the work that comes after:
+deploying, changing a live spec, and having an LLM write specs for you.
 
 You should know PostgreSQL and have met RLS.  Everything else is introduced as it comes up.
 `docs/REFERENCE.md` is the construct-by-construct reference; this guide links to it rather
@@ -24,19 +27,20 @@ Contents
 
 1. Why MLS
 2. Install
-3. A ten-minute tour
-4. How a spec is put together
-5. A complete example: tenant-scoped documents
-6. Recipes
-7. When a proof fails
-8. Identity: who the current user is
-9. Deploying the DDL
-10. Changing a deployed spec: diff, migrate, preflight, drift
-11. Writing specs with an LLM
-12. Performance
-13. Testing your own specs in CI
-14. Limits and things MLS refuses to do
-15. Where to read more
+3. Taking over the schema you have
+4. Starting from nothing: a ten-minute tour
+5. How a spec is put together
+6. A complete example: tenant-scoped documents
+7. Recipes
+8. When a proof fails
+9. Identity: who the current user is
+10. Deploying the DDL
+11. Changing a deployed spec: diff, migrate, preflight, drift
+12. Writing specs with an LLM
+13. Performance
+14. Testing your own specs in CI
+15. Limits and things MLS refuses to do
+16. Where to read more
 
 ## 1. Why MLS
 
@@ -104,10 +108,10 @@ The pieces fit together like this:
   predicates in a small language with SQL's three-valued meaning, and the compiler emits the one
   policy shape it can prove and index.  Raw SQL is allowed only in an explicit `opaque` block,
   and every proof that depends on one says so.
-- **Not only greenfield.**  MLS creates and owns the tables of a new schema, and it can also
-  adopt an existing one: `mls import` reads the live tables and policies into a spec, lifting
-  the policies it can read into the verified fragment and keeping the rest as opaque blocks
-  (section 9.1).
+- **Not only greenfield.**  MLS adopts the tables you have: `mls import` reads the live tables,
+  keys and constraints into a spec, and either drops the old policies for rules you write
+  (section 3) or lifts them into the verified fragment, keeping what it cannot read as opaque
+  blocks (section 10.1).  It can also create and own the tables of a new schema.
 
 The intended workflow is that an LLM writes the spec from business requirements and a
 human approves the *properties* and the *scenarios* in plain English.  Nobody has to read MLS
@@ -135,10 +139,59 @@ server because it creates roles and installs the compiled objects in a scratch d
 The LLM commands (`mls generate`, `mls eval --llm`) need `ANTHROPIC_API_KEY` in the environment.
 Nothing else in the toolchain makes a network call.
 
-## 3. A ten-minute tour
+## 3. Taking over the schema you have
 
-This section builds a spec for a small team-notes app on Supabase, one requirement at a time.
-You need no database: everything here runs on your machine in seconds.  Every output shown is
+The common case: a Supabase or plain Postgres project in production, its tables and data staying
+where they are, its policies written by hand and never proved.  The takeover keeps the tables
+and replaces the policies.  `docs/TAKEOVER.md` is the runbook, every command with what it prints,
+on Supabase's team-and-projects starter (`profiles`, `teams`, a `team_members` membership table,
+`projects` of a team, `tasks` of a project); the test suite replays it on Supabase's own image.
+In outline:
+
+1. **Back up, and record today's behaviour.**  `mls import --dsn "$DATABASE_URL" --out
+   before.mls` is a spec of the policies as they are.  It is what you compare against and what
+   you roll back to.
+2. **Import the skeleton.**  `mls import --dsn "$DATABASE_URL" --policies discard --out
+   spec.mls` writes every table as `adopted` (MLS adds rules to it and never recreates it), the
+   identity adapter it detects (`auth.uid()` on Supabase), the membership tables as relations,
+   and the readable CHECKs as rules.  No policy is imported.
+3. **Read the notes.**  They quote every policy the deploy will drop, say which tables have
+   row-level security off today, which columns MLS does not model, and which *bypass paths*
+   reach a table without its policies: a view that is not `security_invoker`, a `SECURITY
+   DEFINER` function an app role may call.  Each note ends with its fix.
+4. **Write the requirements**, one sentence per grant, and the rules and properties that state
+   them (by hand, with the recipes of section 7, or with `mls generate --skeleton spec.mls`).
+5. **Prove, then compare.**  `mls prove spec.mls` until every property holds, then `mls diff
+   before.mls spec.mls` lists every change in effect, with an example, for the people who own
+   the requirements.
+6. **Preview and deploy.**  Before the deploy, `mls drift` lists what it will drop and create;
+   `mls preflight` finds rows the new constraints would reject.  The compiled script runs in one
+   transaction and names each policy it drops:
+
+        NOTICE:  MLS drops policy Public profiles are viewable by everyone. on profiles: the spec does not declare it
+
+7. **Confirm.**  `mls drift` is clean (it lists what the spec assumes and what it leaves alone,
+   the foreign keys and indexes you had, without failing) and `mls status` shows every table
+   proved:
+
+        profiles: proved (P5, P6)
+        projects: proved (P1, P3)
+        tasks: proved (P2, P4, P9)
+        team_members: proved (P8)
+        teams: proved (P7)
+        status: 5 proved
+
+8. **Roll back** by deploying `before.mls`.
+
+The spec the starter ends with is `examples/starter_takeover.mls`.  Section 10.1 has the details
+of the import: what each mode means, the `keep` import that lifts the old policies, the
+assumptions the proofs carry, and the bypass paths.
+
+## 4. Starting from nothing: a ten-minute tour
+
+This section builds a spec from nothing for a small team-notes app on Supabase, one requirement
+at a time: the tables are MLS's own (`owned`), so the spec declares them and the compiled script
+creates them.  You need no database: everything here runs on your machine in seconds.  Every output shown is
 what `mls` actually prints, trimmed only where marked.  The finished spec is
 `examples/team_notes.mls`, and the test suite replays this tour on it, so the outputs stay
 current.
@@ -357,11 +410,11 @@ against every possible database, not just the rows you happened to test with.
 In six steps you wrote four rules and two properties, and the toolchain caught a privilege
 leak and a NULL that hid rows, each with a concrete example small enough to read aloud in a
 meeting.  You did not write SQL, and the SQL you got is the shape that stays fast.  The rest of
-this guide is the same loop at a larger scale: section 4 names the parts you just used,
-section 5 walks through a complete spec, section 6 has a recipe for most common requirements,
-and section 7 is what to do the next time a proof comes back REFUTED.
+this guide is the same loop at a larger scale: section 5 names the parts you just used,
+section 6 walks through a complete spec, section 7 has a recipe for most common requirements,
+and section 8 is what to do the next time a proof comes back REFUTED.
 
-## 4. How a spec is put together
+## 5. How a spec is put together
 
 The tour used most of the parts of a spec without naming them.  Here they are by name.  A
 spec has a fixed skeleton and two lists:
@@ -380,7 +433,7 @@ spec has a fixed skeleton and two lists:
 
 The skeleton (identity, roles, tables, relations, hierarchies, opaques) is the part a developer
 writes, because it mirrors the schema.  The rules and properties are the part an LLM can write
-from requirements (section 11).
+from requirements (section 12).
 
 **Rules** are of six kinds.  Each one compiles to exactly one Postgres mechanism:
 
@@ -467,7 +520,7 @@ describes, what the eval cases and every program hold); the terse form is what a
 in a diff or a transcript, and what `mls` reads from a `.mls` file (`mls fmt` converts either
 way; every example has its `.mls` twin).  The grammar is in the reference, §13.
 
-## 5. A complete example: tenant-scoped documents
+## 6. A complete example: tenant-scoped documents
 
 `examples/tenant_docs.mls.json` is a small multi-tenant document store on Supabase.  Three tables:
 
@@ -492,7 +545,7 @@ Identity is Supabase: the current user is `auth.uid()` and a `clearance` claim f
       }
     }
 
-### 5.1 The rules
+### 6.1 The rules
 
 Here is the whole rule set as `mls explain --terse` prints it (the `rules` block of the terse
 syntax, §4):
@@ -533,7 +586,7 @@ policy denies on UNKNOWN, so a document with `archived` NULL is invisible to eve
 that is what you want is a business question; MLS makes it a visible one (the `must_allow`
 properties below answer it).
 
-### 5.2 The properties
+### 6.2 The properties
 
     P1 tenant_isolation docs: tenant_id in member_of(@uid) for select, insert, update
     P2 column_immutable docs: tenant_id
@@ -570,7 +623,7 @@ unarchived document of their tenant.  Note that it has to say `not archived is n
 would be refuted, and the report would show exactly the NULL row as the counterexample.  This is
 how the NULL question in 5.1 gets answered and recorded.
 
-### 5.3 Check
+### 6.3 Check
 
     $ uv run mls check examples/tenant_docs.mls.json
     examples/tenant_docs.mls.json: OK
@@ -598,7 +651,7 @@ the line; the path and the message are the ones the JSON gives:
 for JSON input).  The messages are written so that a program (an LLM in the generation loop)
 can act on them.
 
-### 5.4 Prove
+### 6.4 Prove
 
     $ uv run mls prove examples/tenant_docs.mls.json
     # MLS proof report
@@ -640,7 +693,7 @@ meant to be read by the person who approves the properties.  `--format json` giv
 report as data; `--timeout` bounds the solver per obligation (default 20 s), and an obligation
 that times out is reported UNKNOWN, never PROVED.
 
-### 5.5 Compile
+### 6.5 Compile
 
     $ uv run mls compile examples/tenant_docs.mls.json
 
@@ -690,7 +743,7 @@ Things to notice:
 
 `--out FILE` writes the script instead of printing it.
 
-### 5.6 Test
+### 6.6 Test
 
     $ uv run mls test examples/tenant_docs.mls.json --versions 16
     [pg16] differential: <n> statements, outcomes {...}, <n> rows visible, 0 mismatches
@@ -712,7 +765,7 @@ the repository's own `pytest -m pg` runs them on every version.  Run it when you
 evidence for a particular spec, or when you add an `opaque` block (whose SQL the test executes
 but cannot otherwise check).
 
-### 5.7 Lint
+### 6.7 Lint
 
     $ uv run mls lint examples/tenant_docs.mls.json
     0 warning(s), 0 finding(s)
@@ -736,31 +789,89 @@ only rows another policy already admits (`subsumption`), one whose removal chang
 The questions are put to the solver on the same three-valued encoding as the proofs, which
 matters: `level < 1 or level >= 1` is a tautology in two-valued logic and UNKNOWN on a NULL
 level, so it subsumes an owner policy only when the column is NOT NULL.  When the LLM loop
-(§11) repairs a rule set, the findings go into the repair prompt as hints.
+(§12) repairs a rule set, the findings go into the repair prompt as hints.
 
 To say that two roles never reach the same row, use the `role_separation` property, which is
 proved like any other: *No row of approvals can be updated by both requester and approver.*
 
-## 6. Recipes
+## 7. Recipes
 
-Most access requirements are one of a dozen shapes.  Each recipe below gives the requirement
-in English, the terse lines that implement it and, where there is one, a property that pins
-it down.  They come from small specs in the style of section 3 (a `posts` table with a
-`team_id`, the `member_of` relation, a `teams` table); every one of them checks and proves as
+Most access requirements are one of a dozen shapes, and most of them start from something the
+schema already has: an owner column, a membership table, a helper function the old policies
+call, a soft-delete column.  Each recipe below names what you have, gives the terse lines that
+implement the requirement and, where there is one, a property that pins it down.  The tables
+are the Supabase starter's of section 3 (`projects` with an `owner_id` and a `team_id`,
+`team_members`, `tasks`) and small ones in the same style; every recipe checks and proves as
 shown.
 
-**Members see their team's rows, on every table that has a team.**  A *selector* writes the
-rule once and applies it to every table with the column:
+**You have `projects.owner_id → auth.users`.**  The owner is the user whose id is in the row:
+
+    R1 policy owner_all on projects: authenticated all permissive using owner_id = @uid
+    R6 transition owner_fixed on projects: new.owner_id = old.owner_id
+    P2 must_allow projects authenticated select: owner_id = @uid and deleted_at is null description 'the owner reads their live projects'
+
+`@uid` is `auth.uid()` on Supabase (section 9); the foreign key to `auth.users` stays where it
+is, listed by drift as foreign.  Give the owner `select` as well as the write (`all`): an update
+or a delete finds its rows through the select policies, so an owner who cannot read a row
+cannot edit it either.  The transition keeps an owner from giving a project away (a policy cannot say that:
+it sees the new row, not the change).
+
+**You have a membership table.**  `team_members (team_id, user_id)` with both key columns
+referring to their tables is what `mls import` turns into a relation; written by hand:
+
+    relation team_members = team_members(user_id, team_id)
+    R2 policy member_read on projects: authenticated select permissive using team_members(@uid, team_id)
+
+The relation is keyed by the user, so `team_members(@uid, team_id)` reads "the current user is
+a member of the row's team", compiled to one indexed subquery evaluated once per statement.  A
+policy *on* `team_members` cannot read the `team_members` relation: Postgres would apply the
+table's policies inside its own policy and refuses every query on it ("infinite recursion
+detected in policy"), so `mls check` refuses the rule.  Let a user see their own memberships
+(`user_id = @uid`), as the runbook does.
+
+**Your policies call `is_admin()`.**  Read the function's body.  Usually it looks a row up in a
+table keyed by the user, such as `team_admins (team_id, user_id)`; that table is then a
+relation, and the prover can reason about it:
+
+    relation admin_of = team_admins(user_id, team_id)
+    R3 policy team_admin_edit on projects: authenticated update permissive using admin_of(@uid, team_id)
+    P1 custom projects authenticated update old: owner_id = @uid or admin_of(@uid, team_id) description 'only the owner or a team admin edits a project'
+
+When the function does something the language cannot say, keep it as an `opaque` block with the
+inputs it reads:
+
+    opaque is_admin on projects (@uid) relations () sql $$ public.is_admin() $$
+    R4 policy admin_read on projects: authenticated select permissive using opaque(is_admin)
+
+It is enforced like any policy expression, and the prover treats it as an unknown: every proof
+that depends on it says `conditional on opaque blocks: is_admin`, and the report quotes its SQL.
+If the function is `SECURITY DEFINER`, drift lists it as a bypass path when app roles may call
+it.  A policy calls it as the user who runs the query, so revoking it from the app roles would
+break the policy: review its body and assume the path on the table it reads instead
+(`assume ('bypass function is_admin()')`).
+
+**You have a `deleted_at` column.**  Soft-deleted rows disappear for everyone, whatever the
+other policies grant:
+
+    R5 policy hide_deleted on projects: authenticated select restrictive using deleted_at is null
+    P3 custom projects authenticated select new: deleted_at is null description 'a deleted project is never read'
+
+A restrictive policy is ANDed with the permissive ones, so a later grant cannot bring deleted
+rows back; `deleted_at is null` says what NULL means, which `not deleted` on a boolean would
+not (section 4, step 4).
+
+**You have a `team_id` on every table.**  A *selector* writes the rule once and applies it to
+every table with the column:
 
     R1 policy team_read applies_to has_column(team_id int): authenticated select permissive using member_of(@uid, team_id)
 
 `mls check` expands it into `R1.posts`, `R1.comments`, and so on.  Look at the list `mls
-explain` prints: here it also matched `members`, which means members can see who else is on
-their teams.  That may be what you want; if not, use `tagged(tenant)` with `tags (tenant)` on
-the tables you mean, or `named(posts, comments)`.  A selector that matches no table is an
-error, so renaming a column cannot quietly switch a policy off.
+explain` prints.  A selector that reaches the membership table itself is refused there, for the
+reason of the membership recipe; restrict it with `tagged(tenant)` and `tags (tenant)` on the
+tables you mean, or `named(posts, comments)`.  A selector that matches no table is an error, so
+renaming a column cannot quietly switch a policy off.
 
-**Only the author edits, and cannot give the row away.**
+**You have an `author_id`: only the author edits, and cannot give the row away.**
 
     R2 policy author_update on posts: authenticated update permissive using author_id = @uid and member_of(@uid, team_id)
     P3 write_subset_read posts description 'a user can read back every post they edit'
@@ -781,7 +892,7 @@ does not.
 
     R4 transition final_stays_final on posts: old.status <> 'final' or new.status = 'final'
 
-**A closed set of values.**
+**You have a `status` column with a closed set of values.**
 
     R5 check known_status on posts: status in ('draft', 'review', 'final')
 
@@ -807,13 +918,13 @@ the count would read a stale snapshot.
 
 `now_between` treats a missing or NULL bound as open.  A column rule is per role, not per row:
 if a column should be visible on some rows and not others, it belongs in its own table with
-its own policies (section 14).
+its own policies (section 15).
 
 **Archived rows are hidden from everyone.**  See step 4 of the tour, and say what NULL means.
 
 **Two roles never act on the same row.**  A request is edited by its requester while it is a
 draft, and decided by an approver once submitted.  (This spec uses the `pg_roles` adapter,
-where `@user` is `current_user`; section 8.)
+where `@user` is `current_user`; section 9.)
 
     R1 policy request_edit on approvals: requester update permissive using requested_by = @user and state = 'draft'
     R2 policy approve on approvals: approver update permissive using state = 'submitted' check state = 'approved' or state = 'rejected'
@@ -828,8 +939,8 @@ group below them:
 The tree has a declared maximum depth, which is what keeps the proofs exact.
 `examples/org_tree.mls` is the complete spec.
 
-**Ownership two or three tables away.**  You have `tasks.project_id → projects.team_id →
-team_members`, and no `team_id` on `tasks`.  Compose the relation instead of copying the
+**You have `tasks.project_id → projects.team_id → team_members`.**  Ownership is two or three
+tables away, and no `team_id` on `tasks`.  Compose the relation instead of copying the
 column:
 
     relation member_of = team_members(user_id, team_id)
@@ -859,7 +970,7 @@ so.  Keep opaque blocks few and small.
 all of them.  For each thing a requirement says a user *can* do, add a `must_allow`, as in
 step 4 of the tour.  That is how you find out that a rule is narrower than you meant.
 
-## 7. When a proof fails
+## 8. When a proof fails
 
 A REFUTED property comes with a counterexample: one small, concrete database state in which
 the property is false.  Read it as a story.
@@ -885,7 +996,7 @@ the most useful question the toolchain asks:
    like an admin who is not a member (tour, step 3).  State the fact as a rule (an
    `inclusion`, a `check`, a `transition`) so that Postgres enforces it and the prover may
    rely on it.  Only state facts that are true of your data: `mls preflight` counts the
-   existing rows that violate a new constraint before you deploy it (section 10.2).
+   existing rows that violate a new constraint before you deploy it (section 11.2).
 
 Some other outcomes:
 
@@ -914,7 +1025,7 @@ Some other outcomes:
 They are written to be acted on by a program as much as by a person: the LLM loop (section
 11) feeds them back to the model.
 
-## 8. Identity: who the current user is
+## 9. Identity: who the current user is
 
 A policy's context values (`@uid`, `@clearance`) come from an identity adapter.  The adapter
 decides how a name becomes SQL and what has to be true outside the database for the policy to
@@ -948,7 +1059,7 @@ a function whose body sets `app.*`, and an `ALTER ROLE ... SET app.*` default on
 Choose the adapter once.  `mls migrate` refuses to change it, because every policy would change
 meaning at the same time.
 
-## 9. Deploying the DDL
+## 10. Deploying the DDL
 
 The compiled script is idempotent for roles (`create role` if missing) but not for owned tables
 and their policies: it is the *initial* deployment.  Run it as the role that will own the objects, in a
@@ -974,12 +1085,12 @@ After deploying, confirm the live database matches the spec:
 catalogs and compares them.  It reports missing objects, unexpected objects on MLS tables (a
 hand-added policy, a trigger), definitions that differ (an edited expression, a constraint left
 NOT VALID, a changed grant) and hardening violations (an app role with `BYPASSRLS`, RLS not
-forced, a login-capable `mls_internal`).  On an adopted table (section 9.1) it also lists, without
+forced, a login-capable `mls_internal`).  On an adopted table (section 10.1) it also lists, without
 failing, the objects MLS did not create and the hardening the spec assumes.  Run it from CI
 against production; it needs only read access to the catalog plus the ability to create and roll
 back the shadow schema.
 
-### 9.1 Adopting an existing schema
+### 10.1 Adopting an existing schema
 
 MLS does not have to create the tables it governs.  A table declares its `mode`:
 
@@ -1020,7 +1131,7 @@ one of them to `auth.users` (or to `profiles`), becomes a relation keyed by the 
 foreign keys and readable CHECKs come in as rules; a CHECK that already exists is kept by the
 deploy when it is the same constraint and replaced, with a notice, when it is not.  Hand the
 skeleton to `mls generate --skeleton skeleton.mls.json` with your requirements, or write the
-rules yourself.
+rules yourself.  `docs/TAKEOVER.md` is the whole procedure, from the backup to the rollback.
 
 The rest of this section is the `keep` import:
 
@@ -1100,14 +1211,14 @@ a table nobody has added to the spec shows up as `ungoverned`:
 Keep the spec in version control next to the application.  The spec, not the SQL, is the source
 of truth; the SQL is a build artifact.
 
-## 10. Changing a deployed spec: diff, migrate, preflight, drift
+## 11. Changing a deployed spec: diff, migrate, preflight, drift
 
 Specs change.  `examples/tenant_docs_v2.mls.json` is the next version of the walkthrough spec:
 owners may delete their documents, documents get a `title` that must not be blank, the level
 range widens to 4, a `tenant_settings` table appears, and an owner can no longer be changed once
 set.  The release sequence is:
 
-### 10.1 See what changed in effect
+### 11.1 See what changed in effect
 
     $ uv run mls diff examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json
     # MLS access diff
@@ -1142,7 +1253,7 @@ Properties also travel: `mls prove` on the new spec tells you which of the old g
 hold.  The usual practice is to keep every property and add new ones; a property you have to
 delete is a decision to record.
 
-### 10.2 Check the existing data
+### 11.2 Check the existing data
 
     uv run mls preflight new.mls.json --old old.mls.json --dsn "$DSN"
 
@@ -1151,7 +1262,7 @@ bound, pre-flight counts the existing rows that would violate it, with samples, 
 transaction.  With `--old` only the changed constraints are checked.  Fix or migrate the data
 before the schema; the migration script aborts on the first violating row.
 
-### 10.3 Generate the migration
+### 11.3 Generate the migration
 
     uv run mls migrate old.mls.json new.mls.json --out migrate.sql
 
@@ -1172,7 +1283,7 @@ this; a migration tool that wraps the file in one transaction will fail on `CONC
 changes, primary key changes and identity adapter changes are refused with the JSON path and
 the manual procedure.  `docs/MIGRATION.md` has the full phase and lock tables.
 
-### 10.4 Confirm
+### 11.4 Confirm
 
     uv run mls drift new.mls.json --dsn "$DSN"
 
@@ -1180,7 +1291,7 @@ must report nothing.  This whole sequence (deploy v1 with data, migrate, drift c
 differential test of v2 on the migrated database) is the repository's own acceptance test for
 migrations, on every Postgres version.
 
-## 11. Writing specs with an LLM
+## 12. Writing specs with an LLM
 
 `mls generate` turns business requirements and a skeleton into a checked and proved spec:
 
@@ -1225,7 +1336,7 @@ The eval corpus (`evals/cases`) and `mls eval` measure the loop; `docs/LLM.md` e
 case format, the metrics and the measured numbers.  Tests never call the API: setting
 `MLS_LLM_SCRIPT` to a JSON file of answers replays them.
 
-## 12. Performance
+## 13. Performance
 
 The compiler emits the one policy shape that stays index-driven at scale (`col = any(array(select
 ...))` with context in an InitPlan) and a composite index for every conjunctive group of a
@@ -1242,7 +1353,7 @@ dedicated role `mls_internal` that cannot log in and has no other privileges; dr
 
 Opaque blocks are excluded from every performance guarantee.
 
-## 13. Testing your own specs in CI
+## 14. Testing your own specs in CI
 
 A minimal pipeline for a repository that holds `spec.mls.json`:
 
@@ -1262,18 +1373,18 @@ differential, mutation, migration, lock, preflight and drift tests on Postgres 1
 runs the EXPLAIN checks at a million rows, `-m cvc5` cross-checks the proofs with a second
 solver, and `-m lean` builds the Lean formalization when `lake` is on the path.
 
-## 14. Limits and things MLS refuses to do
+## 15. Limits and things MLS refuses to do
 
 These are decisions, not gaps; `docs/DECISIONS.md` has the reasoning.
 
 - **Ownership is per table.**  MLS creates the tables it owns and adopts the ones it did not
-  create (section 9.1), but it never silently applies to an adopted table a hardening it would
+  create (section 10.1), but it never silently applies to an adopted table a hardening it would
   have to assume: an app-role owner or unforced row-level security is stated in the spec and
   repeated in every report, or it is drift.  A hand-written policy is lifted into the fragment
   when the lifter reads it (D46) and adopted as an opaque block otherwise; a function of yours
   in a policy is never inlined, however short its body (D34).
 - **The fragment.**  No joins, subqueries, arithmetic or functions in predicates (a chain of
-  lookups through keys is a composed relation, section 6).  Comparison
+  lookups through keys is a composed relation, section 7).  Comparison
   right-hand sides are context or constants; membership keys are context, not columns; negated
   membership is rejected in policies (it is an anti-join the planner cannot drive from an
   index); `in_group` is not allowed in checks and transitions (it reads other tables).  Anything
@@ -1298,7 +1409,7 @@ These are decisions, not gaps; `docs/DECISIONS.md` has the reasoning.
   to MATCH FULL).
 - **Migrations** refuse column type changes, primary key changes and identity adapter changes.
 
-## 15. Where to read more
+## 16. Where to read more
 
 - `docs/REFERENCE.md`: every construct, field, predicate form, property template, CLI flag,
   exit code and error format.

@@ -813,16 +813,10 @@ case("st_files_forgotten",
      spec("the selector names docs only: files are left ungoverned (nobody reads or writes them)", ST_TABLES, ST_REL,
           [x if x["id"] == "R4" else {**x, "applies_to": {"named": ["docs"]}} for x in ST_RULES], ST_PROPS),
      {**ST_OK, "P9": "REFUTED", "P10": "REFUTED"})
-case("st_self_grant",
-     ST_REQ.replace("Every table tagged tenant (docs and files today, and any table tagged later)",
-                    "Every table with a tenant_id column (memberships, docs and files, and any table added later)")
-           .replace(" Users never change memberships, and there is no membership listing: the membership lookup "
-                    "is all they get.", ""), ST_ENG,
-     spec("the selector matches by column, so it also governs memberships: a member adds and changes memberships of "
-          "their own tenants (self-grant into any tenant via update)", ST_TABLES, ST_REL,
-          [x if x["id"] == "R4" else {**x, "applies_to": {"has_column": ["tenant_id", "int"]}} for x in ST_RULES],
-          ST_PROPS),
-     {**ST_OK, "P6": "REFUTED"})
+# st_self_grant (a selector by column that also governed memberships, so members could grant
+# themselves memberships) was retired on 2026-11-13: its reference reads member_of in policies on
+# memberships, which Postgres refuses ('infinite recursion detected in policy') and the checker
+# now refuses too, so the case has no valid reference (docs/LLM.md).
 
 
 # ----------------------------------------------------------------------------- write and verify

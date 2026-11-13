@@ -25,12 +25,19 @@ def base() -> dict:
     return d
 
 
-def with_selector(sel: dict, rule_id: str = "R2") -> dict:
+LOW = {"cmp": [{"col": "tenant_id"}, "<=", {"const": 9}]}
+
+
+def with_selector(sel: dict, rule_id: str = "R2", using: dict | None = LOW) -> dict:
+    """R2 on the tables the selector matches, reading no relation: a policy on `admins` cannot
+    read `admin_of`, its own table's relation (Postgres recursion; refused by the checker)."""
     d = base()
     for r in d["rules"]:
         if r["id"] == rule_id:
             del r["table"]
             r["applies_to"] = sel
+            if using is not None:
+                r["using"] = using
     return d
 
 
@@ -114,7 +121,7 @@ def manual_expansion(sel: dict) -> dict:
             out.append(r)
             continue
         for x in expanded.expansions("R2"):
-            y = {k: v for k, v in r.items() if k != "table"}
+            y = {k: v for k, v in r.items() if k != "table"} | {"using": LOW}
             out.append({**y, "id": x.id, "table": x.table, "from": "R2"})
     d["rules"] = out
     return d
@@ -125,13 +132,13 @@ def test_selector_and_manual_expansion_are_the_same_spec():
     a = check_spec(Spec.model_validate(with_selector(sel)))
     b = check_spec(Spec.model_validate(manual_expansion(sel)))
     assert spec_listing(a) == spec_listing(b)  # byte-identical terse
-    assert "R2.files policy admin_read on files from R2: authenticated select permissive using admin_of(@uid, tenant_id)" \
+    assert "R2.files policy admin_read on files from R2: authenticated select permissive using tenant_id <= 9" \
         in spec_listing(a)
     # the selector rule itself, before the checker expands it, shows the selector
     from mls.terse import rule as terse_rule
     raw = Spec.model_validate(with_selector(sel))
     assert terse_rule(raw.rules[1]) == ("R2 policy admin_read applies_to has_column(tenant_id int): authenticated "
-                                        "select permissive using admin_of(@uid, tenant_id) requirement 'REQ-2'")
+                                        "select permissive using tenant_id <= 9 requirement 'REQ-2'")
     assert [c for c in access_diff(a, b) if c.verdict != "PROVED"] == []
     # explain: the selector once, the expansion as a list
     md = spec_summary(a)
@@ -141,6 +148,19 @@ def test_selector_and_manual_expansion_are_the_same_spec():
     assert md.count("**R2.") == 4
     # the manual expansion explains rule by rule
     assert "applies to every" not in spec_summary(b) and "- **R2.files**:" in spec_summary(b)
+
+
+def test_a_selector_that_reaches_a_relation_table_is_refused_where_it_does():
+    """The relation-backed table is matched too: R2.admins would read admin_of from a policy on
+    admins, which Postgres refuses; the error is reported under the selector rule's path."""
+    d = with_selector({"has_column": ["tenant_id", "int"]}, using=None)
+    with pytest.raises(SpecError) as ei:
+        check_spec(Spec.model_validate(d))
+    (e,) = ei.value.errors
+    assert e.path == "$.rules[1].using.member.relation"
+    assert "a policy on 'admins' cannot read 'admin_of': relation 'admin_of' is backed by table 'admins'" in e.message
+    assert "infinite recursion detected in policy" in e.message
+    assert check_spec(Spec.model_validate(with_selector({"named": ["docs", "files"]}, using=None)))
 
 
 def test_diff_reports_per_concrete_rule():

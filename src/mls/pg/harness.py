@@ -10,7 +10,7 @@ from __future__ import annotations
 import datetime as dt
 import random
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, Callable, Sequence
 
 import psycopg
 from psycopg import sql as psql
@@ -61,6 +61,7 @@ class DiffResult:
     outcomes: dict[str, int] = field(default_factory=lambda: {"filtered": 0, "ok": 0, "error": 0})
     mismatches: list[Mismatch] = field(default_factory=list)
     visible_rows: int = 0  # rows returned by SELECTs (a run where nothing is visible proves little)
+    foreign: int = 0  # statements only a foreign key the spec does not declare rejected (not compared)
 
     @property
     def ok(self) -> bool:
@@ -68,7 +69,8 @@ class DiffResult:
 
     def summary(self) -> str:
         return (f"{self.statements} statements, outcomes {self.outcomes}, {self.visible_rows} rows "
-                f"visible, {len(self.mismatches)} mismatches")
+                f"visible, {len(self.mismatches)} mismatches"
+                + (f", {self.foreign} rejected by a foreign key" if self.foreign else ""))
 
 
 # ----------------------------------------------------------------------------- value generation
@@ -84,8 +86,10 @@ class ValueGen:
     """Random values per column type from small pools so that collisions (and NULLs) are frequent."""
 
     def __init__(self, spec: Spec, adapter: Adapter, rnd: Chooser, n_users: int = 6,
-                 n_ints: int = 5, now: dt.datetime | None = None, null_p: float = 0.3):
+                 n_ints: int = 5, now: dt.datetime | None = None, null_p: float = 0.3,
+                 foreign: Sequence[dict[str, str]] = ()):
         self.spec = spec
+        self.foreign = list(foreign)  # the schema's own FKs (pg/catalog.py:foreign_keys)
         self.rnd = rnd
         self.users = adapter.harness_user_values(n_users)
         self.ints = list(range(-1, n_ints))
@@ -147,6 +151,13 @@ class ValueGen:
                 # counted groups crowd into a few parents so cardinality limits are actually reached
                 pool = parents[:2] if fk.column in crowded and self.rnd.random() < 0.6 else parents
                 r[fk.column] = self.rnd.choice(pool)[fk.parent_column]
+        for fk in self.foreign:  # the schema's own keys: an existing parent value, kept when it is one
+            col = t.columns.get(fk["column"]) if fk["table"] == table else None
+            if col is None or fk["parent"] not in self.spec.tables:
+                continue
+            pool = [x[fk["parent_column"]] for x in self.rows.get(fk["parent"], [])]
+            if r[fk["column"]] is not None and r[fk["column"]] not in pool:
+                r[fk["column"]] = self.rnd.choice(pool) if pool else (None if col.nullable else r[fk["column"]])
         for h in self.spec.hierarchies.values():  # roots are rarer than children: deeper trees
             if h.table == table and r[h.parent] is not None and self.rnd.random() < 0.15:
                 r[h.parent] = None
@@ -233,10 +244,13 @@ def chained_columns(spec: Spec) -> dict[str, dict[str, tuple[str, str]]]:
     return out
 
 
-def table_order(spec: Spec) -> list[str]:
+def table_order(spec: Spec, foreign: Sequence[dict[str, str]] = ()) -> list[str]:
     """Tables ordered so that every FK target precedes its referencing table (and every level of
-    a composed relation the level after it, D56)."""
+    a composed relation the level after it, D56; and the parent of a foreign key of the schema)."""
     deps = {t: set() for t in spec.governed()}
+    for fk in foreign:
+        if fk["table"] in deps and fk["parent"] in deps and fk["parent"] != fk["table"]:
+            deps[fk["table"]].add(fk["parent"])
     for t, cols in chained_columns(spec).items():
         deps[t] |= {src for src, _ in cols.values() if src != t}
     for inc in spec.inclusions():
@@ -267,7 +281,7 @@ def generate_dataset(spec: Spec, adapter: Adapter, rnd: Chooser, rows_per_table:
     oracle = Oracle(spec)
     tables: dict[str, list[Row]] = {}
     ds = Dataset(tables, gen.users, gen.now)
-    for table in table_order(spec):
+    for table in table_order(spec, gen.foreign):
         rows: list[Row] = []
         tables[table] = rows          # self-referencing tables see the rows generated so far
         gen.rows[table] = rows
@@ -302,10 +316,16 @@ class LoadError(Exception):
 
 class Harness:
     def __init__(self, spec: Spec, script: Script, dsn: str, dbname: str,
-                 opaque_impl: dict[str, Any] | None = None, prepare: Callable[[str], None] | None = None):
+                 opaque_impl: dict[str, Any] | None = None, prepare: Callable[[str], None] | None = None,
+                 foreign: Sequence[dict[str, str]] = ()):
         """`prepare(dbname)`, when given, sets up the new database as a platform would (Supabase,
         D55: the auth schema and default privileges, as its admin) in place of the adapter's
-        stand-in definitions."""
+        stand-in definitions.  `foreign` are the schema's own foreign keys on a deployed brownfield
+        database (`pg/catalog.py:foreign_keys`): the data satisfies them (a parent outside the spec,
+        `auth.users`, gets the values the data uses), and a statement only one of them rejects is
+        counted, not compared — Postgres checks a foreign key after the privileges, the policies
+        and the CHECKs, so the model would have said ok, and the model does not know the key."""
+        self.foreign = list(foreign)
         self.prepare = prepare
         self.spec = spec
         self.script = script
@@ -390,9 +410,21 @@ class Harness:
     def load(self, ds: Dataset) -> None:
         assert self.conn is not None
         with self.conn.cursor() as cur:
-            for t in reversed(table_order(self.spec)):
+            for t in reversed(table_order(self.spec, self.foreign)):
                 cur.execute(psql.SQL("delete from {}").format(_ident(t)))
-            for t in table_order(self.spec):
+            for fk in self.foreign:  # a parent outside the spec has every value the data may use
+                if fk["parent"] in self.spec.tables:
+                    continue
+                col = self.spec.tables[fk["table"]].columns.get(fk["column"])
+                if col is None:
+                    continue
+                values = {r[fk["column"]] for r in ds.tables.get(fk["table"], []) if r[fk["column"]] is not None}
+                values |= set(ds.users) if col.type == "uuid" else set()
+                parent = psql.SQL(".").join(map(_ident, fk["parent"].split(".")))
+                for v in sorted(values, key=str):
+                    cur.execute(psql.SQL("insert into {} ({}) values ({}) on conflict do nothing").format(
+                        parent, _ident(fk["parent_column"]), psql.Placeholder()), [v])
+            for t in table_order(self.spec, self.foreign):
                 for r in ds.tables.get(t, []):
                     try:
                         self._insert(cur, t, r)
@@ -465,7 +497,7 @@ class Harness:
             self._insert(cur, table, row)
             got = "ok"
         except psycopg.Error as e:
-            got = classify_error(e)
+            got = self._classify(e)
         finally:
             cur.execute("rollback")
         full = {c: row.get(c) for c in self.spec.tables[table].columns}
@@ -486,7 +518,7 @@ class Harness:
                 [new[c] for c in set_cols] + [old[c] for c in pk])
             got = "ok" if cur.rowcount == 1 else "filtered"
         except psycopg.Error as e:
-            got = classify_error(e)
+            got = self._classify(e)
         finally:
             cur.execute("rollback")
         new_full = dict(old)
@@ -504,14 +536,22 @@ class Harness:
                 [old[c] for c in pk])
             got = "ok" if cur.rowcount == 1 else "filtered"
         except psycopg.Error as e:
-            got = classify_error(e)
+            got = self._classify(e)
         finally:
             cur.execute("rollback")
         want = self.oracle.delete(role, table, old, ctx, self.db(ds), pk)
         self._record(res, "delete", table, role, ctx, {"old": old}, got, want)
 
+    def _classify(self, e: psycopg.Error) -> str:
+        if e.sqlstate == "23503" and e.diag.constraint_name in {fk["name"] for fk in self.foreign}:
+            return "foreign"
+        return classify_error(e)
+
     def _record(self, res, op, table, role, ctx, detail, got, want) -> None:
         res.statements += 1
+        if got == "foreign":
+            res.foreign += 1
+            return
         res.outcomes[got] += 1
         if got != want:
             res.mismatches.append(Mismatch(op, table, role, ctx, detail, got, want))
@@ -520,7 +560,7 @@ class Harness:
     def differential(self, ds: Dataset, rnd: random.Random, n_contexts: int = 12, ops_per_context: int = 20,
                      gen: ValueGen | None = None) -> DiffResult:
         assert self.conn is not None
-        gen = gen or ValueGen(self.spec, self.adapter, rnd)
+        gen = gen or ValueGen(self.spec, self.adapter, rnd, foreign=self.foreign)
         res = DiffResult()
         with self.conn.cursor() as cur:
             for _ in range(n_contexts):
@@ -588,7 +628,7 @@ def run_differential(spec: Spec, script: Script, dsn: str, dbname: str, seed: in
     try:
         if harness is None:
             h.deploy()
-        gen = ValueGen(spec, h.adapter, rnd, null_p=null_p)
+        gen = ValueGen(spec, h.adapter, rnd, null_p=null_p, foreign=h.foreign)
         ds = generate_dataset(spec, h.adapter, rnd, rows_per_table, gen)
         try:
             h.load(ds)

@@ -65,6 +65,7 @@ def test_coverage_observed_table_a_selector_or_an_isolation_column_would_cover()
     r2 = next(r for r in d["rules"] if r["id"] == "R2")
     del r2["table"]
     r2["applies_to"] = {"has_column": ["tenant_id", "int"]}
+    r2["using"] = {"cmp": [{"col": "tenant_id"}, "<=", {"const": 9}]}  # admin_of on admins would recurse
     fs = coverage(make(d))
     assert [(f.kind, f.table) for f in fs] == [("coverage", "audit"), ("coverage", "audit")]
     assert "matches the selector of rule R2 (has column tenant_id of type int)" in fs[0].message

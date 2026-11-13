@@ -241,3 +241,40 @@ four versions:
 - So performance does not argue for denormalization.  The nested form is also what a correct
   hand-written policy should be, and the takeover audience's existing policies are mostly the
   `IN` form.
+
+## A policy that reads its own table (Milestone 6, #24; PG 15–18 and Supabase)
+
+A policy on `team_members` whose expression reads `team_members` (`team_id = any(array(select
+team_id from team_members where user_id = auth.uid()))`, a user seeing the memberships of their
+teams) deploys without complaint, and then every query on the table fails with `infinite
+recursion detected in policy for relation "team_members"`: the subquery is itself subject to the
+table's policies.  It fails for every role the policy applies to, including on rows the subquery
+does not reach, so the table is closed to the app, not merely filtered.  The deploy succeeding
+is what makes it dangerous: only the first query finds it.  The usual workarounds are a
+`SECURITY DEFINER` helper (a bypass path, D54) or a second membership table.  MLS refuses the
+rule at check time (DECISIONS, #24); a user's own memberships (`user_id = auth.uid()`) need no
+subquery.
+
+## Replaying the takeover on the Supabase starter (Milestone 6, #24)
+
+`docs/TAKEOVER.md` replayed on `starter_schema.sql` with data, as `postgres` on the
+`supabase/postgres` image (`tests/platform/test_runbook.py`):
+
+- The differential test on the deployed database needs the schema's own foreign keys honoured
+  (the harness generated tasks of projects that do not exist; `profiles.id → auth.users` needs
+  the users), and Postgres checks them after the policies: an insert the policies reject fails
+  with 42501 before the foreign key is looked at.  So a foreign-key rejection says nothing the
+  model disagrees with, and the harness counts it apart.
+- A rollback by deploying the old spec (`before.mls`, from `mls import` before the takeover)
+  restores the old policies under MLS's names (`Public profiles are viewable by everyone.`
+  becomes `public_profiles_are_viewable_by_everyone_`, split per role) with the same effect,
+  leaves the compiler's indexes in place, and leaves a table that was not governed before
+  (`team_members`, row-level security off) with the new policies and RLS on: the runbook puts it
+  back by hand.  The second deploy then failed on the existing index until the indexes on adopted
+  tables became `if not exists`.
+- `mls import` of the old policies makes `team_members` observed (row-level security off), and
+  `mls diff` used to report every app role's access to it as `before: false`; it now skips the
+  table with a note.  Its real change (open to every app role → own memberships only) is the one
+  the runbook states in prose.
+- `mls generate --skeleton` writes the whole rules section, so the imported CHECKs are kept only
+  if the model keeps them; the runbook says to check.

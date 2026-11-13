@@ -24,6 +24,10 @@ def test_adopted_table_is_not_created_or_forced():
     assert 'alter table "docs" force row level security' not in sql
     assert 'alter table "memberships" force row level security' in sql
     assert 'create policy "member_read" on "docs"' in sql and 'add constraint "level_range"' in sql
+    # the deploy of an adopted table runs again (after a rollback): its indexes are created if
+    # missing; an owned table's are created with the table
+    assert 'create index if not exists "mls_ix_docs_' in sql and 'create index "mls_ix_docs_' not in sql
+    assert 'create index "mls_ix_docs_' in compile_spec(specs.policy_spec()).sql()
 
 
 def test_observed_table_is_not_touched():

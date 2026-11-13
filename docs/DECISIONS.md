@@ -911,3 +911,24 @@ lines), following the encoder's uses up to three passes.  (5) The lifter recogni
 hop is a governed table, its value a key and both columns NOT NULL, reuses an identical chain,
 and otherwise keeps the policy opaque.  (6) Lean: `Pred.memberVia` over the hops' lookups, sound
 by `chainPy_eq`; 60 generated vectors cover one and two hops.
+
+Implementation defaults (#24, the takeover runbook, 2026-11-13).  (1) A policy on a relation's
+own table cannot read the relation, nor a composed relation with a hop through the table
+(amends D21): the policy's subquery would apply the table's policies again, Postgres refuses
+every query on the table ("infinite recursion detected in policy", FINDINGS), and the checker
+refuses the rule at its `member.relation` with the fix (the user's own rows, `key = @ctx`).  It
+retires the eval case `st_self_grant`, whose reference had exactly that shape.  (2) The relation
+row axiom (SEMANTICS §7): a stored row of a relation's table the obligation reads is in the
+relation, as D56's stored-row axiom does for hops; the Lean transcription does not state it yet
+(ROADMAP).  (3) The compiler's indexes on an adopted table are `create index if not exists`, so
+a deploy runs again after a rollback that kept them (D51's script already drops and recreates
+its own policies); owned tables keep the bare form.  (4) `mls diff` does not compare a table
+observed in either version and says so in a note: an observed table's access is not modelled
+(row-level security off), so "before: false" there would be a false report.  (5) `mls import
+--out x.mls` writes the terse syntax, and `mls generate --skeleton` reads one; the runbook works
+in `.mls` throughout.  (6) The differential harness runs on a deployed brownfield database
+(`Harness(..., foreign=pg/catalog.py:foreign_keys(...))`): the generated data satisfies the
+schema's own foreign keys (a parent outside the spec such as `auth.users` is seeded with the
+values the data uses), and a statement only such a foreign key rejects is counted, not compared:
+Postgres checks it after the privileges, the policies and the CHECKs, so the model's verdict
+up to that point is already compared on the statements that pass.

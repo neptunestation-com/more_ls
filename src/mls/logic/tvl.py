@@ -72,9 +72,11 @@ class Encoder:
     side_conditions: list[Term] = field(default_factory=list)
     opaque_deps: set[str] = field(default_factory=set)
     hops_used: set[tuple[str, str, str]] = field(default_factory=set)  # (table, key, value) read by a chain
+    rels_used: set[str] = field(default_factory=set)  # base relations whose symbol was emitted
 
     # ------------------------------------------------------------------ symbols
     def rel(self, name: str) -> FunDecl:
+        self.rels_used.add(name)
         return rel_fun(name, self.rel_tags.get(name))
 
     def const_id(self, value: str) -> int:

@@ -192,6 +192,12 @@ All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered 
 - **Composed relations (D56):** the hop functions `hop.T.v`, `hop.T.v.k` are named by the hop, so
   two versions of a spec (and two relations sharing a hop) share them; the stored-row axioms of
   §3.4 tie them to every stored row an obligation reads.
+- **Relation row axioms (#24):** a stored row of a base relation's table is in the relation.  For
+  every row an obligation reads of the table of a relation it uses (any image but `new`, which is
+  not stored yet when the policies read the table), the encoding asserts `rel(row.key,
+  row.value)`.  Without it a property over the relation table itself (`team_id in
+  team_members(@uid)` on `team_members`) is refuted by a row the relation does not contain, a
+  state no database can be in.
 - **role_separation (D49):** `constraints ∧ effective_a ∧ effective_b` is UNSAT over the command's
   images (for update: `using` on `old`, `check` on `new`, plus the transition constraints), with one
   set of context values for both roles; a model is a row both roles may touch.

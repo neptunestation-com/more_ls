@@ -146,6 +146,20 @@ class Checker:
         return True
 
     # ------------------------------------------------------------------ terms
+    def _relation_tables(self, name: str) -> list[str]:
+        """The tables a membership in `name` reads, base table first (D56: every hop's)."""
+        rel = self.spec.relations.get(name)
+        if isinstance(rel, ComposedRelation):
+            base = self.spec.relations.get(rel.of)
+            return ([base.table] if isinstance(base, Relation) else []) + [h.table for h in rel.through]
+        return [rel.table] if isinstance(rel, Relation) else []
+
+    def _own_rows_hint(self, name: str) -> str:
+        rel = self.spec.relations.get(name)
+        if isinstance(rel, ComposedRelation):
+            rel = self.spec.relations.get(rel.of)
+        return f"{rel.key} compared with the user's context value" if isinstance(rel, Relation) else "the key column"
+
     def term_type(self, term, scope: Scope, path: str) -> ColType | None:
         if isinstance(term, ColRef):
             if not scope.cols:
@@ -314,6 +328,17 @@ class Checker:
             if negated and scope.reject_negated_member:
                 self.err(path, "negated membership in a policy is an anti-join and cannot be "
                                "index-driven", "restate positively, or wrap it in an opaque block")
+            if scope.is_policy:
+                read = self._relation_tables(m.relation)
+                if scope.table in read:
+                    via = (f"relation '{m.relation}' is backed by table '{scope.table}'" if read[0] == scope.table
+                           else f"relation '{m.relation}' reads table '{scope.table}' in one of its hops")
+                    self.err(f"{path}.member.relation",
+                             f"a policy on '{scope.table}' cannot read '{m.relation}': {via}, so its subquery "
+                             f"would apply this table's policies again and Postgres refuses every query on "
+                             f"the table ('infinite recursion detected in policy')",
+                             f"state the policy without the relation (the user's own rows: "
+                             f"{self._own_rows_hint(m.relation)}), or use a relation backed by another table")
             if isinstance(rel, ComposedRelation) and scope.name == "invariant":
                 self.err(f"{path}.member.relation", f"'{m.relation}' is a composed relation; an invariant "
                                                     f"cannot read one (a write to a hop table would change "

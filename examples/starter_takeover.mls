@@ -1,0 +1,83 @@
+mls 0.1
+comment 'The Supabase starter (tests/brownfield/starter_schema.sql) after the takeover of docs/TAKEOVER.md: the skeleton that mls import --policies discard writes, the composed relation in_project, and the rules and properties of the runbook. Every table is adopted; the old policies are gone.'
+
+identity supabase { uid: auth.uid uuid }
+roles anon, authenticated
+
+table profiles adopted {
+  id uuid not null,
+  username text,
+  full_name text,
+  avatar_url text,
+  updated_at timestamp;
+  primary_key (id);
+  unique (username);
+  assume ('rls not_forced')
+}
+
+table projects adopted {
+  id bigint not null,
+  team_id bigint not null,
+  name text not null,
+  archived bool not null;
+  primary_key (id);
+  assume ('rls not_forced')
+}
+
+table tasks adopted {
+  id bigint not null,
+  project_id bigint not null,
+  title text not null,
+  status text not null,
+  assignee_id uuid,
+  created_at timestamp not null;
+  primary_key (id);
+  assume ('rls not_forced')
+}
+
+table team_members adopted {
+  team_id bigint not null,
+  user_id uuid not null,
+  role text not null;
+  primary_key (team_id, user_id);
+  assume ('rls not_forced')
+}
+
+table teams adopted {
+  id bigint not null,
+  name text not null,
+  created_at timestamp not null;
+  primary_key (id);
+  assume ('rls not_forced')
+}
+
+relation team_members = team_members(user_id, team_id)
+relation in_project = team_members . projects(team_id, id)
+
+rules {
+  R1 check tasks_status_check on tasks: status in ('todo', 'doing', 'done')
+  R2 check team_members_role_check on team_members: role in ('owner', 'member')
+  R3 policy profiles_public on profiles: anon select permissive using true
+  R4 policy profiles_signed_in on profiles: authenticated select permissive using true
+  R5 policy profile_create_own on profiles: authenticated insert permissive check id = @uid
+  R6 policy profile_edit_own on profiles: authenticated update permissive using id = @uid
+  R7 policy teams_of_member on teams: authenticated select permissive using team_members(@uid, id)
+  R8 policy own_memberships on team_members: authenticated select permissive using user_id = @uid
+  R9 policy projects_of_team on projects: authenticated select permissive using team_members(@uid, team_id)
+  R10 policy project_create on projects: authenticated insert permissive check team_members(@uid, team_id)
+  R11 policy tasks_of_team on tasks: authenticated select permissive using in_project(@uid, project_id)
+  R12 policy task_create on tasks: authenticated insert permissive check in_project(@uid, project_id)
+  R13 policy task_edit on tasks: authenticated update permissive using in_project(@uid, project_id)
+}
+
+properties {
+  P1 tenant_isolation projects: team_id in team_members(@uid) for select, insert description 'a user only reads and creates projects of their own teams'
+  P2 tenant_isolation tasks: project_id in in_project(@uid) for select, insert, update description 'a user only reads, creates and edits tasks of their own teams'' projects'
+  P3 must_allow projects authenticated select: team_members(@uid, team_id) description 'a member reads every project of their teams'
+  P4 must_allow tasks authenticated select: in_project(@uid, project_id) description 'a member reads every task of their teams'' projects'
+  P5 must_allow profiles anon select: true description 'anyone, signed in or not, reads every profile'
+  P6 custom profiles authenticated update old: id = @uid description 'a user only edits their own profile'
+  P7 tenant_isolation teams: id in team_members(@uid) for select description 'a user only reads the teams they belong to'
+  P8 tenant_isolation team_members: team_id in team_members(@uid) for select description 'a user only sees memberships of their own teams'
+  P9 write_subset_read tasks description 'a member can read back every task they create or edit'
+}

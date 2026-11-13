@@ -241,13 +241,23 @@ def test_import_of_the_brownfield_fixture(brownfield):
                       "tasks_priority_check": {"and": [{"cmp": [{"col": "priority"}, ">=", {"const": 0}]},
                                                        {"cmp": [{"col": "priority"}, "<=", {"const": 5}]}]}}
     assert any("tasks_priority_check" in n and "drift reports the definition as differs" in n for n in res.notes)
-    # late binding (D48): a selector over the imported spec expands to every adopted table with the column
+    # late binding (D48): a selector over the imported spec expands to every adopted table with the
+    # column, the membership table included, where reading its own relation is refused (Postgres:
+    # infinite recursion in policy); narrowed by name, the selector still filters by the column
     d = dict(res.spec)
-    d["rules"] = d["rules"] + [{"id": "S1", "kind": "policy", "name": "project_rows", "role": "authenticated",
-                                "command": "select", "mode": "permissive", "using": member,
-                                "applies_to": {"has_column": ["project_id", "uuid"]}}]
+    s1 = {"id": "S1", "kind": "policy", "name": "project_rows", "role": "authenticated",
+          "command": "select", "mode": "permissive", "using": member,
+          "applies_to": {"has_column": ["project_id", "uuid"]}}
+    d["rules"] = d["rules"] + [s1]
+    with pytest.raises(SpecError) as ei:
+        check_spec(Spec.model_validate(d))
+    (e,) = ei.value.errors
+    assert e.path == f"$.rules[{len(d['rules']) - 1}].using.member.relation"
+    assert "a policy on 'project_members' cannot read 'project_members'" in e.message
+    d["rules"][-1] = {**s1, "applies_to": {"and": [{"has_column": ["project_id", "uuid"]},
+                                                   {"named": ["projects", "tasks"]}]}}
     sel = check_spec(Spec.model_validate(d))
-    assert [r.table for r in sel.expansions("S1")] == ["project_members", "tasks"]
+    assert [r.table for r in sel.expansions("S1")] == ["tasks"]
     assert not any(r.kind == "inclusion" for r in spec.rules)  # single-column FKs are not inclusions
     cr = [r for r in spec.rules if r.kind == "column_rule"]
     assert [(r.table, r.role, r.access, r.columns) for r in cr] == [("profiles", "anon", "read", ["display_name", "id"])]

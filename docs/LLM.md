@@ -105,6 +105,11 @@ originals; 35 are generation cases, one is a checker case) and the solver-graded
 seed case (`evals/cases/synthetic`, 221 cases; mutation score 75 %, 221 of 295 mutants detected,
 2026-11-05; a mutant counts as detected when a property the base proves no
 longer proves — the lower-bound template `must_allow` (D40) is what makes a dropped grant count).
+On 2026-11-13 (#24) `st_self_grant` and its three mutants were retired: its reference read the
+membership relation in a policy on the membership table, which Postgres refuses at query time
+("infinite recursion detected in policy", FINDINGS) and the checker now refuses, so the case had
+no valid reference.  The corpus is now 35 seed cases and 218 mutants; the figures of the runs
+below are those of the corpus at the time.
 
 ## Measured (`claude-opus-5-5`, effort high, max 3 repairs)
 

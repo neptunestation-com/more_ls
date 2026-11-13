@@ -1,0 +1,589 @@
+{
+ "$comment": "The Supabase starter (tests/brownfield/starter_schema.sql) after the takeover of docs/TAKEOVER.md: the skeleton that mls import --policies discard writes, the composed relation in_project, and the rules and properties of the runbook. Every table is adopted; the old policies are gone.",
+ "mls_version": "0.1",
+ "identity": {
+  "adapter": "supabase",
+  "context": {
+   "uid": {
+    "source": "auth.uid",
+    "type": "uuid"
+   }
+  }
+ },
+ "roles": [
+  "anon",
+  "authenticated"
+ ],
+ "tables": {
+  "profiles": {
+   "columns": {
+    "id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "username": {
+     "type": "text",
+     "nullable": true
+    },
+    "full_name": {
+     "type": "text",
+     "nullable": true
+    },
+    "avatar_url": {
+     "type": "text",
+     "nullable": true
+    },
+    "updated_at": {
+     "type": "timestamp",
+     "nullable": true
+    }
+   },
+   "primary_key": [
+    "id"
+   ],
+   "unique": [
+    [
+     "username"
+    ]
+   ],
+   "mode": "adopted",
+   "assume": [
+    {
+     "rls": "not_forced"
+    }
+   ],
+   "tags": []
+  },
+  "projects": {
+   "columns": {
+    "id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "team_id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "name": {
+     "type": "text",
+     "nullable": false
+    },
+    "archived": {
+     "type": "bool",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ],
+   "unique": [],
+   "mode": "adopted",
+   "assume": [
+    {
+     "rls": "not_forced"
+    }
+   ],
+   "tags": []
+  },
+  "tasks": {
+   "columns": {
+    "id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "project_id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "title": {
+     "type": "text",
+     "nullable": false
+    },
+    "status": {
+     "type": "text",
+     "nullable": false
+    },
+    "assignee_id": {
+     "type": "uuid",
+     "nullable": true
+    },
+    "created_at": {
+     "type": "timestamp",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ],
+   "unique": [],
+   "mode": "adopted",
+   "assume": [
+    {
+     "rls": "not_forced"
+    }
+   ],
+   "tags": []
+  },
+  "team_members": {
+   "columns": {
+    "team_id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "user_id": {
+     "type": "uuid",
+     "nullable": false
+    },
+    "role": {
+     "type": "text",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "team_id",
+    "user_id"
+   ],
+   "unique": [],
+   "mode": "adopted",
+   "assume": [
+    {
+     "rls": "not_forced"
+    }
+   ],
+   "tags": []
+  },
+  "teams": {
+   "columns": {
+    "id": {
+     "type": "bigint",
+     "nullable": false
+    },
+    "name": {
+     "type": "text",
+     "nullable": false
+    },
+    "created_at": {
+     "type": "timestamp",
+     "nullable": false
+    }
+   },
+   "primary_key": [
+    "id"
+   ],
+   "unique": [],
+   "mode": "adopted",
+   "assume": [
+    {
+     "rls": "not_forced"
+    }
+   ],
+   "tags": []
+  }
+ },
+ "relations": {
+  "team_members": {
+   "table": "team_members",
+   "key": "user_id",
+   "value": "team_id"
+  },
+  "in_project": {
+   "of": "team_members",
+   "through": [
+    {
+     "table": "projects",
+     "key": "team_id",
+     "value": "id"
+    }
+   ]
+  }
+ },
+ "hierarchies": {},
+ "opaques": {},
+ "rules": [
+  {
+   "id": "R1",
+   "name": "tasks_status_check",
+   "table": "tasks",
+   "kind": "check",
+   "predicate": {
+    "in": [
+     {
+      "col": "status"
+     },
+     [
+      {
+       "const": "todo"
+      },
+      {
+       "const": "doing"
+      },
+      {
+       "const": "done"
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "id": "R2",
+   "name": "team_members_role_check",
+   "table": "team_members",
+   "kind": "check",
+   "predicate": {
+    "in": [
+     {
+      "col": "role"
+     },
+     [
+      {
+       "const": "owner"
+      },
+      {
+       "const": "member"
+      }
+     ]
+    ]
+   }
+  },
+  {
+   "id": "R3",
+   "name": "profiles_public",
+   "table": "profiles",
+   "kind": "policy",
+   "role": "anon",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "lit": true
+   }
+  },
+  {
+   "id": "R4",
+   "name": "profiles_signed_in",
+   "table": "profiles",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "lit": true
+   }
+  },
+  {
+   "id": "R5",
+   "name": "profile_create_own",
+   "table": "profiles",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "cmp": [
+     {
+      "col": "id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R6",
+   "name": "profile_edit_own",
+   "table": "profiles",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R7",
+   "name": "teams_of_member",
+   "table": "teams",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "team_members",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R8",
+   "name": "own_memberships",
+   "table": "team_members",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "cmp": [
+     {
+      "col": "user_id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "R9",
+   "name": "projects_of_team",
+   "table": "projects",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "team_members",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "team_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R10",
+   "name": "project_create",
+   "table": "projects",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "member": {
+     "relation": "team_members",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "team_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R11",
+   "name": "tasks_of_team",
+   "table": "tasks",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "in_project",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R12",
+   "name": "task_create",
+   "table": "tasks",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "member": {
+     "relation": "in_project",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R13",
+   "name": "task_edit",
+   "table": "tasks",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "update",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "in_project",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  }
+ ],
+ "properties": [
+  {
+   "id": "P1",
+   "description": "a user only reads and creates projects of their own teams",
+   "template": "tenant_isolation",
+   "table": "projects",
+   "column": "team_id",
+   "relation": "team_members",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select",
+    "insert"
+   ]
+  },
+  {
+   "id": "P2",
+   "description": "a user only reads, creates and edits tasks of their own teams' projects",
+   "template": "tenant_isolation",
+   "table": "tasks",
+   "column": "project_id",
+   "relation": "in_project",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select",
+    "insert",
+    "update"
+   ]
+  },
+  {
+   "id": "P3",
+   "description": "a member reads every project of their teams",
+   "template": "must_allow",
+   "table": "projects",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "team_members",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "team_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P4",
+   "description": "a member reads every task of their teams' projects",
+   "template": "must_allow",
+   "table": "tasks",
+   "role": "authenticated",
+   "command": "select",
+   "when": {
+    "member": {
+     "relation": "in_project",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "P5",
+   "description": "anyone, signed in or not, reads every profile",
+   "template": "must_allow",
+   "table": "profiles",
+   "role": "anon",
+   "command": "select",
+   "when": {
+    "lit": true
+   }
+  },
+  {
+   "id": "P6",
+   "description": "a user only edits their own profile",
+   "template": "custom",
+   "table": "profiles",
+   "role": "authenticated",
+   "command": "update",
+   "which": "old",
+   "goal": {
+    "cmp": [
+     {
+      "col": "id"
+     },
+     "=",
+     {
+      "ctx": "uid"
+     }
+    ]
+   }
+  },
+  {
+   "id": "P7",
+   "description": "a user only reads the teams they belong to",
+   "template": "tenant_isolation",
+   "table": "teams",
+   "column": "id",
+   "relation": "team_members",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select"
+   ]
+  },
+  {
+   "id": "P8",
+   "description": "a user only sees memberships of their own teams",
+   "template": "tenant_isolation",
+   "table": "team_members",
+   "column": "team_id",
+   "relation": "team_members",
+   "key": {
+    "ctx": "uid"
+   },
+   "commands": [
+    "select"
+   ]
+  },
+  {
+   "id": "P9",
+   "description": "a member can read back every task they create or edit",
+   "template": "write_subset_read",
+   "table": "tasks"
+  }
+ ]
+}

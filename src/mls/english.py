@@ -174,7 +174,7 @@ def scenario(spec: Spec, sc) -> str:
         parts.append(ctx)
     for name, r in sc.rows.items():
         vals = ", ".join(f"{k} = {_v(v)}" for k, v in r["values"].items())
-        parts.append(f"{_row_label(name)} of {r['table']} with {vals}")
+        parts.append(f"{_row_label(name)} of {r['table']}" + (f" with {vals}" if vals else ""))
     for name, pairs in sc.relations.items():
         shown = ", ".join(f"({_v(a)}, {_v(b)})" for a, b in pairs) if pairs else "no entries"
         parts.append(f"{name} has {shown}")

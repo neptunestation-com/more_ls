@@ -6,8 +6,9 @@ satisfy. `mls` proves properties about the spec with an SMT solver, then compile
 primitives (RLS policies, `CHECK ((p) IS TRUE)`, composite foreign keys, trigger templates, column
 privileges, indexes, grants, hardening), and differential-tests the result against real Postgres.
 
-**Start with `docs/GUIDE.md`** (the user guide: install, a walkthrough, deploying, evolving a
-spec, the LLM loop) and `docs/REFERENCE.md` (every construct, property template, CLI flag and
+**Start with `docs/GUIDE.md`** (the user guide: taking over an existing schema, a walkthrough,
+deploying, evolving a spec, the LLM loop), `docs/TAKEOVER.md` (the runbook for replacing the
+policies of a live database, step by step) and `docs/REFERENCE.md` (every construct, property template, CLI flag and
 error).  For the design: `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.md`,
 `docs/ROADMAP.md`, `docs/FINDINGS.md`, and `docs/BACKGROUND.md` for what the project grew out of.
 
@@ -75,7 +76,7 @@ refuted or, with `--dsn`, a governed table is missing or has lost row-level secu
                       session_docs (session_setting), org_tree (hierarchy with in_group policies and a
                       cardinality limit); each as .mls.json and as its .mls twin
     prototype/        the throwaway Python + Z3 prototype this grew from
-    docs/             GUIDE (user guide), REFERENCE (language and CLI), SEMANTICS, DECISIONS,
+    docs/             GUIDE (user guide), TAKEOVER (the runbook), REFERENCE (language and CLI), SEMANTICS, DECISIONS,
                       ROADMAP, FINDINGS, BACKGROUND (what pg_more_ls established), MIGRATION, LLM
 
 ## Status
@@ -97,6 +98,11 @@ Alpha (0.1).  Every milestone of `docs/ROADMAP.md` is implemented:
 6. the terse syntax (D50): a second concrete syntax of the same model (`.mls`, `mls fmt`, the
    round trip as the evidence), errors with source spans, and `--syntax` for the LLM loop, whose
    default became terse after a corpus run with both syntaxes.
+7. the takeover (D51–D56): keep a live schema, replace its policies.  `mls import --policies
+   discard` writes the skeleton, the deploy owns each adopted table's whole policy set, bypass
+   paths (non-invoker views, `SECURITY DEFINER` functions) are drift, `bigint` keys, composed
+   relations for ownership two or three tables away, Supabase's own image in the test matrix,
+   and the runbook (`docs/TAKEOVER.md`) replayed end to end on a Supabase starter.
 
 Open: a real seed corpus to replace the author's cases (issue #1, on hold).
 

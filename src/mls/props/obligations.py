@@ -20,7 +20,7 @@ from mls.props.effective import (
     effective, inclusion_pred, members_in, relations_of, row_constraints, transition_constraints,
 )
 from mls.spec.model import (
-    And, CardinalityRule, CheckRule, Cmp, ColRef, ColumnImmutable, Custom, InclusionRule,
+    And, CardinalityRule, CheckRule, Cmp, ColRef, ColumnImmutable, ComposedRelation, Custom, InclusionRule,
     InvariantPreserved, IsNull, LeastPrivilege, Lit, Member, MemberBody, MonotoneIn, MustAllow, NewRef,
     Not, OldRef, Or, Pred, Property, RoleSeparation, Spec, TenantIsolation, WriteSubsetRead,
 )
@@ -56,8 +56,26 @@ class Obligation:
 
     def finish(self) -> "Obligation":
         for e in self.encoders:
-            self.assumptions = self.assumptions + e.side_conditions + hop_row_axioms(e, self.rows)
+            self.assumptions = (self.assumptions + e.side_conditions + hop_row_axioms(e, self.rows)
+                                + relation_row_axioms(e, self.rows))
         return self
+
+
+def relation_row_axioms(enc: Encoder, rows: dict[str, str]) -> list[Term]:
+    """A stored row of a relation's table is one of its facts: `rel(row.key, row.value)` (the
+    relation is the table's (key, value) projection; both columns are NOT NULL).  As for the hops,
+    `new` is excluded (not yet stored), and so is a relation the obligation reads in a tagged
+    state copy (the diff's `@new`, the invariant step's before/after), whose facts other axioms
+    relate to the rows."""
+    out: list[Term] = []
+    for name in sorted(enc.rels_used):
+        rel = enc.spec.relations.get(name)
+        if rel is None or isinstance(rel, ComposedRelation) or name in enc.rel_tags:
+            continue
+        for row, rt in rows.items():
+            if rt == rel.table and row != "new":
+                out.append(rel_fun(name)(col_value_var(row, rel.key), col_value_var(row, rel.value)))
+    return out
 
 
 def hop_row_axioms(enc: Encoder, rows: dict[str, str]) -> list[Term]:

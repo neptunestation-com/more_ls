@@ -177,3 +177,29 @@ def bypass_paths(conn: psycopg.Connection, schema: str, tables: list[str], roles
                 out[tbl].append({"path": f"function {name(nsp, fn)}({types})", "roles": list(executing),
                                  "kind": "function", "owner": owner})
     return out
+
+
+FOREIGN_KEYS = """
+select c.conname, t.relname, a.attname, pn.nspname, p.relname, pa.attname
+from pg_constraint c
+join pg_class t on t.oid = c.conrelid join pg_namespace n on n.oid = t.relnamespace
+join pg_class p on p.oid = c.confrelid join pg_namespace pn on pn.oid = p.relnamespace
+join pg_attribute a on a.attrelid = c.conrelid and a.attnum = c.conkey[1]
+join pg_attribute pa on pa.attrelid = c.confrelid and pa.attnum = c.confkey[1]
+where c.contype = 'f' and n.nspname = %s and t.relname = any(%s) and cardinality(c.conkey) = 1
+order by t.relname, c.conname
+"""
+
+
+def foreign_keys(conn: psycopg.Connection, schema: str, tables: list[str], owned: set[str]) -> list[dict[str, str]]:
+    """The single-column foreign keys on `tables` whose names are not in `owned` (the ones the
+    spec declares): {name, table, column, parent, parent_column}, the parent schema-qualified
+    when it is in another schema (`auth.users`).  The differential harness reads them so that its
+    data satisfies the schema's own keys (D45: a foreign constraint is not modelled)."""
+    out = []
+    for name, table, col, pschema, parent, pcol in conn.execute(FOREIGN_KEYS, (schema, tables)).fetchall():
+        if name in owned:
+            continue
+        out.append({"name": name, "table": table, "column": col,
+                    "parent": parent if pschema == schema else f"{pschema}.{parent}", "parent_column": pcol})
+    return out

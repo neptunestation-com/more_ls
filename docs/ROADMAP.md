@@ -173,7 +173,7 @@ path names.  The corpus run with both syntaxes scored the same on the seed cases
 terse on the repair benchmark, at a third fewer output tokens, so terse became the default of
 the LLM loop (D50 as amended; `docs/LLM.md`).
 
-## Milestone 6 — takeover: keep the schema, replace the policies (D51–D55, proposed)
+## Milestone 6 — takeover: keep the schema, replace the policies (D51–D56)
 
 Milestone 5 made MLS able to read a database it did not create. The case it will mostly meet
 is narrower and more common: the tables, keys and data stay, the RLS policies (if any) go, and
@@ -232,6 +232,16 @@ Acceptance:
   drift; the Lean vectors are regenerated and the Lean build passes.
 - A non-invoker view over a governed table is `hardening` drift until fixed or assumed, and an
   assumed one appears in the proof report's assumptions.
+
+Done (2026-11-13, issues #18–#25): every item above and every acceptance criterion.  The
+runbook is `docs/TAKEOVER.md`, replayed by `tests/platform/test_runbook.py` on the starter with
+`tests/brownfield/starter_data.sql` (drift clean with the bypass paths fixed, nine properties
+proved, the two old policies dropped, the differential test on the deployed database, rollback
+and redeploy); its spec is `examples/starter_takeover.mls`.  The guide's main path starts from
+an existing schema (GUIDE §3), the tour is the greenfield side path, the recipes start from what
+the schema has, and the nesting recipe is a composed relation.  Left open: `mls generate
+--skeleton` rewrites the whole rules section, so a skeleton's imported CHECKs survive only if
+the model keeps them (the runbook says to check).
 
 Not in scope: rewriting the user's views, functions or triggers; enums and other custom types
 (not met in practice); hops through a non-unique column (D56);
@@ -324,3 +334,9 @@ Composed relations (D56, #25): `Pred.memberVia` is a membership read through the
 (`Env.hop`: the key of the row whose value is `x`, a function because the value is a key), and
 `Pred.tf_sound` covers it (`chainPy_eq`: the encoder's guards and key functions are the chain
 when they describe the stored hop rows); the generator adds 60 vectors over one and two hops.
+Gap (#24, recorded): the relation row axiom of `props/obligations.py:relation_row_axioms` (a
+stored row of a base relation's table that an obligation reads is in the relation, SEMANTICS §7)
+is not transcribed.  `Relational.lean` derives a relation from the stored rows, where it holds
+by construction; the `Pred`-level environment the encoder's soundness is stated over takes the
+relations as given, so `Pred.tf_sound` neither uses nor states it.  Adding it is an extra
+hypothesis tying `Env.rel` to the rows the obligation reads, as `chainPy_eq` does for hops.

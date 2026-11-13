@@ -137,8 +137,8 @@ def relations_of(spec: Spec, p: Pred | None) -> set[str]:
     are the hop tables' lookup functions, `logic/tvl.py`)."""
     from mls.spec.chain import base_name
 
-    out = {base_name(spec, m.relation) for m in members_in(p, [])}
-    # (a hierarchy of the other version in an access diff is simply absent here)
+    # (a relation or hierarchy of the other version in an access diff is simply absent here)
+    out = {base_name(spec, m.relation) for m in members_in(p, []) if m.relation.split("/")[0] in spec.relations}
     out |= {spec.hierarchies[g.hierarchy].members for g in in_groups_in(p, []) if g.hierarchy in spec.hierarchies}
     return out
 

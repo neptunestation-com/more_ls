@@ -81,6 +81,13 @@ union member the renderer does not cover.
   table) are drift `hardening` (`pg/drift.py:bypass_report`, also read by `mls status --dsn` and
   import's notes) unless the table assumes `{"bypass": "view v"}`; `tests/templates/test_bypass.py`
   has the positive and negative fixtures, the takeover test fixes the starter's two.
+- #24: `docs/TAKEOVER.md` is the takeover runbook, replayed by `tests/platform/test_runbook.py`
+  on the starter plus `tests/brownfield/starter_data.sql` (same block/command conventions as
+  `test_guide.py`; `psql` and `pg_dump` lines are emulated); its spec is
+  `examples/starter_takeover.mls`.  A change to import, diff, drift, status or deploy notices
+  updates the runbook in the same change.  A policy on a relation's own table may not read the
+  relation (Postgres: infinite recursion; `spec/check.py`).  `Harness(foreign=catalog.foreign_keys(..))`
+  runs the differential on a deployed brownfield database.
 - D56: a composed relation (`ComposedRelation`, `of` + `through` hops, `spec/chain.py:levels`;
   a prefix is named `R/i` internally) is a policy atom, refused in invariants, inclusions,
   hierarchies, opaque blocks and `monotone_in`.  Encoded with `hop.T.v` / `hop.T.v.k` functions
@@ -92,7 +99,7 @@ union member the renderer does not cover.
   fixtures (`tests/templates/specs.py`) derive from the example specs; `test_specs.py` builds and
   checks every one without Docker, so an example edit that breaks a fixture fails in the fast
   suite, not only in the Postgres jobs.
-- The guide's tour (GUIDE §3) is replayed by `tests/test_guide.py` on `examples/team_notes.mls`:
+- The guide's tour (GUIDE §4) is replayed by `tests/test_guide.py` on `examples/team_notes.mls`:
   every command it shows runs in its own process (in-process runs get other counterexamples)
   and must print the lines the guide shows. A change to report, lint, explain or compile output
   updates the tour in the same change.

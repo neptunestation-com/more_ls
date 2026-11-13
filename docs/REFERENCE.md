@@ -228,6 +228,12 @@ every role whose policies use the relation with that key, plus `GRANT SELECT (ke
 restrictive policy the spec puts on the relation table must keep those rows visible; the
 compiler proves this (the relation-visibility obligation) and refuses otherwise.
 
+A policy on a relation's own table cannot read the relation (nor a composed relation with a hop
+through the table): its subquery would apply the table's policies again, and Postgres refuses
+every query on the table with "infinite recursion detected in policy" (FINDINGS).  The checker
+refuses such a rule at its `member.relation`; a user's own rows of a membership table are
+`user_id = @uid`, a comparison, not a membership.
+
 **Composed relations** (D56, SEMANTICS §3.4) follow a base relation through up to three tables:
 
     "relations": {
@@ -742,6 +748,10 @@ constraint <name> on <table>: <existing> (the spec: <definition>)`.  Rows that v
 spec's constraint fail the deploy.  Before the deploy, `mls drift` reports each such
 constraint as `differs`.
 
+On an adopted table the indexes are `create index if not exists`, so the script runs again
+after a rollback that left them in place (a policy-set rollback by deploying the previous spec,
+`docs/TAKEOVER.md`); drift reports a same-named index whose definition differs.
+
 Indexes (D14): one composite index per conjunctive group of a permissive policy (membership
 columns first, then comparison columns), one on each foreign key's referencing columns, and a
 key-leading one on each relation table (its primary key or unique constraint usually supplies
@@ -836,7 +846,8 @@ loop quotes the findings as hints in its repair prompt (`docs/LLM.md`).
 
 Semantic diff (SEMANTICS §7): per table, role and command, new grants and new denials with a
 scenario each; per table, rows and changes newly rejected or newly accepted; privilege changes;
-notes (new and removed tables and roles); undecided questions (solver timeout).  `before` and
+notes (new and removed tables and roles; a table observed in either version, which is not
+compared: what roles can do on it is not modelled); undecided questions (solver timeout).  `before` and
 `after` are the effective predicates in terse notation.  JSON keys: `notes`, `summary` (with
 the count of undecided questions), `access`, `integrity`, `grants`.  Exit 2 if anything
 changed, else 0.
@@ -921,7 +932,8 @@ over nullable columns written without `IS TRUE` (it passes on NULL where a check
 grants with no permissive policy, policies for no app role, policies whose names are not
 identifiers (the rule gets the identifier; a deploy renames the policy).  Notes prefixed
 `lint:` name hand-written shapes a deploy improves on (a bare `auth.uid()` evaluated per row,
-a correlated `EXISTS`).  The spec goes to stdout or `--out`, the notes to stderr; `--json`
+a correlated `EXISTS`).  The spec goes to stdout or `--out` (terse when the file name ends in
+`.mls`, else JSON), the notes to stderr; `--json`
 prints `{"ok", "spec", "notes"}`.  Exit 1 with the errors when no app role is found, the
 schema has no tables, `--observe` names a table the schema does not have, or `--observe` is
 given without `--policies discard`.
@@ -991,7 +1003,10 @@ The JSON Schema of the spec language (draft 2020-12, from the pydantic model).
 ### `mls generate REQUIREMENTS --skeleton SKELETON [--out FILE] [--syntax json|terse] [--model M] [--effort E] [--max-repairs N] [--transcript FILE] [--json]`
 
 The LLM loop (`docs/LLM.md`).  `REQUIREMENTS` is a text file or `-` for stdin; `SKELETON` is a
-spec or a spec without rules and properties (either syntax, by extension).  Defaults: model
+spec or a spec without rules and properties (either syntax, by extension: the `.mls` that
+`mls import --policies discard --out spec.mls` writes is taken as it is).  The passes write
+the rules section as a whole: a skeleton's imported check rules are kept only if the model
+keeps them, so check the result for them.  Defaults: model
 `claude-opus-5-5`, effort `high`, 3 repairs, syntax `terse` (D50 as amended).  With `terse`
 the passes answer with `rules { ... }` / `properties { ... }` sections: the prompt carries the
 grammar and three examples instead of the JSON Schema, the skeleton is shown in terse, and
@@ -1082,6 +1097,11 @@ Classes of error, with the typical message:
   rows a membership atom needs (D21), with the policy's path and a fix; for a composed
   relation, the same on each hop table (`... can hide rows whose <key> the previous level
   reaches ...`).
+- **recursion**: `a policy on 'T' cannot read 'R': relation 'R' is backed by table 'T', so its
+  subquery would apply this table's policies again and Postgres refuses every query on the
+  table ('infinite recursion detected in policy')` (or `reads table 'T' in one of its hops`;
+  fix: the user's own rows, `key` compared with the context value, or a relation backed by
+  another table);
 - **composed relations** (D56): `'R' is itself composed; compose from a base relation`; `N hops;
   a composed relation has at most 3`; `hop column 'T.c' must be NOT NULL`; `'T.v' is not the
   primary key or a unique column of 'T'` (fix: a membership table, or the denormalized column

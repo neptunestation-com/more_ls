@@ -110,10 +110,14 @@ def index_specs(spec: Spec) -> list[tuple[str, str, tuple[str, ...]]]:
     return out
 
 
-def index_sql(name: str, table: str, cols: tuple[str, ...], concurrently: bool = False) -> str:
+def index_sql(name: str, table: str, cols: tuple[str, ...], concurrently: bool = False,
+              if_not_exists: bool = False) -> str:
     conc = " concurrently" if concurrently else ""
-    return f"create index{conc} {q(name)} on {q(table)} ({', '.join(q(c) for c in cols)})"
+    ine = " if not exists" if if_not_exists else ""
+    return f"create index{conc}{ine} {q(name)} on {q(table)} ({', '.join(q(c) for c in cols)})"
 
 
 def index_ddl(spec: Spec) -> list[str]:
-    return [index_sql(n, t, c) for n, t, c in index_specs(spec)]
+    """On an adopted table the deploy runs again (a takeover redeployed after a rollback, D51), so
+    an index of the same name is kept; `mls drift` reports one whose definition differs."""
+    return [index_sql(n, t, c, if_not_exists=spec.tables[t].mode == "adopted") for n, t, c in index_specs(spec)]

@@ -232,3 +232,19 @@ def test_role_separation_proved_and_refuted():
     with pytest.raises(SpecError) as ei:
         make(d)
     assert ei.value.errors[0].path == "$.properties[0].roles[1]"
+
+
+def test_a_stored_row_of_a_relation_table_is_in_the_relation(monkeypatch):
+    """The takeover example's P8 is about the membership table itself (a user sees only
+    memberships of their own teams, through `user_id = @uid`): it holds because the row read is
+    in the relation.  Without the relation row axiom the solver picks a row the relation does
+    not contain, a state no database can be in, and refutes it."""
+    from mls.props import obligations
+    from mls.props.runner import run_all
+    from mls.spec import load_checked
+    from tests.conftest import ROOT
+
+    spec = load_checked(ROOT / "examples" / "starter_takeover.mls")
+    assert {r.id: r.verdict for r in run_all(spec)} == {f"P{i}": "PROVED" for i in range(1, 10)}
+    monkeypatch.setattr(obligations, "relation_row_axioms", lambda enc, rows: [])
+    assert {r.id: r.verdict for r in run_all(spec) if r.id == "P8"} == {"P8": "REFUTED"}

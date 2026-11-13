@@ -125,3 +125,22 @@ def test_hierarchy_diff():
     res = diff(org, specs.make(d))
     assert any("defined differently" in n for n in res.notes)
     assert ("files", "authenticated", "select", "using", "denied") in changes(res)
+
+
+def test_a_table_observed_in_either_version_is_not_compared():
+    """Observed means no row-level security from the spec: what roles can do there is not
+    modelled, so `before: false` would be a false report; the diff says so in a note instead."""
+    from mls.spec.syntax import parse
+
+    head = ("mls 0.1\nidentity supabase { uid: auth.uid uuid }\nroles authenticated\n"
+            "table notes owned {\n  id int not null,\n  owner uuid not null;\n  primary_key (id)\n}\n")
+    rule = "  R1 policy own on notes: authenticated select permissive using owner = @uid\n"
+    old = parse(head + "table tags observed {\n  id int not null;\n  primary_key (id)\n}\n"
+                + "rules {\n" + rule + "}\n")
+    new = parse(head + "table tags owned {\n  id int not null;\n  primary_key (id)\n}\n"
+                + "rules {\n" + rule + "  R2 policy all_tags on tags: authenticated select permissive using true\n}\n")
+    d = diff(check_spec(old), check_spec(new))
+    assert not d.any_change
+    assert any("table 'tags' is observed in the old version" in n and "not compared" in n for n in d.notes)
+    d = diff(check_spec(new), check_spec(old))
+    assert not d.access_changes and any("observed in the new version" in n for n in d.notes)

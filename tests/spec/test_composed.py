@@ -73,6 +73,18 @@ def test_a_composed_relation_is_refused_where_one_table_is_meant():
     assert has(errors(d), "$.opaques.gate.relations[0]", "'in_project' is a composed relation")
 
 
+def test_a_policy_on_a_hop_table_cannot_read_the_relation_through_it():
+    """Postgres would apply the hop table's policies inside its own policy ('infinite recursion
+    detected in policy'); the checker refuses at the membership's relation, naming the hop."""
+    d = base()
+    d["rules"].append({"id": "R9", "kind": "policy", "name": "own_projects", "table": "projects",
+                       "role": "authenticated", "command": "select", "mode": "permissive",
+                       "using": {"member": {"relation": "in_project", "key": {"ctx": "uid"}, "value": {"col": "id"}}}})
+    e = next(e for e in errors(d) if e.path == "$.rules[4].using.member.relation")
+    assert "relation 'in_project' reads table 'projects' in one of its hops" in e.message
+    assert "infinite recursion detected in policy" in e.message and "another table" in e.fix
+
+
 def _custom(goal: dict, table: str = "projects") -> dict:
     return {"id": "P9", "template": "custom", "table": table, "role": "authenticated", "command": "select",
             "goal": goal}

@@ -237,10 +237,16 @@ def _access_pair(old: Spec, new: Spec, view: Spec, table: str, role: str, cmd: s
     return out
 
 
+def observed_in_either(old: Spec, new: Spec) -> set[str]:
+    """Tables observed (not governed) in one version and present in it (D45): what roles could do
+    there is outside the model (row level security off, or not MLS's), so no diff compares it."""
+    return {t for spec in (old, new) for t, tb in spec.tables.items() if tb.mode == "observed"}
+
+
 def access_diff(old: Spec, new: Spec, timeout_ms: int = 20000) -> list[AccessChange]:
     view = merged_spec(old, new)
     out = []
-    for table in sorted({*old.tables, *new.tables}):
+    for table in sorted({*old.tables, *new.tables} - observed_in_either(old, new)):
         for role in view.roles:
             for cmd, which in ACCESS_CASES:
                 out.extend(_access_pair(old, new, view, table, role, cmd, which, timeout_ms))
@@ -251,7 +257,7 @@ def access_diff(old: Spec, new: Spec, timeout_ms: int = 20000) -> list[AccessCha
 def integrity_diff(old: Spec, new: Spec, timeout_ms: int = 20000) -> list[IntegrityChange]:
     view = merged_spec(old, new)
     out = []
-    for table in sorted(set(old.tables) & set(new.tables)):
+    for table in sorted((set(old.tables) & set(new.tables)) - observed_in_either(old, new)):
         for kind, rows, get in (("stored rows", {"r": table}, row_constraints),
                                 ("changes", {"old": table, "new": table}, transition_constraints)):
             c_old, c_new = get(old, table), get(new, table)
@@ -326,8 +332,9 @@ def _fmt(g) -> str | None:
 
 def grant_diff(old: Spec, new: Spec) -> list[GrantChange]:
     po, pn = privileges(old), privileges(new)
+    observed = observed_in_either(old, new)
     out = []
-    for key in sorted({*po, *pn}):
+    for key in sorted(k for k in {*po, *pn} if k[1] not in observed):
         go, gn = po.get(key, {}), pn.get(key, {})
         for cmd in ("select", "insert", "update", "delete"):
             if go.get(cmd) != gn.get(cmd):
@@ -362,6 +369,12 @@ def diff(old: Spec, new: Spec, timeout_ms: int = 20000) -> DiffResult:
         notes.append(f"table '{t}' is new")
     for t in sorted(set(old.tables) - set(new.tables)):
         notes.append(f"table '{t}' is removed")
+    for t in sorted(observed_in_either(old, new)):
+        which = " and ".join(v for v, spec in (("old", old), ("new", new))
+                             if t in spec.tables and spec.tables[t].mode == "observed")
+        notes.append(f"table '{t}' is observed in the {which} version: what roles can do there is not "
+                     f"modelled (row level security is off, or the table is not governed), so its access, "
+                     f"integrity and privileges are not compared")
     return DiffResult(access_diff(old, new, timeout_ms), integrity_diff(old, new, timeout_ms),
                       grant_diff(old, new), notes)
 
@@ -407,8 +420,23 @@ def _access_terse(old: Spec, new: Spec, a: AccessChange) -> tuple[str, str]:
     def eff(spec: Spec) -> str:
         if a.table not in spec.tables:
             return "false"
-        return terse.pred(effective(spec, a.table, a.role, a.command, a.which))
+        return terse.pred(_distinct(effective(spec, a.table, a.role, a.command, a.which)))
     return eff(old), eff(new)
+
+
+def _distinct(p: Pred) -> Pred:
+    """For display: a permissive policy and an implicit relation policy (D21, D56) can have the same
+    predicate; show it once."""
+    if isinstance(p, (And, Or)):
+        args = []
+        for x in (p.and_ if isinstance(p, And) else p.or_):
+            x = _distinct(x)
+            if x not in args:
+                args.append(x)
+        if len(args) == 1:
+            return args[0]
+        return And(**{"and": args}) if isinstance(p, And) else Or(**{"or": args})
+    return p
 
 
 def _integrity_terse(old: Spec, new: Spec, i: IntegrityChange) -> tuple[str, str]:
