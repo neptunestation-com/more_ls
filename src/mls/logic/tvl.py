@@ -13,7 +13,11 @@ pairs of uninterpreted predicates over their declared inputs, with ¬(T ∧ F) a
 """
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
+from itertools import count
+from typing import Iterator
 
 from mls.logic.term import (
     FALSE, TRUE, FunDecl, Sort, Term, Var, and_, bool_var, eq, fun, int_var, le, lt, not_, or_, IntVal,
@@ -23,6 +27,23 @@ from mls.spec.model import (
     CONTEXT_NOW, And, ColRef, Const, CtxRef, Cmp, InGroup, IsNull, Lit, Member, NewRef, Not,
     NowBetween, OldRef, OpaqueRef, Or, Pred, Spec,
 )
+
+
+# The opaque blocks encoded as *free* (#27): each occurrence an independent three-valued value
+# instead of an uninterpreted function of the block's declared inputs.  A proof that still holds
+# does not depend on the block (not even on its reading only its signature), so it is not
+# conditional on it.  Set by the runner's re-check, never for a verdict.
+_FREE_OPAQUES: ContextVar[frozenset[str]] = ContextVar("free_opaques", default=frozenset())
+_FREE_IDS = count()
+
+
+@contextmanager
+def free_opaques(names: set[str] | frozenset[str]) -> Iterator[None]:
+    token = _FREE_OPAQUES.set(frozenset(names))
+    try:
+        yield
+    finally:
+        _FREE_OPAQUES.reset(token)
 
 
 def col_value_var(row: str, col: str) -> Var:
@@ -71,6 +92,7 @@ class Encoder:
     const_types: dict[str, set[str]] = field(default_factory=dict)  # constant -> column types it met
     side_conditions: list[Term] = field(default_factory=list)
     opaque_deps: set[str] = field(default_factory=set)
+    opaque_axioms: set[Term] = field(default_factory=set)  # `not (T and F)` per block use: no dependency
     hops_used: set[tuple[str, str, str]] = field(default_factory=set)  # (table, key, value) read by a chain
     rels_used: set[str] = field(default_factory=set)  # base relations whose symbol was emitted
 
@@ -210,6 +232,12 @@ class Encoder:
     def _opaque(self, name: str, row: str, table: str) -> tuple[Term, Term]:
         o = self.spec.opaques[name]
         self.opaque_deps.add(name)
+        if name in _FREE_OPAQUES.get():
+            k = next(_FREE_IDS)
+            t, f = bool_var(f"opaque.{name}.T#{k}"), bool_var(f"opaque.{name}.F#{k}")
+            self.side_conditions.append(not_(and_(t, f)))
+            self.opaque_axioms.add(self.side_conditions[-1])
+            return t, f
         args: list[Term] = []
         sorts: list[Sort] = []
         for c in o.columns:
@@ -230,6 +258,7 @@ class Encoder:
         ff = fun(f"opaque.{sym}.F", *sorts)
         t, f = tf(*args), ff(*args)
         self.side_conditions.append(not_(and_(t, f)))
+        self.opaque_axioms.add(self.side_conditions[-1])
         return t, f
 
     def T(self, p: Pred, row: str, table: str) -> Term:

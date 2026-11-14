@@ -201,8 +201,13 @@ All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered 
 - **role_separation (D49):** `constraints ∧ effective_a ∧ effective_b` is UNSAT over the command's
   images (for update: `using` on `old`, `check` on `new`, plus the transition constraints), with one
   set of context values for both roles; a model is a row both roles may touch.
-- **Opaque blocks:** uninterpreted predicates; any proof whose UNSAT core includes one is reported as
-  conditional on it. A property that holds only by constraining an opaque block is REFUTED.
+- **Opaque blocks:** uninterpreted predicates (a block is a function of its declared inputs). A
+  PROVED obligation is conditional on a block when its proof needs that: re-encoded with every
+  occurrence of the block an independent, unconstrained (T, F) pair, it is no longer UNSAT (#27).
+  Freeing over-approximates whatever the block's SQL does, so a proof that survives holds for
+  every block and is not conditional on it; only the blocks occurring in the obligation's own
+  terms are tried (the block's `¬(T ∧ F)` axiom is not a use). A property that holds only by
+  constraining an opaque block is REFUTED.
 
 Policy-set hygiene (D49) asks the solver the same kind of question but is never a verdict: a
 contradiction is `constraints ∧ T(p)` UNSAT, a subsumption `constraints ∧ T(p2) → T(p1)` valid,

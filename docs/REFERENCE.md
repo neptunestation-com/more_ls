@@ -301,9 +301,15 @@ An opaque block is raw SQL with a declared signature, used as the predicate `{"o
 | `relations` | relations it reads (state-dependent); affects which changes the diff treats as relevant |
 | `sql` | a boolean SQL expression; non-empty |
 
-The prover models an opaque block as an uninterpreted predicate over its declared inputs.  Every
-proof whose UNSAT core includes it is reported as `conditional on opaque blocks: <names>` and
-the report's assumptions list the block with its SQL.  A property that could hold only by
+The prover models an opaque block as an uninterpreted predicate over its declared inputs.  A
+proof that needs the block is reported as `conditional on opaque blocks: <names>` and the
+report's assumptions list the block with its SQL.  "Needs" is checked (#27): the proved
+obligation is solved again with every occurrence of the block an independent unknown; if it
+still holds, it holds whatever the block's SQL does (even if the SQL reads more than its
+signature), and the block is not listed.  So a property proved by a restrictive policy, or by
+the other permissive policies, is not conditional on a permissive block next to them; a property
+whose goal reads the same block a policy reads is.  `mls lint` findings and `mls status` follow
+the same rule (the policy-set findings of D49).  A property that could hold only by
 constraining the block is REFUTED.  Opaque blocks are excluded from the performance guarantees
 and from the lint; the differential test executes their SQL.
 

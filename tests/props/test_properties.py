@@ -156,9 +156,20 @@ def test_monotonicity_refuted_by_opaque_reading_relation():
     assert r.conditional_on == ["outsider"]
     # full opaque reporting: the summary counts conditional proofs and the assumptions quote the SQL
     from mls.props.report import to_json, to_markdown
+    member = {"member": {"relation": "member_of", "key": {"ctx": "uid"}, "value": {"col": "tenant_id"}}}
+    d["properties"].append({"id": "C1", "template": "custom", "table": "docs", "role": "authenticated",
+                            "command": "select", "goal": {"or": [{"opaque": "outsider"}, member]}})
+    spec = make(d)
     results = run_all(spec)
+    by_id = {x.id: x for x in results}
+    # conditional only where the proof needs the block (#27): C1 holds for the rows R10 admits
+    # because the goal reads the same block on the same row; write ⊆ read and the lower bounds
+    # hold through the other policies whatever the block returns
+    assert by_id["C1"].verdict == "PROVED" and by_id["C1"].conditional_on == ["outsider"]
+    for pid in ("P5", "P7", "P8"):
+        assert by_id[pid].verdict == "PROVED" and by_id[pid].conditional_on == [], pid
     n_cond = sum(1 for x in results if x.verdict == "PROVED" and x.conditional_on)
-    assert n_cond > 0
+    assert n_cond == 1
     md = to_markdown(spec, results)
     assert f"({n_cond} conditional on opaque blocks)" in md
     assert "opaque block 'outsider' on docs (columns tenant_id; context uid; relations member_of) is unverified SQL: `not exists" in md
@@ -248,3 +259,51 @@ def test_a_stored_row_of_a_relation_table_is_in_the_relation(monkeypatch):
     assert {r.id: r.verdict for r in run_all(spec)} == {f"P{i}": "PROVED" for i in range(1, 10)}
     monkeypatch.setattr(obligations, "relation_row_axioms", lambda enc, rows: [])
     assert {r.id: r.verdict for r in run_all(spec) if r.id == "P8"} == {"P8": "REFUTED"}
+
+
+RECIPE = """mls 0.1
+identity supabase { uid: auth.uid uuid }
+roles authenticated
+
+table projects adopted {
+  id bigint not null,
+  owner_id uuid not null,
+  team_id bigint not null,
+  deleted_at timestamp;
+  primary_key (id)
+}
+
+table team_members adopted {
+  team_id bigint not null,
+  user_id uuid not null;
+  primary_key (team_id, user_id)
+}
+
+relation team_members = team_members(user_id, team_id)
+
+opaque is_admin on projects (@uid) relations () sql $$ public.is_admin() $$
+
+rules {
+  R1 policy owner_all on projects: authenticated all permissive using owner_id = @uid
+  R4 policy admin_read on projects: authenticated select permissive using opaque(is_admin)
+  R5 policy hide_deleted on projects: authenticated select restrictive using deleted_at is null
+}
+
+properties {
+  P2 must_allow projects authenticated select: owner_id = @uid and deleted_at is null
+  P3 custom projects authenticated select new: deleted_at is null
+  P4 custom projects authenticated select new: owner_id = @uid or opaque(is_admin)
+}
+"""
+
+
+def test_a_proof_is_conditional_only_on_the_blocks_it_needs():
+    """GUIDE §7's `is_admin()` recipe (#27): the restrictive policy alone proves P3, whatever the
+    block returns; P2's witness shares an encoder with the access layers, which read the block,
+    but its own formula does not (its well-formedness axiom is not a use); P4 needs the block to
+    be the same value in the policy and in the goal, so it stays conditional."""
+    from mls.spec.syntax import parse
+
+    results = {r.id: r for r in run_all(check_spec(parse(RECIPE)))}
+    assert {k: (r.verdict, r.conditional_on) for k, r in results.items()} == {
+        "P2": ("PROVED", []), "P3": ("PROVED", []), "P4": ("PROVED", ["is_admin"])}

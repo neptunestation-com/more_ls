@@ -90,6 +90,9 @@ union member the renderer does not cover.
   runs the differential on a deployed brownfield database.  #26: `mls generate --skeleton` keeps
   the skeleton's own rules as fixed rules (`Loop(fixed_rules=...)`), shown to both passes and
   appended after the model's; a clash of id or name is an error at the answer's path.
+- #27: "conditional on an opaque block" means the proof needs it: `props/runner.py:needed_opaques`
+  re-solves a PROVED obligation with the block freed (`logic/tvl.py:free_opaques`, each occurrence
+  an independent (T, F) pair); the lint uses the same re-check, the diff only the occurrence filter.
 - D56: a composed relation (`ComposedRelation`, `of` + `through` hops, `spec/chain.py:levels`;
   a prefix is named `R/i` internally) is a policy atom, refused in invariants, inclusions,
   hierarchies, opaque blocks and `monotone_in`.  Encoded with `hop.T.v` / `hop.T.v.k` functions

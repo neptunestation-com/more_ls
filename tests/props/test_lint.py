@@ -167,6 +167,15 @@ def test_findings_over_an_opaque_block_are_conditional():
     fs = lint_spec(make(d))
     assert kinds(fs) == ["subsumption"] and fs[0].conditional_on == ["gate"]
     assert str(fs[0]).endswith("(conditional on opaque block gate)")
+    # ... only when the finding needs the block (#27): `gate and level = 0` is subsumed by
+    # `level = 0` whatever the block returns
+    d = base()
+    d["opaques"] = {"gate": {"table": "docs", "columns": ["level"], "context": ["clearance"], "sql": "level < 1"}}
+    level0 = {"cmp": [{"col": "level"}, "=", {"const": 0}]}
+    d["rules"] += [policy("O1", "gate_a", "delete", {"and": [{"opaque": "gate"}, level0]}),
+                   policy("O2", "gate_b", "delete", level0)]
+    fs = lint_spec(make(d))
+    assert kinds(fs) == ["subsumption"] and fs[0].conditional_on == []
 
 
 # ----------------------------------------------------------------------------- never a verdict

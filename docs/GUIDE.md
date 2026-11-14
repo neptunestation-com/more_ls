@@ -845,6 +845,8 @@ inputs it reads:
 
 It is enforced like any policy expression, and the prover treats it as an unknown: every proof
 that depends on it says `conditional on opaque blocks: is_admin`, and the report quotes its SQL.
+A proof that holds whatever the block returns (the `deleted_at` recipe below, a lower bound met
+by another policy) is not marked: the prover checks which proofs need the block.
 If the function is `SECURITY DEFINER`, drift lists it as a bypass path when app roles may call
 it.  A policy calls it as the user who runs the query, so revoking it from the app roles would
 break the policy: review its body and assume the path on the table it reads instead

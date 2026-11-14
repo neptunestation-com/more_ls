@@ -943,3 +943,18 @@ the checker expanded it (an imported `in` list stays one).  Rejected: refusing a
 drops a skeleton rule (a repair round spent on restating what is already known, and a restatement
 could still change it); letting the model edit the imported rules (they describe the data as it
 is, and changing them is a migration, not a generation step).
+
+Implementation defaults (#27, 2026-11-13).  "Conditional on an opaque block" was every block the
+obligation's encoders had encoded (an encoder shared between a lower bound and its witness
+included); it is now the blocks the proof needs, as REFERENCE §8 promised: of the blocks whose
+symbols occur in the obligation's own terms (the block's `¬(T ∧ F)` side condition is not a
+use), those for which the obligation, re-encoded with every occurrence of the block an
+independent unconstrained (T, F) pair (`logic/tvl.py:free_opaques`), is no longer UNSAT.  That
+is the question a reviewer has: does the proof rely on the block being a deterministic function
+of its declared inputs?  Freeing over-approximates every block, so dropping the marker is sound;
+the re-check runs only for PROVED obligations that read a block, one solver call per block.  The
+lint's findings use the same re-check; the diff keeps the occurrence filter only (an unchanged
+verdict over the same block in both versions does rely on the block being one function).
+Verdicts are unchanged, so the Lean transcription is not affected.  Rejected: Z3's UNSAT core
+over tracked assumptions (the block's uses are inside the policy terms, not separate
+assumptions, and a core is not minimal).

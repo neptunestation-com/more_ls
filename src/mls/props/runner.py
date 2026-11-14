@@ -30,11 +30,26 @@ class PropertyResult:
     conditional_on: list[str]
 
 
+def occurring_opaques(ob: Obligation) -> list[str]:
+    """The blocks whose symbols occur in the obligation's own terms: an encoder shared between
+    obligations (a lower bound and its witness) records every block it encoded for either (#27)."""
+    from mls.logic.term import collect
+
+    axioms = set().union(*(e.opaque_axioms for e in ob.encoders))  # well-formedness, not a use
+    vars, funs = {}, {}
+    for t in [*ob.assumptions, ob.goal]:
+        if t not in axioms:
+            collect(t, vars, funs)
+    names = set(vars) | set(funs)
+    return sorted(d for d in ob.opaque_deps()
+                  if any(n.startswith((f"opaque.{d}.", f"opaque.{d}@")) for n in names))
+
+
 def run_obligation(spec: Spec, ob: Obligation, timeout_ms: int = 20000, keep_smt: bool = False) -> ObligationResult:
     if ob.propositional:
         return ObligationResult(ob.name, ob.verdict or "UNKNOWN", message=ob.message)
     res = solve(ob.assumptions, ob.goal, timeout_ms)
-    deps = sorted(ob.opaque_deps())
+    deps = occurring_opaques(ob)
     smt = res.smtlib() if keep_smt else ""
     if ob.witness:  # goal is FALSE: "refuted" means the assumptions have a model, i.e. a witness
         if res.status == "refuted":
@@ -53,9 +68,28 @@ def run_obligation(spec: Spec, ob: Obligation, timeout_ms: int = 20000, keep_smt
     return ObligationResult(ob.name, "UNKNOWN", message="solver timeout", opaque_deps=deps, smtlib=smt)
 
 
+def needed_opaques(spec: Spec, prop: Property, name: str, deps: list[str], timeout_ms: int) -> list[str]:
+    """The blocks a PROVED obligation's proof needs (#27, REFERENCE §8): a block it still proves
+    without, every occurrence an independent unconstrained value, is dropped.  Freeing a block
+    over-approximates whatever its SQL does, so a proof that survives holds for every block."""
+    from mls.logic.tvl import free_opaques
+
+    needed = []
+    for d in deps:
+        with free_opaques({d}):
+            ob = next((o for o in obligations_for(spec, prop) if o.name == name), None)
+            res = solve(ob.assumptions, ob.goal, timeout_ms) if ob is not None else None
+        if res is None or not res.proved:
+            needed.append(d)
+    return needed
+
+
 def run_property(spec: Spec, prop: Property, timeout_ms: int = 20000, keep_smt: bool = False) -> PropertyResult:
     obs = obligations_for(spec, prop)
     results = [run_obligation(spec, ob, timeout_ms, keep_smt) for ob in obs]
+    for ob, r in zip(obs, results):
+        if r.verdict == "PROVED" and r.opaque_deps and not ob.witness and not ob.propositional:
+            r.opaque_deps = needed_opaques(spec, prop, ob.name, r.opaque_deps, timeout_ms)
     if any(r.verdict == "REFUTED" for r in results):
         verdict = "REFUTED"
     elif any(r.verdict == "UNKNOWN" for r in results):

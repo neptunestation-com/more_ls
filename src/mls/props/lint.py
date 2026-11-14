@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 
 from mls.logic.solve import solve
 from mls.logic.term import FALSE, Term, and_, implies
-from mls.logic.tvl import Encoder
+from mls.logic.tvl import Encoder, free_opaques
 from mls.props.effective import all_policies, effective, policy_expr, relations_of, row_constraints
 from mls.props.obligations import relation_axioms
 from mls.spec.model import PolicyRule, Pred, Spec, TenantIsolation
@@ -86,6 +86,17 @@ class _Prover:
         return None if res.status == "unknown" else res.proved
 
 
+def _needed(deps: set[str], holds) -> list[str]:
+    """The blocks a finding depends on (#27): one it still holds without, every occurrence an
+    independent unconstrained value, is dropped.  `holds()` re-asks the question."""
+    out = []
+    for d in sorted(deps):
+        with free_opaques({d}):
+            if holds() is not True:
+                out.append(d)
+    return out
+
+
 # ----------------------------------------------------------------------------- coverage
 def coverage(spec: Spec) -> list[Finding]:
     out: list[Finding] = []
@@ -138,12 +149,17 @@ def contradiction(spec: Spec, prover: _Prover) -> list[Finding]:
         if p.command == "insert" and p.check is None and p.using is not None:
             sides.append(("check", "new", p.using))
         for which, img, expr in sides:
-            enc = Encoder(spec)
-            res = prover.unsat(enc, [*prover.base(enc, p.table, [img]), enc.T(expr, img, p.table)])
+            def ask(img=img, expr=expr) -> tuple[bool | None, set[str]]:
+                enc = Encoder(spec)
+                return prover.unsat(enc, [*prover.base(enc, p.table, [img]), enc.T(expr, img, p.table)]), \
+                    set(enc.opaque_deps)
+
+            res, deps = ask()
             if res:
                 out.append(Finding("contradiction", p.table,
                                    f"{_label(p)} never admits a row: its {which} cannot be TRUE on any row "
-                                   f"that satisfies the constraints of {p.table}", [p.id], sorted(enc.opaque_deps)))
+                                   f"that satisfies the constraints of {p.table}", [p.id],
+                                   _needed(deps, lambda: ask()[0])))
     return out
 
 
@@ -196,7 +212,9 @@ def subsumption(spec: Spec, prover: _Prover, skip: set[str] = frozenset()) -> li
                     else:
                         msg = (f"{_label(narrow)} is subsumed by {_label(wide)} on {p1.table}: every row it "
                                f"admits to {p1.role}, the other admits too")
-                    out.append(Finding("subsumption", p1.table, msg, [narrow.id, wide.id], sorted(deps)))
+                    needed = _needed(deps, lambda: _implied(spec, prover, p1.table, wide, narrow,
+                                                            _commands(narrow))[0])
+                    out.append(Finding("subsumption", p1.table, msg, [narrow.id, wide.id], needed))
                     break
     return out
 
@@ -232,10 +250,12 @@ def redundancy(spec: Spec, prover: _Prover, skip: set[str] = frozenset()) -> lis
                 redundant = False
                 break
         if redundant:
+            deps = _needed(deps, lambda: all(_equivalent(spec, without, prover, *c[:1], p.role, *c[1:])[0]
+                                             for c in cases))
             what = ", ".join(_commands(p))
             out.append(Finding("redundancy", p.table,
                                f"{_label(p)} on {p.table} is redundant: without it {p.role} can {what} exactly "
-                               f"the same rows", [p.id], sorted(deps)))
+                               f"the same rows", [p.id], deps))
     return out
 
 
