@@ -12,12 +12,13 @@ scenarios** (plain English, concrete examples), never MLS or DDL.
 Read before writing code, in this order:
 1. `docs/DECISIONS.md` — settled decisions. Do not reopen them; flag conflicts instead.
 2. `docs/SEMANTICS.md` — the meaning of every construct. This is the source of truth.
-3. `docs/ROADMAP.md` — milestones and acceptance criteria. **Start with Milestone 1.**
-4. `docs/FINDINGS.md` — what experiments on real Postgres already established.
-5. `docs/BACKGROUND.md` — what `pg_more_ls` established before this project: the undecidability
+3. `docs/FINDINGS.md` — what experiments on real Postgres already established.
+4. `docs/BACKGROUND.md` — what `pg_more_ls` established before this project: the undecidability
    theorem and the survey of authorization languages, cited, not restated.
-6. `prototype/` — a working throwaway prototype (Python + Z3). Reuse ideas, not code structure.
-7. `examples/tenant_docs.mls.json` — an illustrative spec. The real schema is defined in M1.
+5. `prototype/` — a working throwaway prototype (Python + Z3). Reuse ideas, not code structure.
+6. `examples/` — the example specs, each as `.mls` and `.mls.json`.
+
+The milestones that built all of this are in `docs/archive/ROADMAP.md` (archived; every one is implemented).
 
 User-facing documentation is `docs/GUIDE.md` (user guide) and `docs/REFERENCE.md` (language and
 CLI reference). When you add or change a construct, a property template, a CLI flag, an exit
@@ -197,4 +198,4 @@ union member the renderer does not cover.
 - Lean track (D11, D41): `lean/` formalizes the core semantics; details in `lean/CLAUDE.md`. When you
   change `logic/tvl.py`, `props/effective.py`, `pg/model.py`, `props/obligations.py` or the CHECK, FK,
   transition, hierarchy or cardinality templates, change the `lean/MLS/*.lean` transcription and re-prove
-  (or record the gap in ROADMAP), and regenerate `lean/MLS/Vectors.lean` (`uv run python -m tests.lean.vectors`).
+  (or record the gap under "Known gaps" in `lean/CLAUDE.md`), and regenerate `lean/MLS/Vectors.lean` (`uv run python -m tests.lean.vectors`).

@@ -173,8 +173,7 @@ open question ([#1](https://github.com/neptunestation-com/more_ls/issues/1)).
 - **[Decisions](docs/DECISIONS.md)**: the settled design decisions, with what was rejected and why.
 - **[Findings](docs/FINDINGS.md)**: what experiments on real Postgres established.
 - **[LLM](docs/LLM.md)**: the generation loop, the eval corpus and the grading.
-- **[Roadmap](docs/ROADMAP.md)** and **[Background](docs/BACKGROUND.md)**: the milestones, and what
-  `pg_more_ls` established before this project.
+- **[Background](docs/BACKGROUND.md)**: what `pg_more_ls` established before this project.
 - **[Explainer](https://neptunestation-com.github.io/more_ls/)**: the visual overview.
 
 ## Tests
@@ -201,6 +200,6 @@ Python. [`CLAUDE.md`](CLAUDE.md) is the contributor's map of the code.
 ## Status
 
 Alpha (0.1). The spec language and the CLI may change before 1.0; the semantics and the design
-decisions are settled. Every milestone of the [roadmap](docs/ROADMAP.md) is implemented: the core
+decisions are settled. Every planned milestone is implemented: the core
 loop, evolution, hierarchies and cardinality limits, the LLM loop, brownfield adoption, the terse
 syntax, and the takeover. Postgres 15 to 18 only.

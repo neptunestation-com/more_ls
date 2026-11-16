@@ -38,7 +38,7 @@ and subtree depth recomputation. Reparenting is v2.
 
 **D6. Evaluation set: real patterns + synthetic.** Seed 30–50 cases from anonymized real-world RLS
 patterns David has seen in the field; expand with solver-graded synthetic mutations.
-Built in Milestone 4, but the case format is defined in Milestone 1 (see ROADMAP).
+Built in Milestone 4, but the case format is defined in Milestone 1 (see `docs/archive/ROADMAP.md`).
 
 ## Change over time
 
@@ -96,7 +96,7 @@ human as scenarios.
 **D17. Ownership: personal open-source project, Apache-2.0.** (David to confirm compatibility with
 his employment agreement before publishing.)
 **D18. Python.** **D19. Z3 primary behind a solver-agnostic layer, cvc5 cross-check in CI.**
-**D20. Milestone 1 = core loop without the LLM.** See ROADMAP.
+**D20. Milestone 1 = core loop without the LLM.** See `docs/archive/ROADMAP.md`.
 
 ## Implementation defaults recorded during Milestone 1 (2026-11-02)
 
@@ -339,13 +339,13 @@ Postgres" D11 asked for: states, backed relations, one-row statements, and the C
 templates proved to keep their invariants under every statement, with the FK RESTRICT guard and
 the relation-change axioms of the invariant-preservation obligations derived from it.  The Lean
 and the Python are two artifacts whose only mechanical link is the shared test vectors of D43;
-a change to the encoder is carried to the transcription by hand, or the gap is recorded in the
-ROADMAP.  What the track cannot do: say anything about Postgres itself — the "small model of
+a change to the encoder is carried to the transcription by hand, or the gap is recorded in
+`lean/CLAUDE.md` ("Known gaps").  What the track cannot do: say anything about Postgres itself — the "small model of
 Postgres" of the later steps is our own axiomatization, and the differential tests remain the only
 link to the real thing (D11).  *Amended (issue #4):* the transition trigger
 (`lean/MLS/Transition.lean`), the compiled hierarchy helper and depth trigger
 (`lean/MLS/Reach.lean`) and the cardinality trigger over a bag of rows
-(`lean/MLS/Cardinality.lean`) are in the track since step 5 (ROADMAP).  What stays outside it,
+(`lean/MLS/Cardinality.lean`) are in the track since step 5 (`docs/archive/ROADMAP.md`).  What stays outside it,
 by nature: that `FOR UPDATE` under READ COMMITTED serializes the writers of a group (the model
 takes the serial schedule as the assumption the proof report states) and that the
 `SECURITY DEFINER` helper sees every row (D34) — the concurrency test and the Postgres
@@ -920,7 +920,7 @@ refuses the rule at its `member.relation` with the fix (the user's own rows, `ke
 retires the eval case `st_self_grant`, whose reference had exactly that shape.  (2) The relation
 row axiom (SEMANTICS §7): a stored row of a relation's table the obligation reads is in the
 relation, as D56's stored-row axiom does for hops; the Lean transcription does not state it yet
-(ROADMAP).  (3) The compiler's indexes on an adopted table are `create index if not exists`, so
+(`lean/CLAUDE.md`, "Known gaps").  (3) The compiler's indexes on an adopted table are `create index if not exists`, so
 a deploy runs again after a rollback that kept them (D51's script already drops and recreates
 its own policies); owned tables keep the bare form.  (4) `mls diff` does not compare a table
 observed in either version and says so in a note: an observed table's access is not modelled

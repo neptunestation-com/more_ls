@@ -1,5 +1,9 @@
 # Roadmap
 
+> **Archived 2026-11-15, no longer maintained.**  Every milestone below is implemented; the one
+> open item, a real seed corpus, is issue #1.  The Lean track's known gaps are now recorded in
+> `lean/CLAUDE.md` ("Known gaps").
+
 ## Milestone 1 — core loop, no LLM
 
 Pipeline: JSON spec → validate (schema) → typecheck → fragment check → prove → compile DDL →

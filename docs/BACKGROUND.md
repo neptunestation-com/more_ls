@@ -3,7 +3,7 @@
 MLS grew out of [`pg_more_ls`](https://github.com/neptunestation-com/pg_more_ls) (February to
 May 2026, Kotlin, archived in November 2026), a governance tool for PostgreSQL row-level
 security: a human-authored DSL, nine proofs, introspection of live policies, drift against them,
-and late-binding selectors. `docs/ROADMAP.md` Milestone 5 says what MLS re-expresses from it and
+and late-binding selectors. `docs/archive/ROADMAP.md` Milestone 5 says what MLS re-expresses from it and
 D45 to D49 in `docs/DECISIONS.md` say how. This document carries over the two pieces of that
 project that are argument rather than code: the undecidability theorem that motivates a
 restricted language, and the survey of existing authorization languages that justified writing
