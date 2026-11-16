@@ -860,9 +860,10 @@ changed, else 0.
 
 ### `mls migrate OLD NEW [--format sql|json] [--out FILE] [--allow-destructive]`
 
-Phased migration script (`docs/MIGRATION.md`): 1 schema, 2 constraints as NOT VALID and
+Phased migration script: 1 schema, 2 constraints as NOT VALID and
 triggers, 3 indexes concurrently, 4 validate, 5 swap, 6 cleanup, 7 destructive (only with
-`--allow-destructive`).  Every statement is annotated with its lock mode.  Refuses column type
+`--allow-destructive`).  Every statement is annotated with its lock mode (`LOCKS` in `compile/migrate.py`, observed in
+`pg_locks` on Postgres 15–18 by `tests/templates/test_locks.py`).  Refuses column type
 changes, primary key changes and identity adapter changes, with the JSON path.  `--format
 json` gives the phases as data.  Exit 1 if refused.
 

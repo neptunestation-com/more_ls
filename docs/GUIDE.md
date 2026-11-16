@@ -1283,7 +1283,7 @@ constraints.  The phases marked "autocommit" must run outside a transaction (`ps
 this; a migration tool that wraps the file in one transaction will fail on `CONCURRENTLY`).
 `DROP COLUMN` and `DROP TABLE` are emitted only with `--allow-destructive`.  Column type
 changes, primary key changes and identity adapter changes are refused with the JSON path and
-the manual procedure.  `docs/MIGRATION.md` has the full phase and lock tables.
+the manual procedure.  The script annotates every statement with the lock it takes.
 
 ### 11.4 Confirm
 
@@ -1418,7 +1418,6 @@ These are decisions, not gaps; `docs/DECISIONS.md` has the reasoning.
 - `docs/SEMANTICS.md`: the meaning of every construct, the source of truth for the prover, the
   evaluator and the compiler.
 - `docs/DECISIONS.md`: the settled design decisions, numbered, with what was rejected and why.
-- `docs/MIGRATION.md`: migration phases, lock modes, what pre-flight and drift check.
 - `docs/LLM.md`: the generation loop, the eval corpus and the measured results.
 - `docs/FINDINGS.md`: what the experiments on real Postgres established (performance tiers,
   leakproofness, NULL and UPDATE semantics, what the live LLM runs found).

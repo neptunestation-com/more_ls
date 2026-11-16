@@ -1,5 +1,10 @@
 # Migrations, pre-flight and drift
 
+> **Archived 2026-11-15, no longer maintained.**  Written for Milestone 2; it predates the takeover
+> (D51–D56), so its account of drift is incomplete.  Current sources: `docs/REFERENCE.md` (the
+> `migrate`, `preflight` and `drift` commands), `docs/GUIDE.md` §11, and the lock modes as
+> `LOCKS` in `src/mls/compile/migrate.py`, which `tests/templates/test_locks.py` checks.
+
 `mls migrate OLD NEW` prints the DDL that takes a database deployed from spec OLD to the objects
 of spec NEW.  Run `mls preflight NEW --old OLD --dsn ...` first; the migration's VALIDATE phase
 aborts on the first row that violates a new constraint, before any policy changes.  After the

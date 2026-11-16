@@ -172,7 +172,6 @@ open question ([#1](https://github.com/neptunestation-com/more_ls/issues/1)).
   prover, the evaluator and the compiler.
 - **[Decisions](docs/DECISIONS.md)**: the settled design decisions, with what was rejected and why.
 - **[Findings](docs/FINDINGS.md)**: what experiments on real Postgres established.
-- **[Migration](docs/MIGRATION.md)**: the migration phases and their observed lock levels.
 - **[LLM](docs/LLM.md)**: the generation loop, the eval corpus and the grading.
 - **[Roadmap](docs/ROADMAP.md)** and **[Background](docs/BACKGROUND.md)**: the milestones, and what
   `pg_more_ls` established before this project.

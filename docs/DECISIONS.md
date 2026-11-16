@@ -173,7 +173,7 @@ session).  Finding: GRANT/REVOKE hold no relation lock past the statement; CREAT
 ADD CONSTRAINT (CHECK), DROP/RENAME CONSTRAINT, ADD/DROP COLUMN, SET/DROP NOT NULL, ADD UNIQUE,
 DROP TRIGGER and RLS changes hold ACCESS EXCLUSIVE; ADD FOREIGN KEY NOT VALID and CREATE TRIGGER
 hold SHARE ROW EXCLUSIVE; VALIDATE CONSTRAINT and the CONCURRENTLY index statements hold
-SHARE UPDATE EXCLUSIVE.  See `docs/MIGRATION.md`.
+SHARE UPDATE EXCLUSIVE.  The table is `LOCKS` in `src/mls/compile/migrate.py`.
 
 **D30. Drift compares catalog output of a shadow deploy on the same server.** `mls drift` creates
 a throwaway schema inside one transaction, runs the compiled script into it (roles excepted:
