@@ -11,7 +11,7 @@ from pathlib import Path
 
 from tests.conftest import ROOT
 
-PATTERN = re.compile(r"\bD\d{1,2}\b|(?<![\w&])#\d{1,3}\b|\bMilestones?\b|\b[Aa]mended\b")
+PATTERN = re.compile(r"\bD\d{1,2}\b|(?<![\w&])#\d{1,3}(?![\w-])|\bMilestones?\b|\b[Aa]mended\b")
 USER_DOCS = sorted((ROOT / "docs").glob("*.md")) + [ROOT / "README.md", ROOT / "index.html"]
 
 
@@ -50,3 +50,4 @@ def test_the_check_sees_an_artefact():
     assert PATTERN.search("(an expansion of a selector rule, D48)")
     assert PATTERN.search('"Needs" is checked (#27)')
     assert not PATTERN.search("uuid#0") and not PATTERN.search("color: #3ECF8E") and not PATTERN.search("§11")
+    assert not PATTERN.search("1. [Why MLS](#1-why-mls)")  # a fragment link, not an issue

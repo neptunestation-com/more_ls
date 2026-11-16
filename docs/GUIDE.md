@@ -25,22 +25,22 @@ the semantics in `docs/SEMANTICS.md` and the decisions in `docs/design/DECISIONS
 
 Contents
 
-1. Why MLS
-2. Install
-3. Taking over the schema you have
-4. Starting from nothing: a ten-minute tour
-5. How a spec is put together
-6. A complete example: tenant-scoped documents
-7. Recipes
-8. When a proof fails
-9. Identity: who the current user is
-10. Deploying the DDL
-11. Changing a deployed spec: diff, migrate, preflight, drift
-12. Writing specs with an LLM
-13. Performance
-14. Testing your own specs in CI
-15. Limits and things MLS refuses to do
-16. Where to read more
+1. [Why MLS](#1-why-mls)
+2. [Install](#2-install)
+3. [Taking over the schema you have](#3-taking-over-the-schema-you-have)
+4. [Starting from nothing: a ten-minute tour](#4-starting-from-nothing-a-ten-minute-tour)
+5. [How a spec is put together](#5-how-a-spec-is-put-together)
+6. [A complete example: tenant-scoped documents](#6-a-complete-example-tenant-scoped-documents)
+7. [Recipes](#7-recipes)
+8. [When a proof fails](#8-when-a-proof-fails)
+9. [Identity: who the current user is](#9-identity-who-the-current-user-is)
+10. [Deploying the DDL](#10-deploying-the-ddl)
+11. [Changing a deployed spec: diff, migrate, preflight, drift](#11-changing-a-deployed-spec-diff-migrate-preflight-drift)
+12. [Writing specs with an LLM](#12-writing-specs-with-an-llm)
+13. [Performance](#13-performance)
+14. [Testing your own specs in CI](#14-testing-your-own-specs-in-ci)
+15. [Limits and things MLS refuses to do](#15-limits-and-things-mls-refuses-to-do)
+16. [Where to read more](#16-where-to-read-more)
 
 ## 1. Why MLS
 

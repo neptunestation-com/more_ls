@@ -6,23 +6,23 @@ and the compiler agree on.  Where this reference and SEMANTICS differ, SEMANTICS
 
 Contents
 
-1. The spec file
-2. Identifiers, types and values
-3. `identity`
-4. `roles`
-5. `tables`
-6. `relations`
-7. `hierarchies`
-8. `opaques`
-9. Terms
-10. Predicates
-11. Rules
-12. Properties
-13. Renderings: English and terse
-14. Generated objects
-15. Command-line interface
-16. Environment variables
-17. Errors
+1. [The spec file](#1-the-spec-file)
+2. [Identifiers, types and values](#2-identifiers-types-and-values)
+3. [`identity`](#3-identity)
+4. [`roles`](#4-roles)
+5. [`tables`](#5-tables)
+6. [`relations`](#6-relations)
+7. [`hierarchies`](#7-hierarchies)
+8. [`opaques`](#8-opaques)
+9. [Terms](#9-terms)
+10. [Predicates](#10-predicates)
+11. [Rules](#11-rules)
+12. [Properties](#12-properties)
+13. [Renderings: English and terse](#13-renderings-english-and-terse)
+14. [Generated objects](#14-generated-objects)
+15. [Command-line interface](#15-command-line-interface)
+16. [Environment variables](#16-environment-variables)
+17. [Errors](#17-errors)
 
 ## 1. The spec file
 
