@@ -756,7 +756,7 @@ constraint as `differs`.
 
 On an adopted table the indexes are `create index if not exists`, so the script runs again
 after a rollback that left them in place (a policy-set rollback by deploying the previous spec,
-`docs/TAKEOVER.md`); drift reports a same-named index whose definition differs.
+GUIDE §3); drift reports a same-named index whose definition differs.
 
 Indexes: one composite index per conjunctive group of a permissive policy (membership
 columns first, then comparison columns), one on each foreign key's referencing columns, and a

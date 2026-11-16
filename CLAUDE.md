@@ -20,7 +20,7 @@ Read before writing code, in this order:
 
 The milestones that built all of this are in `docs/design/archive/ROADMAP.md` (archived; every one is implemented).
 
-`docs/` is for users: `docs/GUIDE.md` (user guide), `docs/TAKEOVER.md` (the runbook),
+`docs/` is for users: `docs/GUIDE.md` (user guide; §3 is the takeover, step by step),
 `docs/REFERENCE.md` (language and CLI reference), `docs/SEMANTICS.md` and `docs/LLM.md`.
 `docs/design/` is for contributors: DECISIONS, FINDINGS, EVALS (the LLM loop's corpus and
 measured runs), BACKGROUND and `archive/`. The user docs state the current behaviour without its
@@ -90,11 +90,11 @@ union member the renderer does not cover.
   table) are drift `hardening` (`pg/drift.py:bypass_report`, also read by `mls status --dsn` and
   import's notes) unless the table assumes `{"bypass": "view v"}`; `tests/templates/test_bypass.py`
   has the positive and negative fixtures, the takeover test fixes the starter's two.
-- #24: `docs/TAKEOVER.md` is the takeover runbook, replayed by `tests/platform/test_runbook.py`
+- #24: GUIDE §3 is the takeover, step by step, replayed by `tests/platform/test_guide_takeover.py`
   on the starter plus `tests/brownfield/starter_data.sql` (same block/command conventions as
   `test_guide.py`; `psql` and `pg_dump` lines are emulated); its spec is
   `examples/starter_takeover.mls`.  A change to import, diff, drift, status or deploy notices
-  updates the runbook in the same change.  A policy on a relation's own table may not read the
+  updates GUIDE §3 in the same change.  A policy on a relation's own table may not read the
   relation (Postgres: infinite recursion; `spec/check.py`).  `Harness(foreign=catalog.foreign_keys(..))`
   runs the differential on a deployed brownfield database.  #26: `mls generate --skeleton` keeps
   the skeleton's own rules as fixed rules (`Loop(fixed_rules=...)`), shown to both passes and

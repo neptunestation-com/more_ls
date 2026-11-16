@@ -257,8 +257,8 @@ subquery.
 
 ## Replaying the takeover on the Supabase starter (Milestone 6, #24)
 
-`docs/TAKEOVER.md` replayed on `starter_schema.sql` with data, as `postgres` on the
-`supabase/postgres` image (`tests/platform/test_runbook.py`):
+The takeover of GUIDE §3 replayed on `starter_schema.sql` with data, as `postgres` on the
+`supabase/postgres` image (`tests/platform/test_guide_takeover.py`):
 
 - The differential test on the deployed database needs the schema's own foreign keys honoured
   (the harness generated tasks of projects that do not exist; `profiles.id → auth.users` needs
@@ -269,13 +269,13 @@ subquery.
   restores the old policies under MLS's names (`Public profiles are viewable by everyone.`
   becomes `public_profiles_are_viewable_by_everyone_`, split per role) with the same effect,
   leaves the compiler's indexes in place, and leaves a table that was not governed before
-  (`team_members`, row-level security off) with the new policies and RLS on: the runbook puts it
+  (`team_members`, row-level security off) with the new policies and RLS on: the guide puts it
   back by hand.  The second deploy then failed on the existing index until the indexes on adopted
   tables became `if not exists`.
 - `mls import` of the old policies makes `team_members` observed (row-level security off), and
   `mls diff` used to report every app role's access to it as `before: false`; it now skips the
   table with a note.  Its real change (open to every app role → own memberships only) is the one
-  the runbook states in prose.
+  the guide states in prose.
 - `mls generate --skeleton` wrote the whole rules section, so the imported CHECKs were kept only
   if the model restated them; since #26 they are fixed rules, shown to both passes and added
   after the model's.

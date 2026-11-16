@@ -1,6 +1,6 @@
 -- Data for the Supabase starter (starter_schema.sql), as a project has it before a takeover:
 -- four users, two teams, a user in no team, profiles for three of them, projects and tasks
--- nested under the teams.  docs/TAKEOVER.md runs on it (tests/platform/test_runbook.py).
+-- nested under the teams.  GUIDE §3 runs on it (tests/platform/test_guide_takeover.py).
 
 insert into auth.users (id) values
   ('00000000-0000-0000-0000-00000000000a'),  -- alice: owner of Design

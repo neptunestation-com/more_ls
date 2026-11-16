@@ -1,5 +1,5 @@
 {
- "$comment": "The Supabase starter (tests/brownfield/starter_schema.sql) after the takeover of docs/TAKEOVER.md: the skeleton that mls import --policies discard writes, the composed relation in_project, and the rules and properties of the runbook. Every table is adopted; the old policies are gone.",
+ "$comment": "The Supabase starter (tests/brownfield/starter_schema.sql) after the takeover of docs/GUIDE.md section 3: the skeleton that mls import --policies discard writes, the composed relation in_project, and the rules and properties the guide writes. Every table is adopted; the old policies are gone.",
  "mls_version": "0.1",
  "identity": {
   "adapter": "supabase",

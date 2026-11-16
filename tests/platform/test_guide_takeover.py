@@ -1,8 +1,8 @@
-"""The takeover runbook (docs/TAKEOVER.md) is replayed on the Supabase starter
+"""The takeover of the user guide (docs/GUIDE.md §3) is replayed on the Supabase starter
 (`tests/brownfield/starter_schema.sql` with `starter_data.sql`) on the `supabase/postgres` image,
 as `postgres`: every command it shows runs and prints the lines it shows (`...` marks an
 elision), every spec line it quotes is a line of `examples/starter_takeover.mls`, the skeleton
-the import writes is that example without the lines the runbook adds, and every note it quotes
+the import writes is that example without the lines the guide adds, and every note it quotes
 is one the import prints.  Between the confirmation and the rollback the differential test runs
 on the deployed database (the schema's own foreign keys respected, `pg/catalog.py:foreign_keys`);
 after the rollback, the deploy runs again and drift is clean."""
@@ -24,18 +24,23 @@ from mls.spec import load_checked
 from tests.conftest import ROOT
 from tests.test_guide import blocks, shown, split
 
-RUNBOOK = ROOT / "docs" / "TAKEOVER.md"
+GUIDE = ROOT / "docs" / "GUIDE.md"
 EXAMPLE = ROOT / "examples" / "starter_takeover.mls"
 BROWNFIELD = ROOT / "tests" / "brownfield"
-DB = "mls_runbook"
-ROLLBACK = "## 13. Rollback"
+DB = "mls_takeover"
+ROLLBACK = "### Step 13: rollback"
 
-# (the command's first words, its exit code), in runbook order
+# (the command's first words, its exit code), in the order the guide shows them
 EXPECTED = [("pg_dump", 0), ("uv run mls import", 0), ("uv run mls import", 0), ("psql", 0), ("psql", 0),
             ("uv run mls prove", 0), ("uv run mls diff", 2), ("uv run mls drift", 1),
             ("uv run mls preflight", 0), ("uv run mls compile", 0), ("psql", 0), ("uv run mls drift", 0),
             ("uv run mls status", 0),
             ("uv run mls compile", 0), ("psql", 0), ("psql", 0), ("uv run mls drift", 0)]
+
+
+def takeover() -> str:
+    text = GUIDE.read_text()
+    return text[text.index("## 3. Taking over the schema you have"):text.index("## 4. ")]
 
 
 @pytest.fixture(scope="module")
@@ -65,7 +70,7 @@ def project(supabase):
 
 
 class Shell:
-    """Runs a runbook command as a reader would: `uv run mls` in a process of its own (the
+    """Runs a command of the guide as a reader would: `uv run mls` in a process of its own (the
     solver's counterexamples depend on what the process solved before), `psql -c` and `psql -f`
     over psycopg with the notices printed as psql prints them, `pg_dump` in the container."""
 
@@ -112,23 +117,23 @@ def _policies(dsn: str) -> set[tuple[str, str]]:
         return set(conn.execute("select tablename, policyname from pg_policies where schemaname = 'public'").fetchall())
 
 
-def test_the_example_is_the_skeleton_with_the_runbook_lines():
-    """No Docker: every spec line the runbook quotes is in the example, and the example is what the
-    runbook says: the skeleton with the composed relation, the rules R3-R13 and the properties."""
+def test_the_example_is_the_skeleton_with_the_guide_lines():
+    """No Docker: every spec line the guide quotes is in the example, and the example is what the
+    guide says: the skeleton with the composed relation, the rules R3-R13 and the properties."""
     example = EXAMPLE.read_text()
     load_checked(EXAMPLE)
-    spec_lines = [line.strip() for f in _fragments(RUNBOOK.read_text())
+    spec_lines = [line.strip() for f in _fragments(takeover())
                   if f[0].startswith(("relation ", "rules {", "R", "P"))
                   for line in f if line.strip() not in ("rules {", "}")]
     assert len(spec_lines) == 1 + 3 + 11 + 9
     for line in spec_lines:
-        assert line in example, f"the runbook quotes {line!r}, which is not in {EXAMPLE.name}"
+        assert line in example, f"the guide quotes {line!r}, which is not in {EXAMPLE.name}"
 
 
 @pytest.mark.pg
 @pytest.mark.supabase
-def test_the_runbook_replays_on_the_starter(supabase, project, tmp_path):
-    text = RUNBOOK.read_text()
+def test_the_takeover_replays_on_the_starter(supabase, project, tmp_path):
+    text = takeover()
     shell = Shell(supabase, project, tmp_path)
     before, after = _commands(text[:text.index(ROLLBACK)]), _commands(text[text.index(ROLLBACK):])
     assert [(c.split()[0] if c.startswith(("psql", "pg_dump")) else " ".join(c.split()[:4])) for c, _ in before + after] == [
@@ -147,7 +152,7 @@ def test_the_runbook_replays_on_the_starter(supabase, project, tmp_path):
                 discard_imported(out)
 
     def discard_imported(out: str) -> None:
-        # the notes the runbook quotes are the import's, and the skeleton is the example without
+        # the notes the guide quotes are the import's, and the skeleton is the example without
         # the lines step 6 adds; from step 6 on, spec.mls is the example
         for fragment in _fragments(text):
             if fragment[0].startswith("note:"):

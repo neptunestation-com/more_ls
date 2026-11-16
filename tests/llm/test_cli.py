@@ -47,7 +47,7 @@ def test_generate_and_eval_with_the_terse_syntax(tmp_path, capsys, monkeypatch):
     req = tmp_path / "req.txt"
     req.write_text(json.loads((ROOT / "evals" / "cases" / "good_tenant_docs.json").read_text())["requirements"])
     out, tr = tmp_path / "out.mls", tmp_path / "t.json"
-    # the skeleton in the terse syntax too, as `mls import --out spec.mls` writes it (docs/TAKEOVER.md)
+    # the skeleton in the terse syntax too, as `mls import --out spec.mls` writes it (docs/GUIDE.md §3)
     assert main(["generate", str(req), "--skeleton", str(EXAMPLE.with_suffix("")), "--syntax", "terse", "--out", str(out),
                  "--transcript", str(tr)]) == 0
     text = capsys.readouterr().out

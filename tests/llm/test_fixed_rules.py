@@ -1,5 +1,5 @@
 """The skeleton's own rules are kept (#26): `mls generate --skeleton` on the takeover skeleton
-(`examples/starter_takeover.mls` without the rules and properties the runbook adds) keeps the two
+(`examples/starter_takeover.mls` without the rules and properties the guide adds) keeps the two
 CHECKs `mls import` read, R1 and R2, when the scripted answer leaves them out, in both syntaxes;
 both passes are shown them; a rule that takes a fixed rule's id or name is a structural error at
 the answer's own path, repaired like any other.  No API call: `MLS_LLM_SCRIPT` replays answers."""

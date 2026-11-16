@@ -28,7 +28,7 @@ through the whole lifecycle:
   Postgres 15–18 in Docker.
 - **`import`**: a spec from a live database. `--policies discard` keeps the tables, keys and
   readable `CHECK`s and drops the hand-written policies, for the
-  [takeover](docs/TAKEOVER.md); the default lifts the policies into the verified fragment.
+  [takeover](docs/GUIDE.md#3-taking-over-the-schema-you-have); the default lifts the policies into the verified fragment.
 - **`diff`**, **`migrate`**, **`preflight`**, **`drift`**: every change in effect between two
   specs, with an example row; a phased migration with its lock levels; the existing rows a new
   constraint would reject; the live catalog against what the spec deploys.
@@ -143,9 +143,9 @@ uv run mls status spec.mls --dsn "$DATABASE_URL"                               #
 ```
 
 The import's notes quote every policy the deploy will drop, the tables with row-level security off
-today, and the bypass paths, each with its fix. [`docs/TAKEOVER.md`](docs/TAKEOVER.md) is the
-runbook, every command with what it prints, on Supabase's team-and-projects starter; the test
-suite replays it on Supabase's own image.
+today, and the bypass paths, each with its fix. [GUIDE §3](docs/GUIDE.md#3-taking-over-the-schema-you-have)
+walks through it step by step, every command with what it prints, on Supabase's team-and-projects
+starter; the test suite replays it on Supabase's own image.
 
 ## Writing specs with an LLM
 
@@ -164,9 +164,8 @@ corpus and the grading.
 
 ## Documentation
 
-- **[User guide](docs/GUIDE.md)**: why MLS, install, the takeover, a ten-minute tour, a complete
+- **[User guide](docs/GUIDE.md)**: why MLS, install, taking over a live database step by step, a ten-minute tour, a complete
   example, recipes, failed proofs, identity, deploying, changing a live spec, the LLM loop, limits.
-- **[Takeover runbook](docs/TAKEOVER.md)**: replacing the policies of a live database, step by step.
 - **[Reference](docs/REFERENCE.md)**: every construct, property template, CLI flag, exit code and
   error.
 - **[Semantics](docs/SEMANTICS.md)**: the meaning of every construct, the source of truth for the
