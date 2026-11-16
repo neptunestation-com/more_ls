@@ -9,7 +9,7 @@ from tests.conftest import EXAMPLE, ROOT
 def test_generate_and_eval_llm_with_a_script(tmp_path, capsys, monkeypatch):
     d = json.loads(EXAMPLE.read_text())
     script = tmp_path / "script.json"
-    script.write_text(json.dumps([{"properties": d["properties"]}, {"rules": d["rules"], "notes": "n"}]))
+    script.write_text(json.dumps([{"relations": {}}, {"properties": d["properties"]}, {"rules": d["rules"], "notes": "n"}]))
     monkeypatch.setenv("MLS_LLM_SCRIPT", str(script))
     req = tmp_path / "req.txt"
     req.write_text(json.loads((ROOT / "evals" / "cases" / "good_tenant_docs.json").read_text())["requirements"])
@@ -21,7 +21,7 @@ def test_generate_and_eval_llm_with_a_script(tmp_path, capsys, monkeypatch):
     assert "P1 (PROVED): " in text and "notes from the rules pass: n" in text
     assert json.loads(out.read_text())["rules"] == d["rules"]
     t = json.loads(tr.read_text())
-    assert len(t["exchanges"]) == 2
+    assert [x["name"] for x in t["exchanges"]] == ["relations", "properties", "rules"]
     assert t["spec_terse"][0] == "mls 0.1" and "rules {" in t["spec_terse"]
     assert any(line.startswith("  R1 policy member_read on docs: authenticated select") for line in t["spec_terse"])
     assert main(["eval", str(ROOT / "evals" / "cases" / "good_tenant_docs.json"), "--llm", "--syntax", "json", "--json",
@@ -41,7 +41,7 @@ def test_generate_and_eval_with_the_terse_syntax(tmp_path, capsys, monkeypatch):
 
     spec = load_spec(EXAMPLE)
     script = tmp_path / "script.json"
-    script.write_text(json.dumps(["```mls\n" + section("properties", spec.properties) + "\n```",
+    script.write_text(json.dumps(["relations { }", "```mls\n" + section("properties", spec.properties) + "\n```",
                                   section("rules", spec.rules) + "\nnote: all clear"]))
     monkeypatch.setenv("MLS_LLM_SCRIPT", str(script))
     req = tmp_path / "req.txt"
@@ -62,7 +62,7 @@ def test_generate_and_eval_with_the_terse_syntax(tmp_path, capsys, monkeypatch):
     assert out_text.startswith("ok: good_tenant_docs")
     s = json.loads(out_text[out_text.index("{"):])
     assert s["syntax"] == "terse" and s["spec_correctness_rate"] == 1.0
-    assert s["tokens"] == {"api_calls": 2, "input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0}
+    assert s["tokens"] == {"api_calls": 3, "input_tokens": 0, "output_tokens": 0, "cache_read_input_tokens": 0}
 
 
 def test_eval_mutate_writes_synthetic_cases(tmp_path, capsys):

@@ -958,3 +958,24 @@ verdict over the same block in both versions does rely on the block being one fu
 Verdicts are unchanged, so the Lean transcription is not affected.  Rejected: Z3's UNSAT core
 over tracked assumptions (the block's uses are inside the policy terms, not separate
 assumptions, and a core is not minimal).
+
+Implementation defaults (#28, 2026-11-15; amends D37).  `mls generate` has a third pass, run
+first: the *relations* pass, which completes the skeleton with the relations the requirements
+need and the skeleton lacks (an import reads a membership table as a base relation, never a path
+through keys, so on the Supabase starter the takeover needed one hand-written composed relation
+before the loop could prove).  Its answer is a `relations { relation ... }` section (an answer
+envelope over the spec's own `relation` lines, not a spec section) or `{"relations": {...}}`.  A
+verbatim restatement of a skeleton relation is dropped; the same name with another definition is
+an error at its path; the skeleton plus the new relations must pass `check_spec`; errors go back
+to that pass within the shared repair budget, and the loop ends `invalid` if they remain.  The
+properties and rules passes are both shown the skeleton with the new relations, and still never
+see each other's answer: D37's independence is between the two answers that are graded against
+each other, and the relations are their shared vocabulary.  `mls generate` lists the added
+relations in English before the properties, for approval (a property is stated in a relation's
+terms, so a wrong relation makes a right-sounding property wrong).  The pass is skipped when the
+loop starts from given rules or properties (the repair benchmark).  The grader matches relations
+by definition, not name.  Rejected: letting the properties pass propose relations (no extra call,
+but the rules pass would then be shown part of the properties pass's answer); letting either pass
+propose them (two names for one path, merged after the fact); and leaving the relation to the
+human (the hand-written line was the one step of the takeover an LLM-first user could not hand
+off).  Cost: one more model call per run, usually with an empty answer.

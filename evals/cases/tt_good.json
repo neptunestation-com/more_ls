@@ -1,0 +1,36 @@
+{
+ "id": "tt_good",
+ "origin": "seed",
+ "requirements": "Users belong to teams (team_members). A team has projects, a project has tasks and a task has comments; tasks and comments do not store their team. A member of a team reads the team's projects, reads the tasks of those projects and adds tasks to them, and reads the comments on those tasks and adds comments to them. Nobody else reads or adds any of it, nobody changes or deletes anything, and leaving a team never grants access.",
+ "expected_properties": [
+  "A user only reads the projects of their own teams.",
+  "A user only reads and adds tasks of their own teams' projects.",
+  "A user only reads and adds comments on tasks of their own teams.",
+  "A member reads every project of their teams.",
+  "A member reads every task of their teams' projects.",
+  "A member adds a task to a project of their team.",
+  "A member reads every comment on a task of their teams.",
+  "A member comments on a task of their teams.",
+  "Leaving a team never grants access."
+ ],
+ "reference_spec": "specs/tt_good.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ },
+ "withheld_relations": [
+  "member_of",
+  "in_project",
+  "in_task"
+ ]
+}

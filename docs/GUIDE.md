@@ -161,19 +161,19 @@ Supabase.  Nothing here needs a superuser.
 
 The steps:
 
-1. Back up
-2. Record what the old policies allow
-3. Import the skeleton
-4. Review the notes, and close the bypass paths
-5. Write the requirements
-6. Let the LLM write the rules and the properties
-7. Prove
-8. Compare with what the old policies allowed
-9. See what the deploy will drop
-10. Check the existing data
-11. Deploy
-12. Confirm: drift clean, every table proved
-13. Rollback
+1. [Back up](#step-1-back-up)
+2. [Record what the old policies allow](#step-2-record-what-the-old-policies-allow)
+3. [Import the skeleton](#step-3-import-the-skeleton)
+4. [Review the notes, and close the bypass paths](#step-4-review-the-notes-and-close-the-bypass-paths)
+5. [Write the requirements](#step-5-write-the-requirements)
+6. [Let the LLM write the spec](#step-6-let-the-llm-write-the-spec)
+7. [Prove](#step-7-prove)
+8. [Compare with what the old policies allowed](#step-8-compare-with-what-the-old-policies-allowed)
+9. [See what the deploy will drop](#step-9-see-what-the-deploy-will-drop)
+10. [Check the existing data](#step-10-check-the-existing-data)
+11. [Deploy](#step-11-deploy)
+12. [Confirm: drift clean, every table proved](#step-12-confirm-that-drift-is-clean-and-every-table-proved)
+13. [Rollback](#step-13-rollback)
 
 ### Step 1: back up
 
@@ -282,20 +282,16 @@ saying who, which rows and what they may do, in `requirements.txt`:
     A member of a team reads the team's projects and creates projects in the team.
     A member reads, creates and edits the tasks of their team's projects.
 
-### Step 6: let the LLM write the rules and the properties
+### Step 6: let the LLM write the spec
 
-One thing the model does not write is a relation, so add the one this schema needs.  A task has
-no `team_id`: it reaches its team through its project.  A composed relation states that path,
-`team_members` then `projects` through its key `id`; add it to `spec.mls` under the relation the
-import wrote:
-
-    relation in_project = team_members . projects(team_id, id)
-
-Then, with `ANTHROPIC_API_KEY` set (section 12):
+With `ANTHROPIC_API_KEY` set (section 12):
 
     $ uv run mls generate requirements.txt --skeleton spec.mls --out spec.mls
     status: proved after 0 repair round(s)
     ...
+    # Relations added to the schema (for approval)
+    - in_project: team_members, then projects (team_id → id): a user's in_project are the id of every projects row whose team_id is among that user's team_members.
+
     # Properties (for approval)
     - P1 (PROVED): Any row of projects a user can read or insert has a team_id among the current user's team_members.
     - P2 (PROVED): Any row of tasks a user can read, insert or update has a project_id among the current user's in_project.
@@ -307,9 +303,12 @@ Then, with `ANTHROPIC_API_KEY` set (section 12):
     - P8 (PROVED): Any row of team_members a user can read has a team_id among the current user's team_members.
     - P9 (PROVED): Whatever a user can insert into or update in tasks, that user can also read.
 
-The model wrote the properties from the requirements, then, separately, rules that satisfy them,
-and MLS proved them.  The list is what you approve.  Each sentence is rendered from the property
-itself, not from the model's own description of it, so it says exactly what was proved.  Read it
+The model first completed the schema: a task has no `team_id`, it reaches its team through its
+project, so the requirement about tasks needs a relation the import could not read from the
+database, `in_project`, which follows `team_members` to `projects` through its key `id`.  Then it
+wrote the properties from the requirements and, separately, rules that satisfy them, and MLS
+proved them.  The two lists are what you approve.  Each sentence is rendered from the relation or
+property itself, not from the model's own description of it, so it says exactly what was proved.  Read it
 against the requirements: an upper bound per table (what a user can never see), a lower bound per
 grant (what a member must be able to do).  If a sentence is wrong or missing, the requirement was
 ambiguous: fix the sentence in `requirements.txt` and run `mls generate` again, rather than
@@ -321,7 +320,11 @@ test suite replays.  You do not need to read the rules it wrote: step 7 proves t
 shows what they change for whom.
 
 **Doing it by hand.**  To write the spec yourself, or to see what the model wrote for this
-example, these are the rules, after the two imported CHECKs:
+example: the relation, under the one the import wrote,
+
+    relation in_project = team_members . projects(team_id, id)
+
+then the rules, after the two imported CHECKs:
 
     R3 policy profiles_public on profiles: anon select permissive using true
     R4 policy profiles_signed_in on profiles: authenticated select permissive using true
@@ -1590,7 +1593,6 @@ migrations, on every Postgres version.
 Section 3, step 6 is a worked example on an imported schema, the usual case; this section is how
 the loop works and what to do with its answer.
 
-
     export ANTHROPIC_API_KEY=...
     uv run mls generate requirements.txt --skeleton skeleton.json --out spec.mls.json --transcript t.json
 
@@ -1598,32 +1600,42 @@ The skeleton is a spec without rules and properties (identity, roles, tables, re
 hierarchies, opaques), in either syntax.  The requirements are plain prose.  `--out` writes the
 spec in the syntax its extension names (`spec.mls` for terse).  The loop:
 
-1. asks the model for the *properties* and their plain-English descriptions, from the
-   requirements;
-2. separately asks it for the *rules*, from the same requirements, without showing it the
-   properties;
-3. checks the spec; every error goes back to the pass that owns that JSON path;
-4. proves the properties; every refuted one goes back to the rules pass as its English
+1. asks the model for the *relations* the requirements need that the skeleton lacks (often
+   none), checks them against the schema, and adds them to it: an import reads a membership table
+   as a relation, but not a path such as "the tasks of the projects of a user's teams", which is a
+   composed relation;
+2. asks it for the *properties* and their plain-English descriptions, from the requirements;
+3. separately asks it for the *rules*, from the same requirements, without showing it the
+   properties (both are shown the relations of step 1);
+4. checks the spec; every error goes back to the pass that owns that JSON path;
+5. proves the properties; every refuted one goes back to the rules pass as its English
    statement, the failing obligation and the counterexample scenario in English, with the lint's
    findings on the rules as hints (a rule set that proves is never sent back for a finding);
-5. stops after `--max-repairs` rounds (default 3) with status `proved`, `invalid` (still does not
+6. stops after `--max-repairs` rounds (default 3) with status `proved`, `invalid` (still does not
    check) or `escalated` (a property is still refuted and the model stands by its rules: a human
    decides whether the rule or the property is wrong).
 
-The output ends with the properties for approval, each with its verdict:
+The output ends with what you approve: the relations the model added, if any, and the
+properties, each with its verdict:
 
     status: proved after 0 repair round(s)
+    ...
+    # Relations added to the schema (for approval)
+    - in_project: team_members, then projects (team_id → id): a user's in_project are the id of every projects row whose team_id is among that user's team_members.
 
     # Properties (for approval)
     - P1 (PROVED): Any row of projects a user can read or insert has a team_id among the current user's team_members.
     - P2 (PROVED): ...
 
-Each sentence is rendered from the property itself, the way `mls explain` renders it, not taken
-from the model's description, so what you approve is exactly what was proved.  The model's
+Each sentence is rendered from the relation or property itself, the way `mls explain` renders
+it, not taken from the model's description, so what you approve is exactly what was proved.  A
+relation is approved like a property: the properties are stated in its terms, so a wrong
+relation makes a correct-sounding property say the wrong thing.  The model's
 descriptions stay in the spec and the transcript.
 
 A skeleton may already have rules: the one `mls import --policies discard` writes carries the
-CHECKs it read (section 3, step 6).  The model is shown them as rules the spec already has, numbers
+CHECKs it read (section 3, step 6).  Its relations are kept as they are too: the model may add relations, never
+change or rename one.  The model is shown the rules as rules the spec already has, numbers
 its own rules after them, and the result is its rules followed by those; a rule of its own that
 takes one of their ids or names is sent back for repair.
 

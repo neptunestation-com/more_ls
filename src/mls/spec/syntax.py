@@ -368,6 +368,24 @@ class Parser:
         self.eat(")")
         return name, {"table": first, "key": key, "value": value}
 
+    def relations_section(self) -> dict[str, Any]:
+        """`relations { relation ... }`: the relations pass's answer (#28), not a spec section."""
+        self.path = "$.relations"
+        self.mark(self.path)
+        self.advance()
+        self.eat("{")
+        out: dict[str, Any] = {}
+        while not self.at("}"):
+            if not self.at_word("relation"):
+                raise self.fail("a 'relation NAME = ...' line or '}'")
+            name, r = self.relation()
+            if name in out:
+                raise ParseError(f"relation '{name}' appears twice", self.tok.line, self.tok.col, self.path)
+            out[name] = r
+        self.advance()
+        self.path = "$"
+        return out
+
     def hierarchy(self) -> tuple[str, dict[str, Any]]:
         self.advance()
         name = self.name("a hierarchy name")
@@ -799,15 +817,17 @@ def parse_data(text: str, filename: str = "<terse>") -> Parsed:
 
 
 def parse_section(text: str, key: str, filename: str = "<terse>") -> Parsed:
-    """One `rules { ... }` or `properties { ... }` section alone (what an LLM pass answers with,
-    D50): the JSON shape `{key: [...]}` with spans under `$.<key>[i]`, and nothing else in the
-    text.  Syntax errors as `parse_data` reports them."""
-    assert key in ("rules", "properties")
+    """One `rules { ... }`, `properties { ... }` or `relations { ... }` section alone (what an
+    LLM pass answers with, D50): the JSON shape `{key: [...]}` with spans under `$.<key>[i]`, or
+    for relations `{"relations": {name: relation}}` with spans under `$.relations.<name>`, and
+    nothing else in the text.  A `relations` section is only an answer: its lines are the
+    spec's own `relation` lines (#28).  Syntax errors as `parse_data` reports them."""
+    assert key in ("rules", "properties", "relations")
     try:
         p = Parser(text)
         if not p.at_word(key):
             raise p.fail(f"a '{key} {{ ... }}' section")
-        items = p.rules() if key == "rules" else p.properties()
+        items = {"rules": p.rules, "properties": p.properties, "relations": p.relations_section}[key]()
         if p.tok.kind != "eof":
             raise p.fail(f"nothing after the '{key}' section")
     except ParseError as e:

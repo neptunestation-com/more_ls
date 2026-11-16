@@ -155,9 +155,11 @@ def spec(comment, tables, relations, rules, properties, roles=("authenticated",)
 CASES: list[dict] = []
 
 
-def case(id, requirements, expected_properties, spec_data, verdicts, loop=None):
+def case(id, requirements, expected_properties, spec_data, verdicts, loop=None, withheld=None):
+    """`withheld`: relations of the reference the loop's skeleton leaves out, for the relations
+    pass to write (#28)."""
     CASES.append({"id": id, "requirements": requirements, "expected_properties": expected_properties,
-                  "spec": spec_data, "verdicts": verdicts, "loop": loop})
+                  "spec": spec_data, "verdicts": verdicts, "loop": loop, "withheld": withheld})
 
 
 # ============================================================================= F1 tenant_docs variants
@@ -819,6 +821,69 @@ case("st_files_forgotten",
 # now refuses too, so the case has no valid reference (docs/design/LLM.md).
 
 
+# ============================================================================= F12 relations the skeleton lacks (#28)
+# The loop's skeleton leaves out the reference's relations: the relations pass must write them
+# (graded by definition, not by name: llm/grade.py:align_relations).
+case("pj_no_relation", PJ_REQ, PJ_ENG, spec("projects, members, assignees; the skeleton has no relation", PJ_TABLES,
+                                             PJ_REL, PJ_RULES, PJ_PROPS), PJ_OK, withheld=["member_of"])
+
+TT_TABLES = {
+    "team_members": pairs(other="team_id"),
+    "projects": T({"id": ("int", False), "team_id": ("int", False), "name": ("text", False)}, ["id"]),
+    "tasks": T({"id": ("int", False), "project_id": ("int", False), "title": ("text", False)}, ["id"]),
+    "comments": T({"id": ("int", False), "task_id": ("int", False), "body": ("text", False)}, ["id"]),
+}
+TT_REL = {
+    "member_of": {"table": "team_members", "key": "user_id", "value": "team_id"},
+    "in_project": {"of": "member_of", "through": [{"table": "projects", "key": "team_id", "value": "id"}]},
+    "in_task": {"of": "member_of", "through": [{"table": "projects", "key": "team_id", "value": "id"},
+                                               {"table": "tasks", "key": "project_id", "value": "id"}]},
+}
+tm, tp, tk = member("member_of", "team_id"), member("in_project", "project_id"), member("in_task", "task_id")
+TT_RULES = [
+    policy("R1", "member_reads_projects", "projects", "select", using=tm, req="members read their teams' projects"),
+    policy("R2", "member_reads_tasks", "tasks", "select", using=tp, req="members read the tasks of those projects"),
+    policy("R3", "member_adds_tasks", "tasks", "insert", check=tp, req="members add tasks to those projects"),
+    policy("R4", "member_reads_comments", "comments", "select", using=tk, req="members read the comments on those tasks"),
+    policy("R5", "member_adds_comments", "comments", "insert", check=tk, req="members comment on those tasks"),
+]
+TT_PROPS = [
+    isolation("P1", "a user only reads the projects of their own teams", "projects", "team_id", "member_of", ["select"]),
+    isolation("P2", "a user only reads and adds tasks of their own teams' projects", "tasks", "project_id", "in_project",
+              ["select", "insert"]),
+    isolation("P3", "a user only reads and adds comments on tasks of their own teams", "comments", "task_id", "in_task",
+              ["select", "insert"]),
+    must_allow("P4", "a member reads every project of their teams", "projects", "authenticated", "select", tm),
+    must_allow("P5", "a member reads every task of their teams' projects", "tasks", "authenticated", "select", tp),
+    must_allow("P6", "a member adds a task to a project of their team", "tasks", "authenticated", "insert", tp),
+    must_allow("P7", "a member reads every comment on a task of their teams", "comments", "authenticated", "select", tk),
+    must_allow("P8", "a member comments on a task of their teams", "comments", "authenticated", "insert", tk),
+    monotone("P9", "leaving a team never grants access", "member_of"),
+]
+TT_REQ = ("Users belong to teams (team_members). A team has projects, a project has tasks and a task has comments; "
+          "tasks and comments do not store their team. A member of a team reads the team's projects, reads the tasks "
+          "of those projects and adds tasks to them, and reads the comments on those tasks and adds comments to them. "
+          "Nobody else reads or adds any of it, nobody changes or deletes anything, and leaving a team never grants "
+          "access.")
+TT_ENG = ["A user only reads the projects of their own teams.", "A user only reads and adds tasks of their own teams' projects.",
+          "A user only reads and adds comments on tasks of their own teams.", "A member reads every project of their teams.",
+          "A member reads every task of their teams' projects.", "A member adds a task to a project of their team.",
+          "A member reads every comment on a task of their teams.", "A member comments on a task of their teams.",
+          "Leaving a team never grants access."]
+TT_OK = {f"P{i}": "PROVED" for i in range(1, 10)}
+case("tt_good", TT_REQ, TT_ENG, spec("teams, projects, tasks, comments: ownership two and three tables away; the "
+                                     "skeleton has no relation", TT_TABLES, TT_REL, TT_RULES, TT_PROPS), TT_OK,
+     withheld=["member_of", "in_project", "in_task"])
+case("tt_comments_public",
+     TT_REQ.replace("and reads the comments on those tasks and adds comments to them. Nobody else reads or adds any of it",
+                    "and adds comments to those tasks; every signed-in user reads every comment. Nobody else reads or "
+                    "adds anything else"), TT_ENG,
+     spec("comments readable by every signed-in user; the skeleton has no relation", TT_TABLES, TT_REL,
+          [x if x["id"] != "R4" else policy("R4", "anyone_reads_comments", "comments", "select", using={"lit": True},
+                                            req="every signed-in user reads every comment") for x in TT_RULES], TT_PROPS),
+     {**TT_OK, "P3": "REFUTED"}, withheld=["member_of", "in_project", "in_task"])
+
+
 # ----------------------------------------------------------------------------- write and verify
 def main() -> int:
     (OUT / "specs").mkdir(parents=True, exist_ok=True)
@@ -840,7 +905,8 @@ def main() -> int:
         (OUT / f"{c['id']}.json").write_text(json.dumps({
             "id": c["id"], "origin": "seed", "requirements": c["requirements"],
             "expected_properties": c["expected_properties"], "reference_spec": f"specs/{c['id']}.mls.json",
-            "expected_verdicts": verdicts, "expected_loop": {"status": status}}, indent=1) + "\n")
+            "expected_verdicts": verdicts, "expected_loop": {"status": status},
+            **({"withheld_relations": c["withheld"]} if c["withheld"] else {})}, indent=1) + "\n")
         print(f"{c['id']}: ok ({status})")
     print(f"{len(CASES) - bad}/{len(CASES)} cases written")
     return 1 if bad else 0

@@ -1,0 +1,516 @@
+{
+ "id": "tt_comments_public__drop_R4",
+ "origin": "synthetic",
+ "base_case": "tt_comments_public",
+ "mutation": "drop:R4",
+ "requirements": "Users belong to teams (team_members). A team has projects, a project has tasks and a task has comments; tasks and comments do not store their team. A member of a team reads the team's projects, reads the tasks of those projects and adds tasks to them, and adds comments to those tasks; every signed-in user reads every comment. Nobody else reads or adds anything else, nobody changes or deletes anything, and leaving a team never grants access.",
+ "expected_properties": [
+  "A user only reads the projects of their own teams.",
+  "A user only reads and adds tasks of their own teams' projects.",
+  "A user only reads and adds comments on tasks of their own teams.",
+  "A member reads every project of their teams.",
+  "A member reads every task of their teams' projects.",
+  "A member adds a task to a project of their team.",
+  "A member reads every comment on a task of their teams.",
+  "A member comments on a task of their teams.",
+  "Leaving a team never grants access."
+ ],
+ "reference_spec": {
+  "$comment": "comments readable by every signed-in user; the skeleton has no relation",
+  "mls_version": "0.1",
+  "identity": {
+   "adapter": "supabase",
+   "context": {
+    "uid": {
+     "source": "auth.uid",
+     "type": "uuid"
+    }
+   }
+  },
+  "roles": [
+   "authenticated"
+  ],
+  "tables": {
+   "team_members": {
+    "columns": {
+     "user_id": {
+      "type": "uuid",
+      "nullable": false
+     },
+     "team_id": {
+      "type": "int",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "user_id",
+     "team_id"
+    ],
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
+   },
+   "projects": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "team_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "name": {
+      "type": "text",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
+   },
+   "tasks": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "project_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "title": {
+      "type": "text",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
+   },
+   "comments": {
+    "columns": {
+     "id": {
+      "type": "int",
+      "nullable": false
+     },
+     "task_id": {
+      "type": "int",
+      "nullable": false
+     },
+     "body": {
+      "type": "text",
+      "nullable": false
+     }
+    },
+    "primary_key": [
+     "id"
+    ],
+    "unique": [],
+    "mode": "owned",
+    "assume": [],
+    "tags": []
+   }
+  },
+  "relations": {
+   "member_of": {
+    "table": "team_members",
+    "key": "user_id",
+    "value": "team_id"
+   },
+   "in_project": {
+    "of": "member_of",
+    "through": [
+     {
+      "table": "projects",
+      "key": "team_id",
+      "value": "id"
+     }
+    ]
+   },
+   "in_task": {
+    "of": "member_of",
+    "through": [
+     {
+      "table": "projects",
+      "key": "team_id",
+      "value": "id"
+     },
+     {
+      "table": "tasks",
+      "key": "project_id",
+      "value": "id"
+     }
+    ]
+   }
+  },
+  "hierarchies": {},
+  "opaques": {},
+  "rules": [
+   {
+    "id": "R1",
+    "name": "member_reads_projects",
+    "table": "projects",
+    "requirement": "members read their teams' projects",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "team_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R2",
+    "name": "member_reads_tasks",
+    "table": "tasks",
+    "requirement": "members read the tasks of those projects",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "member": {
+      "relation": "in_project",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "project_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R3",
+    "name": "member_adds_tasks",
+    "table": "tasks",
+    "requirement": "members add tasks to those projects",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "insert",
+    "mode": "permissive",
+    "check": {
+     "member": {
+      "relation": "in_project",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "project_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "R4",
+    "name": "anyone_reads_comments",
+    "table": "comments",
+    "requirement": "every signed-in user reads every comment",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "select",
+    "mode": "permissive",
+    "using": {
+     "lit": true
+    }
+   },
+   {
+    "id": "R5",
+    "name": "member_adds_comments",
+    "table": "comments",
+    "requirement": "members comment on those tasks",
+    "kind": "policy",
+    "role": "authenticated",
+    "command": "insert",
+    "mode": "permissive",
+    "check": {
+     "member": {
+      "relation": "in_task",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "task_id"
+      }
+     }
+    }
+   }
+  ],
+  "properties": [
+   {
+    "id": "P1",
+    "description": "a user only reads the projects of their own teams",
+    "template": "tenant_isolation",
+    "table": "projects",
+    "column": "team_id",
+    "relation": "member_of",
+    "key": {
+     "ctx": "uid"
+    },
+    "commands": [
+     "select"
+    ]
+   },
+   {
+    "id": "P2",
+    "description": "a user only reads and adds tasks of their own teams' projects",
+    "template": "tenant_isolation",
+    "table": "tasks",
+    "column": "project_id",
+    "relation": "in_project",
+    "key": {
+     "ctx": "uid"
+    },
+    "commands": [
+     "select",
+     "insert"
+    ]
+   },
+   {
+    "id": "P3",
+    "description": "a user only reads and adds comments on tasks of their own teams",
+    "template": "tenant_isolation",
+    "table": "comments",
+    "column": "task_id",
+    "relation": "in_task",
+    "key": {
+     "ctx": "uid"
+    },
+    "commands": [
+     "select",
+     "insert"
+    ]
+   },
+   {
+    "id": "P4",
+    "description": "a member reads every project of their teams",
+    "template": "must_allow",
+    "table": "projects",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "member_of",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "team_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P5",
+    "description": "a member reads every task of their teams' projects",
+    "template": "must_allow",
+    "table": "tasks",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "in_project",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "project_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P6",
+    "description": "a member adds a task to a project of their team",
+    "template": "must_allow",
+    "table": "tasks",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "member": {
+      "relation": "in_project",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "project_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P7",
+    "description": "a member reads every comment on a task of their teams",
+    "template": "must_allow",
+    "table": "comments",
+    "role": "authenticated",
+    "command": "select",
+    "when": {
+     "member": {
+      "relation": "in_task",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "task_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P8",
+    "description": "a member comments on a task of their teams",
+    "template": "must_allow",
+    "table": "comments",
+    "role": "authenticated",
+    "command": "insert",
+    "when": {
+     "member": {
+      "relation": "in_task",
+      "key": {
+       "ctx": "uid"
+      },
+      "value": {
+       "col": "task_id"
+      }
+     }
+    }
+   },
+   {
+    "id": "P9",
+    "description": "leaving a team never grants access",
+    "template": "monotone_in",
+    "relation": "member_of"
+   }
+  ]
+ },
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "REFUTED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED"
+ },
+ "start_rules": [
+  {
+   "id": "R1",
+   "name": "member_reads_projects",
+   "table": "projects",
+   "requirement": "members read their teams' projects",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "member_of",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "team_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R2",
+   "name": "member_reads_tasks",
+   "table": "tasks",
+   "requirement": "members read the tasks of those projects",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "select",
+   "mode": "permissive",
+   "using": {
+    "member": {
+     "relation": "in_project",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R3",
+   "name": "member_adds_tasks",
+   "table": "tasks",
+   "requirement": "members add tasks to those projects",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "member": {
+     "relation": "in_project",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "project_id"
+     }
+    }
+   }
+  },
+  {
+   "id": "R5",
+   "name": "member_adds_comments",
+   "table": "comments",
+   "requirement": "members comment on those tasks",
+   "kind": "policy",
+   "role": "authenticated",
+   "command": "insert",
+   "mode": "permissive",
+   "check": {
+    "member": {
+     "relation": "in_task",
+     "key": {
+      "ctx": "uid"
+     },
+     "value": {
+      "col": "task_id"
+     }
+    }
+   }
+  }
+ ],
+ "mutant_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "REFUTED",
+  "P8": "PROVED",
+  "P9": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ }
+}

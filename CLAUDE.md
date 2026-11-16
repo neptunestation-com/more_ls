@@ -99,6 +99,14 @@ union member the renderer does not cover.
   runs the differential on a deployed brownfield database.  #26: `mls generate --skeleton` keeps
   the skeleton's own rules as fixed rules (`Loop(fixed_rules=...)`), shown to both passes and
   appended after the model's; a clash of id or name is an error at the answer's path.
+- #28: `mls generate` runs a relations pass first (`Loop._relations`, `ROLE_RELATIONS`; answer
+  `relations { relation ... }` via `syntax.parse_section(.., "relations")`, or JSON
+  `{"relations": {}}`); its relations join the skeleton both other passes see and are printed for
+  approval (`english.relation_line`).  Every scripted test answers it first (`{"relations": {}}` /
+  `relations { }`), except runs that start from given rules or properties, which skip it.  Eval
+  cases may carry `withheld_relations`; the grader aligns relations by definition
+  (`grade.align_relations`).  The prompt's relation example uses tables the corpus must not
+  (`buildings`, `floors`, `rooms`; checked in `test_loop.py`).
 - #27: "conditional on an opaque block" means the proof needs it: `props/runner.py:needed_opaques`
   re-solves a PROVED obligation with the block freed (`logic/tvl.py:free_opaques`, each occurrence
   an independent (T, F) pair); the lint uses the same re-check, the diff only the occurrence filter.

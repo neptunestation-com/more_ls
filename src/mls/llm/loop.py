@@ -1,6 +1,8 @@
-"""The loop (D16): pass 1 writes properties, pass 2 writes rules without seeing pass 1; the
-checker and the solver judge; check errors and counterexamples (as English scenarios) drive a
-bounded number of repair rounds; what is still refuted goes to a human as scenarios."""
+"""The loop (D16): pass 0 completes the schema with the relations the requirements need (#28),
+pass 1 writes properties, pass 2 writes rules without seeing pass 1 (both see pass 0's
+relations); the checker and the solver judge; check errors and counterexamples (as English
+scenarios) drive a bounded number of repair rounds; what is still refuted goes to a human as
+scenarios."""
 from __future__ import annotations
 
 import json
@@ -13,12 +15,12 @@ from mls import english
 from mls.errors import CompileError, MlsError, SpecError
 from mls.llm.client import Client, LlmError, Request
 from mls.llm.prompts import (
-    ROLE_PROPERTIES, ROLE_RULES, errors_text, next_rule_id, system_prompt, user_repair, user_requirements,
+    ROLE_PROPERTIES, ROLE_RELATIONS, ROLE_RULES, errors_text, next_rule_id, system_prompt, user_repair, user_requirements,
 )
-from mls.llm.schemas import properties_schema, rules_schema
+from mls.llm.schemas import properties_schema, relations_schema, rules_schema
 from mls.spec import check_spec
 from mls.spec.check import pydantic_errors_to_mls
-from mls.spec.model import Property, Rule, Spec
+from mls.spec.model import AnyRelation, Property, Rule, Spec
 from mls.spec.syntax import Source, parse_section
 
 DEFAULT_SYNTAX = "terse"  # D50 as amended 2026-11-05: the corpus run (docs/design/LLM.md) made terse the default
@@ -43,7 +45,7 @@ class Escalation:
 
 @dataclass
 class Step:
-    stage: str               # properties | rules | repair:properties | repair:rules | check | prove
+    stage: str               # relations | properties | rules | repair:<pass> | check | prove
     detail: str
 
 
@@ -60,6 +62,7 @@ class LoopResult:
     steps: list[Step] = field(default_factory=list)
     notes: dict[str, str] = field(default_factory=dict)
     syntax: str = "json"     # what the passes answered in (D50)
+    relations: dict[str, dict] = field(default_factory=dict)  # the ones pass 0 added to the schema
 
     @property
     def escalated(self) -> bool:
@@ -70,7 +73,7 @@ class LoopResult:
                 "verdicts": self.verdicts, "escalations": [str(e) for e in self.escalations],
                 "errors": [e.to_dict() for e in self.errors],
                 "steps": [{"stage": s.stage, "detail": s.detail} for s in self.steps],
-                "notes": self.notes,
+                "notes": self.notes, "relations": self.relations,
                 "spec": self.spec.model_dump(by_alias=True, exclude_none=True) if self.spec else None}
 
 
@@ -80,6 +83,13 @@ class _PropsWrap(BaseModel):
 
 class _RulesWrap(BaseModel):
     rules: list[Rule]
+
+
+class _RelationsWrap(BaseModel):
+    relations: dict[str, AnyRelation]
+
+
+_WRAP = {"properties": _PropsWrap, "rules": _RulesWrap, "relations": _RelationsWrap}
 
 
 _FENCE = re.compile(r"```[a-zA-Z]*\s*\n(.*?)\n\s*```", re.S)
@@ -175,39 +185,42 @@ def _parse_terse(text: str, key: str):
         return None, "", res, ((body, Source("<answer>", body)) if body is not None else None)
     items = res.data[key]
     source = Source("<answer>", body, res.spans)
-    wrap = _PropsWrap if key == "properties" else _RulesWrap
     try:
-        wrap.model_validate({key: items})
+        _WRAP[key].model_validate({key: items})
     except ValidationError as e:
         return items, notes, source.locate(pydantic_errors_to_mls(e)), (body, source)
     return items, notes, [], (body, source)
 
 
-def _parse(text: str, key: str) -> tuple[list[dict] | None, str, list[MlsError]]:
-    """JSON text -> (items, notes, errors); items is None when the text is not usable."""
+def _parse(text: str, key: str) -> tuple[list[dict] | dict | None, str, list[MlsError]]:
+    """JSON text -> (items, notes, errors); items is None when the text is not usable (a dict of
+    relations for the relations pass)."""
     try:
         data = _decode(text)
     except json.JSONDecodeError as e:
         return None, "", [MlsError("$", f"the answer is not valid JSON: {e.msg}", "answer with a single JSON object")]
-    if not isinstance(data, dict) or key not in data or not isinstance(data[key], list):
-        return None, "", [MlsError("$", f"the answer must be an object with a {key!r} array",
-                                   f'{{"{key}": [...], "notes": "..."}}')]
+    shape = dict if key == "relations" else list
+    if not isinstance(data, dict) or key not in data or not isinstance(data[key], shape):
+        what, empty = ("object", "{...}") if shape is dict else ("array", "[...]")
+        return None, "", [MlsError("$", f"the answer must be an object with a {key!r} {what}",
+                                   f'{{"{key}": {empty}, "notes": "..."}}')]
     notes = str(data.get("notes") or "")
-    wrap = _PropsWrap if key == "properties" else _RulesWrap
     try:
-        wrap.model_validate({key: data[key]})
+        _WRAP[key].model_validate({key: data[key]})
     except ValidationError as e:
         return data[key], notes, pydantic_errors_to_mls(e)
     return data[key], notes, []
 
 
 _RULE = TypeAdapter(Rule)
+_RELATION = TypeAdapter(AnyRelation)
 
 
-def _normal(rule) -> dict | None:
-    """A rule as its canonical JSON, to tell a verbatim restatement of a fixed rule; None if invalid."""
+def _normal(rule, adapter: TypeAdapter = _RULE) -> dict | None:
+    """A rule (or relation) as its canonical JSON, to tell a verbatim restatement of a fixed one;
+    None if invalid."""
     try:
-        return _RULE.dump_python(_RULE.validate_python(rule), mode="json", by_alias=True, exclude_none=True)
+        return adapter.dump_python(adapter.validate_python(rule), mode="json", by_alias=True, exclude_none=True)
     except ValidationError:
         return None
 
@@ -217,7 +230,8 @@ class Loop:
                  timeout_ms: int = 20000, syntax: str = DEFAULT_SYNTAX, fixed_rules: list[dict] = ()):
         """`fixed_rules` are the rules the skeleton already has (#26: what `mls import` read from
         the database, its CHECKs and FK-shaped inclusions): both passes are shown them, and they
-        are added, as they are, after the rules the model writes."""
+        are added, as they are, after the rules the model writes.  The relations pass's relations
+        (#28) are added to the skeleton the other two passes see."""
         if syntax not in ("json", "terse"):
             raise ValueError(f"syntax is json or terse, not {syntax!r}")
         self.requirements = requirements
@@ -230,11 +244,25 @@ class Loop:
         self.rounds = 0
         self.steps: list[Step] = []
         self.notes: dict[str, str] = {}
-        self._sys = {"properties": system_prompt(ROLE_PROPERTIES, skeleton, properties_schema(), syntax, self.fixed),
-                     "rules": system_prompt(ROLE_RULES, skeleton, rules_schema(), syntax, self.fixed)}
-        self._schema = {"properties": properties_schema(), "rules": rules_schema()} if syntax == "json" else {}
+        self.added: dict[str, dict] = {}       # the relations pass's relations, as validated
+        self._sys = {"relations": system_prompt(ROLE_RELATIONS, skeleton, relations_schema(), syntax)}
+        self._prompts()
+        self._schema = ({"properties": properties_schema(), "rules": rules_schema(),
+                         "relations": relations_schema()} if syntax == "json" else {})
         self._texts: dict[str, str] = {}       # terse: the last usable section text per pass, as written
         self._sources: dict[str, Source] = {}  # terse: its spans, to locate the checker's errors in it
+
+    def _schema_now(self) -> dict:
+        """The skeleton with the relations pass's relations after its own."""
+        if not self.added:
+            return self.skeleton
+        return {**self.skeleton, "relations": {**(self.skeleton.get("relations") or {}), **self.added}}
+
+    def _prompts(self) -> None:
+        """The system prompts of the properties and rules passes, on the schema as it is now."""
+        sk = self._schema_now()
+        self._sys["properties"] = system_prompt(ROLE_PROPERTIES, sk, properties_schema(), self.syntax, self.fixed)
+        self._sys["rules"] = system_prompt(ROLE_RULES, sk, rules_schema(), self.syntax, self.fixed)
 
     # --- one pass, with bounded structural repair
     def _quoted(self, key: str, previous: list[dict]) -> list[dict] | str:
@@ -246,13 +274,12 @@ class Loop:
             return self._texts[key]
         from mls.terse import section
 
-        wrap = _PropsWrap if key == "properties" else _RulesWrap
         try:
-            return section(key, getattr(wrap.model_validate({key: previous}), key))
+            return section(key, getattr(_WRAP[key].model_validate({key: previous}), key))
         except ValidationError:
             return json.dumps(previous, indent=1)
 
-    def _ask(self, key: str, previous: list[dict] | None, feedback: str | None) -> tuple[list[dict], list[MlsError]]:
+    def _ask(self, key: str, previous, feedback: str | None) -> tuple[list[dict] | dict, list[MlsError]]:
         schema = self._schema.get(key)
         if previous is None:
             req = Request(key, self._sys[key], user_requirements(self.requirements), schema)
@@ -272,7 +299,7 @@ class Loop:
         self.steps.append(Step(req.name, f"{len(items) if items is not None else 0} {key}; "
                                          f"{len(errors)} structural error(s)"))
         if items is None:  # unusable answer: keep the previous one so the next repair sees it
-            items = previous or []
+            items = previous or ({} if key == "relations" else [])
         return items, errors
 
     def _feedback(self, key: str, errors: list[MlsError]) -> str:
@@ -286,6 +313,47 @@ class Loop:
         while errors and self.rounds < self.max_repairs:
             items, errors = self._ask(key, items, self._feedback(key, errors))
         return items, errors
+
+    # --- pass 0: the relations the schema lacks
+    def _relations(self) -> list[MlsError]:
+        """Ask for the relations, check them against the schema, repair within the budget; the
+        valid ones join the schema the other passes see.  Returns the errors left."""
+        rels, errors = self._ask("relations", None, None)
+        while True:
+            if not errors:
+                rels, errors = self._check_relations(rels)
+                self.steps.append(Step("check relations", f"{len(errors)} error(s)"))
+            if not errors or self.rounds >= self.max_repairs:
+                break
+            rels, errors = self._ask("relations", rels, self._feedback("relations", errors))
+        if not errors:
+            self.added = {n: _normal(r, _RELATION) for n, r in rels.items()}
+            self._prompts()
+        return errors
+
+    def _check_relations(self, rels: dict) -> tuple[dict, list[MlsError]]:
+        """The answer's relations without verbatim restatements of the schema's; a changed one
+        or a clash of name is an error at its path; then the schema with them must check."""
+        existing = self.skeleton.get("relations") or {}
+        kept, errors = {}, []
+        for name, r in rels.items():
+            if name not in existing:
+                kept[name] = r
+            elif _normal(r, _RELATION) != _normal(existing[name], _RELATION):
+                errors.append(MlsError(f"$.relations.{name}", f"relation '{name}' is already in the schema "
+                                                              f"(kept as it is)",
+                                       "do not restate or change the schema's relations; give a new relation "
+                                       "another name, or leave it out"))
+        if errors:
+            return kept, errors
+        data = {**self.skeleton, "relations": {**existing, **kept}, "rules": [], "properties": []}
+        try:
+            check_spec(Spec.model_validate(data))
+        except ValidationError as e:
+            return kept, pydantic_errors_to_mls(e)
+        except SpecError as e:
+            return kept, e.errors
+        return kept, []
 
     # --- assemble and judge
     def _with_fixed(self, rules: list[dict]) -> tuple[list[dict], list[MlsError]]:
@@ -317,7 +385,7 @@ class Loop:
         rules, errors = self._with_fixed(rules)
         if errors:
             return None, errors
-        data = {**self.skeleton, "rules": rules, "properties": props}
+        data = {**self._schema_now(), "rules": rules, "properties": props}
         try:
             spec = Spec.model_validate(data)
         except ValidationError as e:
@@ -334,9 +402,22 @@ class Loop:
         return spec, errs
 
     def run(self, start_rules: list[dict] | None = None, start_properties: list[dict] | None = None) -> LoopResult:
-        """The loop; the result's rules are the model's followed by the fixed rules (#26)."""
+        """The loop; the result's rules are the model's followed by the fixed rules (#26), and its
+        relations the ones pass 0 added.  Pass 0 runs unless the run starts from given rules or
+        properties (they already name the relations they use)."""
+        if start_rules is None and start_properties is None:
+            try:
+                errors = self._relations()
+            except LlmError as e:
+                errors = [MlsError("$", str(e))]
+                return LoopResult("failed", None, [], [], self.rounds, errors=errors, steps=self.steps,
+                                  notes=self.notes, syntax=self.syntax)
+            if errors:
+                return LoopResult("invalid", None, [], [], self.rounds, errors=errors, steps=self.steps,
+                                  notes=self.notes, syntax=self.syntax)
         res = self._run(start_rules, start_properties)
         res.rules = self._with_fixed(res.rules)[0]
+        res.relations = self.added
         return res
 
     def _run(self, start_rules: list[dict] | None, start_properties: list[dict] | None) -> LoopResult:

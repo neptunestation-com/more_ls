@@ -33,6 +33,21 @@ triggers, grants).  You never write SQL.
 - {"is_null": term}, {"and": [...]}, {"or": [...]}, {"not": p}, {"lit": true|false}, {"opaque": name}
 - Negated member / in_group is not allowed in policies.  Context values are not allowed in checks.
 
+## Relations (part of the schema: "relations": {name: relation})
+- {"table": t, "key": k, "value": v}   the (k, v) pairs of table t (the user, the group they belong to);
+  k and v are different NOT NULL columns and together the primary key or a unique constraint of t
+- {"of": R, "through": [{"table": t1, "key": k1, "value": v1}, ...]}   composed: (u, x) when (u, y) is a
+  pair of the base relation R, a t1 row has k1 = y and v1 = x (and so on through each hop); 1 to 3
+  hops; each hop's key and value are different NOT NULL columns, the key has the type of the previous
+  value, the value is the primary key or a unique column of the hop table (a lookup, not a join).
+  E.g. the rooms of the floors of the buildings a user works in: {"of": "staff_of", "through":
+  [{"table": "floors", "key": "building_id", "value": "id"}, {"table": "rooms", "key": "floor_id", "value": "id"}]}
+- A composed relation is used in member (policies, goals, must_allow) and tenant_isolation only: not in
+  inclusion rules, invariants, hierarchies or monotone_in.
+- A policy on a relation's own table, or on a table a composed relation passes through, cannot read
+  that relation (Postgres refuses it as infinite recursion); a user's own rows of a membership table
+  are {"cmp": [{"col": "user_id"}, "=", {"ctx": "uid"}]}.
+
 ## Rules (every rule has a unique "id", a "name" (identifier), a "table" and may cite a "requirement")
 - policy: {"kind": "policy", "role", "command": select|insert|update|delete|all, "mode": permissive|restrictive,
   "using": p (rows the command may touch / read), "check": p (new rows it may write)}.
@@ -86,12 +101,26 @@ must be TRUE to hold, so guard nullable columns: an optional owner that must be 
 "description" of each property so a product owner can verify it against the requirements.  Put any
 doubt about the requirements in "notes".  Answer with JSON only, matching the output schema."""
 
+ROLE_RELATIONS = """You complete the SCHEMA of a database access-control spec, before anyone writes its rules
+or properties: you write the RELATIONS the business requirements need that the schema does not
+already have.  A relation names who belongs to what: a base relation is the (key, value) projection
+of one table (the user column, the group column); a composed relation follows a base relation
+through up to three tables, each by a key, to the rows a requirement reaches only indirectly (the
+rooms of the floors of the buildings a user works in).  Write a relation only where a requirement needs one and
+the schema has none that says the same; never restate, rename or change the schema's relations.
+Name each by what it means (staff_of, in_room).  Many schemas need none: then answer with no
+relations.  Do not write rules or properties.  Put any
+doubt about the requirements in "notes".  Answer with JSON only, matching the output schema."""
+
 ANSWER_TERSE = {
     "properties": "Answer with one `properties { ... }` section in the MLS terse syntax below (in a ```mls fence, "
                   "one property per line); any doubt about the requirements goes in prose outside the fence.  "
                   "Do not write rules.",
     "rules": "Answer with one `rules { ... }` section in the MLS terse syntax below (in a ```mls fence, one rule "
              "per line); any doubt about the requirements goes in prose outside the fence.",
+    "relations": "Answer with one `relations { ... }` section (in a ```mls fence, one `relation` line per "
+                 "relation, as in the schema; `relations { }` when none is needed); any doubt about the "
+                 "requirements goes in prose outside the fence.",
 }
 
 
@@ -99,7 +128,7 @@ def role_text(role: str, syntax: str) -> str:
     """The role paragraph for the syntax: JSON asks for JSON under the schema, terse for a section."""
     if syntax == "json":
         return role
-    key = "properties" if role is ROLE_PROPERTIES else "rules"
+    key = {ROLE_PROPERTIES: "properties", ROLE_RELATIONS: "relations"}.get(role, "rules")
     return (role.replace('{"or": [{"is_null": {"col": "owner_id"}}, {"member": ...}]}', "`owner_id is null or R(@uid, ...)`")
                 .replace('Put any\ndoubt about the requirements in "notes".  Answer with JSON only, matching the output schema.',
                          ANSWER_TERSE[key])

@@ -76,13 +76,55 @@ def portable_properties(reference: Spec) -> list[dict]:
     return out
 
 
+def align_relations(gen: Spec, reference: Spec) -> Spec:
+    """`gen` with every relation it defines as the reference defines one, under another name,
+    renamed to the reference's name (#28: the relations pass names what it adds, and a relation
+    is graded by what it is, not by its name).  Base relations first, so that a composed one
+    over a renamed base compares equal too."""
+    import json
+
+    def dump(r) -> dict:
+        return r.model_dump(by_alias=True, exclude_none=True)
+
+    ren: dict[str, str] = {}
+    by_def = {json.dumps(dump(r), sort_keys=True): n for n, r in reference.relations.items()}
+    for composed in (False, True):
+        for n, r in gen.relations.items():
+            d = dump(r)
+            if ("of" in d) != composed:
+                continue
+            if composed:
+                d["of"] = ren.get(d["of"], d["of"])
+            m = by_def.get(json.dumps(d, sort_keys=True))
+            if m is not None and m != n and m not in gen.relations:
+                ren[n] = m
+    if not ren:
+        return gen
+
+    def walk(x, key=None):
+        if isinstance(x, dict):
+            return {k: walk(v, k) for k, v in x.items()}
+        if isinstance(x, list):
+            return [ren.get(i, i) if key == "relations" and isinstance(i, str) else walk(i) for i in x]
+        if isinstance(x, str) and key in ("relation", "of", "members"):
+            return ren.get(x, x)
+        return x
+
+    data = dump(gen)
+    data["relations"] = {ren.get(n, n): walk(r) for n, r in data["relations"].items()}
+    for k in ("rules", "properties", "hierarchies", "opaques"):
+        if k in data:
+            data[k] = walk(data[k])
+    return check_spec(Spec.model_validate(data))
+
+
 def grade(case: dict, result: LoopResult, reference: Spec, timeout_ms: int = 20000) -> CaseGrade:
     exp = expected_status(case)
     g = CaseGrade(case["id"], exp, result.status, result.status == exp, result.spec is not None and not result.errors,
                   result.status == "proved", repair_rounds=result.repair_rounds, escalated=result.escalated)
     if result.spec is None or result.status in ("invalid", "failed"):
         return g
-    gen = result.spec
+    gen = align_relations(result.spec, reference)
     # the reference properties on the generated rules
     try:
         data = gen.model_dump(by_alias=True, exclude_none=True)

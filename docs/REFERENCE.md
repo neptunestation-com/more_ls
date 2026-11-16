@@ -1011,21 +1011,29 @@ The JSON Schema of the spec language (draft 2020-12, from the pydantic model).
 
 The LLM loop (GUIDE §12).  `REQUIREMENTS` is a text file or `-` for stdin; `SKELETON` is a
 spec or a spec without rules and properties (either syntax, by extension: the `.mls` that
-`mls import --policies discard --out spec.mls` writes is taken as it is).  The skeleton's own
-rules (an import's check and inclusion rules) are *fixed*: both passes are shown them,
+`mls import --policies discard --out spec.mls` writes is taken as it is).  Three passes: the
+*relations* pass adds the relations the requirements need that the skeleton lacks (a
+`relations { relation ... }` section of the spec's own `relation` lines, `relations { }` for none;
+JSON `{"relations": {name: relation}}`); a relation that takes a skeleton relation's name with
+another definition is an error at `$.relations.<name>` (a verbatim restatement is dropped), and the
+skeleton with the new relations must check, its errors going back to the relations pass within the
+repair budget (status `invalid` when they remain).  The *properties* and *rules* passes are then
+shown the skeleton with those relations, and neither sees the other's answer.  The skeleton's own
+rules (an import's check and inclusion rules) are *fixed*: the properties and rules passes are shown them,
 with the first free id `R<n>`; the result is the model's rules followed by the fixed ones (a
 verbatim restatement is not duplicated); a model rule that takes a fixed rule's id, or its name
 on the same table, is an error at the answer's path (`rule id 'R1' is taken by a rule the spec
 already has`, fix: number from `R<n>`), repaired like any other.  `--out` writes the spec as
 written (an `in` list stays one), not as the checker expands it.  Defaults: model
 `claude-opus-5-5`, effort `high`, 3 repairs, syntax `terse`.  With `terse`
-the passes answer with `rules { ... }` / `properties { ... }` sections: the prompt carries the
+the passes answer with `relations { ... }` / `properties { ... }` / `rules { ... }` sections: the prompt carries the
 grammar and three examples instead of the JSON Schema, the skeleton is shown in terse, and
 the checker's feedback names the line and column in the model's own text; `--syntax json`
 gives the passes the JSON Schema and has them answer in JSON.  Prints the status,
-the stages, the properties with their verdicts for approval, any errors, any escalations, and
+the stages, the relations the model added (`# Relations added to the schema (for approval)`, one
+sentence each), the properties with their verdicts for approval, any errors, any escalations, and
 the model's notes.  `--out` writes the spec (terse when the file name ends in `.mls`, else
-JSON).  Exit 0 when the status is `proved`, 1 otherwise.  Needs `ANTHROPIC_API_KEY` unless
+JSON), the added relations after the skeleton's.  Exit 0 when the status is `proved`, 1 otherwise.  Needs `ANTHROPIC_API_KEY` unless
 `MLS_LLM_SCRIPT` is set.
 
 ### `mls eval CASES... [--llm [--repair] [--syntax json|terse]] [--mutate DIR] [--model M] [--effort E] [--max-repairs N] [--transcripts DIR] [--json]`

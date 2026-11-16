@@ -1,8 +1,8 @@
 """The takeover of the user guide (docs/GUIDE.md §3) is replayed on the Supabase starter
 (`tests/brownfield/starter_schema.sql` with `starter_data.sql`) on the `supabase/postgres` image,
 as `postgres`: every command it shows runs and prints the lines it shows (`...` marks an
-elision; `mls generate` replays the example's rules and properties as the model's answer through
-`MLS_LLM_SCRIPT`, and must write the example), every spec line it quotes is a line of `examples/starter_takeover.mls`, the skeleton
+elision; `mls generate` replays the example's composed relation, rules and properties as the
+model's answers through `MLS_LLM_SCRIPT`, and must write the example), every spec line it quotes is a line of `examples/starter_takeover.mls`, the skeleton
 the import writes is that example without the lines the guide adds, and every note it quotes
 is one the import prints.  Between the confirmation and the rollback the differential test runs
 on the deployed database (the schema's own foreign keys respected, `pg/catalog.py:foreign_keys`);
@@ -129,12 +129,14 @@ def _requirements(text: str) -> str:
 
 
 def _answer(tmp_path) -> str:
-    """The model's answer `mls generate` replays: the example's properties, then its rules without
-    the two the import read (the loop appends those)."""
+    """The model's answers `mls generate` replays: the composed relation the import could not
+    read, the example's properties, then its rules without the two the import read (the loop
+    appends those)."""
     spec = load_spec(EXAMPLE)
     rules = [r for r in spec.rules if r.id not in ("R1", "R2")]
     script = tmp_path / "answer.json"
-    script.write_text(json.dumps([section("properties", spec.properties), section("rules", rules)]))
+    script.write_text(json.dumps([section("relations", {"in_project": spec.relations["in_project"]}),
+                                  section("properties", spec.properties), section("rules", rules)]))
     return str(script)
 
 
@@ -176,7 +178,7 @@ def test_the_takeover_replays_on_the_starter(supabase, project, tmp_path):
 
     def discard_imported(out: str) -> None:
         # the notes the guide quotes are the import's, and the skeleton is the example without
-        # the lines step 6 adds; then the reader adds the relation and writes the requirements
+        # the lines step 6 writes; then the reader writes the requirements
         for fragment in _fragments(text):
             if fragment[0].startswith("note:"):
                 shown(fragment, out, "the notes of the discard import")
@@ -186,13 +188,11 @@ def test_the_takeover_replays_on_the_starter(supabase, project, tmp_path):
                  and not line.strip().startswith(("R1 ", "R2 "))]
         assert [l for l in skeleton if not l.startswith("comment ")] == [
             l for l in example if l not in added and not l.startswith("comment ")]
-        relation = next(l for l in example if l.startswith("relation in_project"))
-        at = skeleton.index(next(l for l in skeleton if l.startswith("relation team_members"))) + 1
-        (tmp_path / "spec.mls").write_text("\n".join(skeleton[:at] + [relation] + skeleton[at:]) + "\n")
         (tmp_path / "requirements.txt").write_text(_requirements(text))
 
     def generated() -> None:
-        # what generate wrote is the example: the model's rules, then the two imported ones
+        # what generate wrote is the example: the relation after the imported one, the model's
+        # rules, then the two imported ones
         got, want = load_spec(tmp_path / "spec.mls"), load_spec(EXAMPLE)
         assert [r.id for r in got.rules] == [f"R{i}" for i in range(3, 14)] + ["R1", "R2"]
         key = lambda r: int(r.id[1:])  # noqa: E731

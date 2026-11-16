@@ -6,14 +6,29 @@ measured run.
 
 ## The loop, step by step
 
-1. **Pass 1 — properties.** The model gets the language reference, the fixed skeleton (identity,
+0. **Pass 0 — relations** (#28).  The model gets the language reference, the skeleton (identity,
    roles, tables, relations, hierarchies, opaques; the spec's `$comment` is an author's note and is
-   not shown) and the output contract, then the requirements.  The contract is the grammar of a
+   not shown) and the contract of a `relations { relation ... }` section (or the schema of
+   `{"relations": {name: relation}, "notes": ""}`), then the requirements, and answers with the
+   relations the requirements need that the skeleton lacks, usually none.  A verbatim restatement
+   of a skeleton relation is dropped; the same name with another definition is an error at
+   `$.relations.<name>`; then the skeleton with the new relations goes through `check_spec`, so a
+   hop through a column that is not a key is refused at its `through[i].value` with the fix.
+   Errors go back to pass 0 within the repair budget; if they remain the loop ends `invalid`
+   before pass 1.  The new relations join the skeleton both following passes are shown, after the
+   skeleton's own, and `--out` writes them there.  Pass 0 is skipped when the loop starts from
+   given rules or properties (the repair benchmark): they already name their relations.  The
+   reason it exists: an import reads a membership table as a relation but not a path through
+   keys, and on the Supabase starter the requirement about tasks needs `team_members . projects`
+   (GUIDE §3).
+1. **Pass 1 — properties.** The model gets the language reference, the skeleton (with pass 0's
+   relations) and the output contract, then the requirements.  The contract is the grammar of a
    `properties { ... }` section and three examples (the default, terse syntax; below) or, with
    `--syntax json`, the JSON Schema of `{"properties": [...], "notes": ""}`.  It answers with properties and their plain-English
    descriptions: the approval artifact.
 2. **Pass 2 — rules.** Same material, the contract of the rules (a `rules { ... }` section, or the
-   schema of `{"rules": [...], "notes": ""}`), the same requirements; it never sees pass 1.
+   schema of `{"rules": [...], "notes": ""}`), the same requirements; it never sees pass 1 (both
+   see pass 0's relations: they are vocabulary, not an answer to grade against).
 3. **Check.** Skeleton + rules + properties are validated (pydantic), checked (`mls check`:
    types, fragment, relation shapes) and the compiler's soundness obligations are run.  Every error
    carries a JSON path and a fix; errors under `$.properties` go back to pass 1, the rest to pass 2.
@@ -33,7 +48,7 @@ the system prompt and is cached; requirements and feedback follow.
 ## Fixed rules
 
 A skeleton may already have rules: `mls import --policies discard` writes the
-CHECKs and FK-shaped inclusions it read.  Both passes are shown them after the schema, under
+CHECKs and FK-shaped inclusions it read.  Passes 1 and 2 are shown them after the schema, under
 *Rules the spec already has (read from the database)*, as JSON or as a terse `rules { ... }`
 section, with the instruction not to restate or reuse them and the first free id (`number your
 rules from R3`).  Step 3 checks the model's rules followed by the fixed ones it did not restate
@@ -93,7 +108,11 @@ The default model is `claude-opus-5-5` with effort `high`; server-side refusal f
 ```
 
 `skeleton` (optional) overrides the schema given to the passes (default: the reference spec
-without rules and properties).  `expected_loop.status` defaults to `proved`: requirements are
+without rules and properties).  `withheld_relations` (optional, #28) names reference relations
+the skeleton leaves out, for pass 0 to write; a repair benchmark keeps them (it skips pass 0).
+The grader matches a generated relation to the reference's by definition, not by name
+(`llm/grade.py:align_relations`: base relations first, then composed ones over the renamed
+bases), so `team_of` for the reference's `member_of` is not a difference.  `expected_loop.status` defaults to `proved`: requirements are
 self-consistent, and what the reference properties say about the generated rules — REFUTED
 included — is `expected_verdicts`.  Synthetic cases carry `origin: "synthetic"`, `base_case`,
 `mutation`, the base reference inline, `start_rules` (the mutant rules) and `mutant_verdicts`;
@@ -122,6 +141,18 @@ membership relation in a policy on the membership table, which Postgres refuses 
 ("infinite recursion detected in policy", FINDINGS) and the checker now refuses, so the case had
 no valid reference.  The corpus is now 35 seed cases and 218 mutants; the figures of the runs
 below are those of the corpus at the time.
+
+On 2026-11-15 (#28) family F12 added three seed cases whose skeleton lacks the reference's
+relations, for pass 0: `pj_no_relation` (`pj_good` without its base relation) and `tt_good` /
+`tt_comments_public` (teams, projects, tasks, comments: a base relation and two composed ones,
+none in the skeleton; in the second every signed-in user reads every comment, so the reference's
+comment isolation is REFUTED on the generated rules).  The corpus is now 38 seed cases and 229
+mutants (mutation score 75 %, 229 of 306).  `tt_*` has two undetected mutants by design:
+dropping the projects or the tasks read policy changes nothing, because the composed relations'
+hop-visibility policies (D56) already let a member read the projects and tasks of their teams.
+Writing the first refuted property over a composed relation also found a bug: the counterexample
+renderer read a composed relation as a table's (key, value) pair and crashed; it now lists the
+base relation's pairs, the hop rows being listed already (`props/scenario.py`).
 
 ## Measured (`claude-opus-5-5`, effort high, max 3 repairs)
 

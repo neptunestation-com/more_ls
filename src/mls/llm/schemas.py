@@ -1,4 +1,4 @@
-"""JSON Schemas of the two pass outputs, derived from the pydantic spec model (D15), so the
+"""JSON Schemas of the pass outputs, derived from the pydantic spec model (D15), so the
 answers can be decoded under the schema and validated locally with the same model."""
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
-from mls.spec.model import Property, Rule, Spec
+from mls.spec.model import AnyRelation, Property, Rule, Spec
 
 SKELETON_KEYS = ("$comment", "mls_version", "identity", "roles", "tables", "relations", "hierarchies", "opaques")
 
@@ -26,6 +26,11 @@ def properties_schema() -> dict:
 def rules_schema() -> dict:
     """{"rules": [Rule, ...], "notes": str}."""
     return _wrap(TypeAdapter(list[Rule]).json_schema(), "rules", {"notes": {"type": "string"}})
+
+
+def relations_schema() -> dict:
+    """{"relations": {name: relation}, "notes": str} (#28)."""
+    return _wrap(TypeAdapter(dict[str, AnyRelation]).json_schema(), "relations", {"notes": {"type": "string"}})
 
 
 def skeleton_of(spec: Spec | dict) -> dict:

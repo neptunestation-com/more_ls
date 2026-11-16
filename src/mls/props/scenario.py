@@ -8,7 +8,7 @@ from mls.logic.solve import Model
 from mls.logic.term import Sort
 from mls.logic.tvl import has_parent_fun, hop_exists_fun, hop_key_fun, parent_fun, rel_fun
 from mls.props.obligations import Obligation
-from mls.spec.model import CONTEXT_NOW, MAX_HOPS, Spec
+from mls.spec.model import CONTEXT_NOW, MAX_HOPS, ComposedRelation, Spec
 
 
 @dataclass
@@ -111,7 +111,15 @@ def render_scenario(spec: Spec, ob: Obligation, model: Model) -> Scenario:
         vt = spec.tables[table].columns[value].type
         sc.hops[f"{table}({key}, {value})"] = [[_render(spec, kt, b, consts, now), _render(spec, vt, a, consts, now)]
                                                for b, a in sorted(pairs)]
+    # a composed relation (D56) is its base relation's pairs and the hop rows listed above: list
+    # the base relation in its place
+    listed: list[tuple[str, str | None]] = []
     for rname, tag in ob.relations:
+        rel = spec.relations[rname]
+        base = (rel.of, tag) if isinstance(rel, ComposedRelation) else (rname, tag)
+        if base not in listed:
+            listed.append(base)
+    for rname, tag in listed:
         rel = spec.relations[rname]
         kt = spec.tables[rel.table].columns[rel.key].type
         vt = spec.tables[rel.table].columns[rel.value].type

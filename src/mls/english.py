@@ -265,6 +265,15 @@ def composed_line(spec: Spec, name: str) -> str:
     return f"{steps}: a user's {name} are {phrase} whose {hops[-1].key} is among that user's {r.of}."
 
 
+def relation_line(spec: Spec, name: str) -> str:
+    """Any relation in one sentence: who belongs to what, read from which table(s)."""
+    r = spec.relations[name]
+    if isinstance(r, ComposedRelation):
+        return composed_line(spec, name)
+    return (f"{r.table} ({r.key} → {r.value}): a user's {name} are the {r.value} of every {r.table} row "
+            f"whose {r.key} is that user.")
+
+
 def spec_summary(spec: Spec) -> str:
     lines = ["# What the rules say", ""]
     seen: set[str] = set()

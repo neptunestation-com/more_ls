@@ -465,7 +465,8 @@ def cmd_generate(a) -> int:
             if is_terse(a.skeleton) else json.loads(Path(a.skeleton).read_text()))
     skeleton = skeleton_of(data)
     client = client_from_env(a.model, a.effort)
-    # the skeleton's own rules (an import's CHECKs and inclusions) are kept as they are (#26)
+    # the skeleton's own rules (an import's CHECKs and inclusions) are kept as they are (#26);
+    # the relations the model adds to the skeleton are written after its own (#28)
     result = generate(requirements, skeleton, client, a.max_repairs, syntax=a.syntax,
                       fixed_rules=data.get("rules") or [])
     if a.transcript:
@@ -482,7 +483,8 @@ def cmd_generate(a) -> int:
         from mls.terse import render
 
         try:  # as written (`in` lists kept), not as the checker expanded it
-            out = Spec.model_validate({**skeleton, "rules": result.rules, "properties": result.properties})
+            out = Spec.model_validate({**skeleton, "relations": {**(skeleton.get("relations") or {}), **result.relations},
+                                       "rules": result.rules, "properties": result.properties})
         except ValidationError:
             out = result.spec
         Path(a.out).write_text(render(out) if is_terse(a.out) else spec_to_json(out))
@@ -492,6 +494,10 @@ def cmd_generate(a) -> int:
     print(f"status: {result.status} after {result.repair_rounds} repair round(s)")
     for st in result.steps:
         print(f"  {st.stage}: {st.detail}")
+    if result.spec is not None and result.relations:
+        print("\n# Relations added to the schema (for approval)")
+        for n in result.relations:
+            print(f"- {n}: {english.relation_line(result.spec, n)}")
     if result.spec is not None:
         print("\n# Properties (for approval)")
         for p in result.spec.properties:

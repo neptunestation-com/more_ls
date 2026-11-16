@@ -109,6 +109,10 @@ def run_llm_case(path: Path, client, max_repairs: int = 3, timeout_ms: int = 200
     ref = reference_spec(case, path)
     ref = check_spec(ref)
     skeleton = case.get("skeleton") or skeleton_of(ref)
+    if case.get("withheld_relations") and not repair_from_reference:  # for the relations pass to write (#28);
+        # a repair benchmark starts from rules that name them, and skips that pass
+        skeleton = {**skeleton, "relations": {n: r for n, r in (skeleton.get("relations") or {}).items()
+                                              if n not in case["withheld_relations"]}}
     start_rules = None
     if repair_from_reference:
         start_rules = case.get("start_rules") or [r.model_dump(by_alias=True, exclude_none=True) for r in ref.rules]

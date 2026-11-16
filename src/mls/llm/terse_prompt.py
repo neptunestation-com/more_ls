@@ -28,6 +28,20 @@ triggers, grants).  You never write SQL.
 - Negated R(...) / in_group is not allowed in policies.  Context values are not allowed in checks.
 - A name that is a keyword (check, select, ...) or not an identifier is written "quoted".
 
+## Relations: one `relation` line each, part of the schema
+- relation R = t(k, v)                the (k, v) pairs of table t (the user, the group they belong
+  to); k and v are different NOT NULL columns and together the primary key or a unique constraint
+- relation C = R . t1(k1, v1) . t2(k2, v2)   composed: (u, x) when (u, y) is a pair of the base
+  relation R, a t1 row has k1 = y and v1 = x (and so on through each hop); 1 to 3 hops; each hop's
+  key and value are different NOT NULL columns, the key has the type of the previous value, the
+  value is the primary key or a unique column of the hop table (a lookup, not a join).  E.g. the
+  rooms of the floors of the buildings a user works in: relation in_room = staff_of . floors(building_id, id) . rooms(floor_id, id)
+- A composed relation is used as C(@c, v) in policies, goals, must_allow and tenant_isolation only:
+  not in inclusion rules, invariants, hierarchies or monotone_in.
+- A policy on a relation's own table, or on a table a composed relation passes through, cannot read
+  that relation (Postgres refuses it as infinite recursion); a user's own rows of a membership table
+  are `user_id = @uid`.
+
 ## Rules: one per line inside `rules { }`, `ID kind name on table: body requirement 'REQ'`
 - R1 policy name on t: role command mode using p check p
   command select|insert|update|delete|all, mode permissive|restrictive.  Permissive policies of a
@@ -71,6 +85,9 @@ the key and value columns of R's table (the membership lookup runs as the user),
 
 GRAMMAR = """
 rules      := 'rules' '{' rule* '}'          properties := 'properties' '{' property* '}'
+relations  := 'relations' '{' relation* '}'
+relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
+            | 'relation' NAME '=' RELATION ('.' TABLE '(' KEY ',' VALUE ')')+      (composed, 1 to 3 hops)
 rule       := ID KIND [NAME] 'on' TABLE ':' body ['requirement' STRING]
 body       := ROLE COMMAND MODE ['using' pred] ['check' pred]      (policy)
             | pred                                                 (check, transition)

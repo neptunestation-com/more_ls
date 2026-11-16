@@ -34,8 +34,8 @@ through the whole lifecycle:
   constraint would reject; the live catalog against what the spec deploys.
 - **`explain`**, **`status`**, **`lint`**: the rules and properties in plain English (the approval
   artifact); proved / refuted / opaque per table; dead, redundant and slow rules.
-- **`generate`**: an LLM writes the rules and properties from requirement sentences and repairs
-  them against the prover until they hold.
+- **`generate`**: an LLM writes the rules and properties from requirement sentences, and any
+  relation the schema lacks, and repairs them against the prover until they hold.
 
 The intended workflow: an LLM writes the spec from business requirements, and a human approves
 the *properties* and the *scenarios* in plain English. Nobody has to read MLS or DDL to approve a
@@ -155,8 +155,8 @@ starter; the test suite replays it on Supabase's own image.
 uv run mls generate requirements.txt --skeleton spec.mls --out generated.mls
 ```
 
-Two passes (properties from the requirements, then rules that satisfy them), each answer checked
-and proved locally, with bounded repair driven by the prover's counterexamples and the lint's
+Three passes (the relations the schema lacks, then properties from the requirements, then rules
+that satisfy them), each answer checked and proved locally, with bounded repair driven by the prover's counterexamples and the lint's
 findings; what does not converge is escalated to a human. With `claude-opus-5-5`, 32 of 35 seed
 cases ended proved and equivalent to their reference, and 218 of 221 mutated specs were repaired.
 The seed requirement texts were written by the author of the loop, so a corpus of real ones is the

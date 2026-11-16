@@ -1,0 +1,34 @@
+{
+ "id": "pj_no_relation",
+ "origin": "seed",
+ "requirements": "Projects have members (project_members). Members see the tasks of their projects and may add tasks to them. A task may be assigned to a user, who must be a member of the task's project; only the assignee may update a task (including handing it to another member or unassigning it), and it stays in a project the updating assignee belongs to. Nobody deletes tasks.",
+ "expected_properties": [
+  "Tasks are only seen, added and changed by members of their project.",
+  "Only the assignee updates a task.",
+  "Leaving a project never grants access.",
+  "An assignee is always a member of the task's project.",
+  "Whatever is written can be read back.",
+  "The application role may only select/insert/update tasks and select project_members.",
+  "A member can read the tasks of their projects.",
+  "A member can add an unassigned task to their project.",
+  "An assignee can mark their task done."
+ ],
+ "reference_spec": "specs/pj_no_relation.mls.json",
+ "expected_verdicts": {
+  "P1": "PROVED",
+  "P2": "PROVED",
+  "P3": "PROVED",
+  "P4": "PROVED",
+  "P5": "PROVED",
+  "P6": "PROVED",
+  "P7": "PROVED",
+  "P8": "PROVED",
+  "P9": "PROVED"
+ },
+ "expected_loop": {
+  "status": "proved"
+ },
+ "withheld_relations": [
+  "member_of"
+ ]
+}

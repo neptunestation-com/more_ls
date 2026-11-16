@@ -358,8 +358,11 @@ def render(spec: Spec) -> str:
 
 
 def section(key: str, items) -> str:
-    """One `rules { ... }` or `properties { ... }` section from model objects (what the LLM loop
-    quotes back as the previous answer when it has no text of the model's own)."""
+    """One `rules { ... }`, `properties { ... }` or `relations { ... }` section from model objects
+    (what the LLM loop quotes back as the previous answer when it has no text of the model's
+    own); `items` is a dict of relations for `relations`."""
+    if key == "relations":
+        return "\n".join(["relations {"] + [f"  {relation(n, r)}" for n, r in items.items()] + ["}"])
     fn = rule if key == "rules" else prop
     return "\n".join([f"{key} {{"] + [f"  {fn(x)}" for x in items] + ["}"])
 

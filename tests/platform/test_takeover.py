@@ -128,6 +128,7 @@ def test_import_cli_with_observe_and_generate_from_the_skeleton(starter, tmp_pat
     assert "fix: add --policies discard" in capsys.readouterr().err
     script = tmp_path / "script.json"
     script.write_text(json.dumps([
+        "relations { }",
         "properties {\n  P1 must_allow projects authenticated select: team_members(@uid, team_id) "
         "description 'a member reads the projects of their teams'\n}",
         "rules {\n  R3 policy member_read on projects: authenticated select permissive "
