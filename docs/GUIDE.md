@@ -311,7 +311,7 @@ And the properties, one upper bound per table and a lower bound per grant (`must
 
 Or let the LLM loop write them: `uv run mls generate requirements.txt --skeleton spec.mls --out
 spec.mls` proposes properties for you to approve, then rules, and repairs them until the
-properties are proved (`docs/LLM.md`).  The two imported CHECKs are kept as they are: both
+properties are proved (section 12).  The two imported CHECKs are kept as they are: both
 passes are shown them as rules the spec already has, the model numbers its own rules from R3,
 and the result is its rules followed by R1 and R2.
 
@@ -1561,7 +1561,8 @@ spec in the syntax its extension names (`spec.mls` for terse).  The loop:
    properties;
 3. checks the spec; every error goes back to the pass that owns that JSON path;
 4. proves the properties; every refuted one goes back to the rules pass as its English
-   statement, the failing obligation and the counterexample scenario in English;
+   statement, the failing obligation and the counterexample scenario in English, with the lint's
+   findings on the rules as hints (a rule set that proves is never sent back for a finding);
 5. stops after `--max-repairs` rounds (default 3) with status `proved`, `invalid` (still does not
    check) or `escalated` (a property is still refuted and the model stands by its rules: a human
    decides whether the rule or the property is wrong).
@@ -1574,6 +1575,11 @@ The output ends with the properties for approval, each with its verdict:
     - P1 (PROVED): <the property's description, as the model wrote it>
     - P2 (PROVED): ...
 
+A skeleton may already have rules: the one `mls import --policies discard` writes carries the
+CHECKs it read (section 3, step 6).  The model is shown them as rules the spec already has, numbers
+its own rules after them, and the result is its rules followed by those; a rule of its own that
+takes one of their ids or names is sent back for repair.
+
 Approve the sentences.  If one is wrong, the requirements were ambiguous or wrong; fix the text
 and rerun rather than editing the spec.  The transcript (`--transcript`) records every prompt
 and answer, the generated spec in terse form, and the model's notes, which usually name the
@@ -1585,9 +1591,16 @@ text.  `--syntax json` gives it the JSON Schema instead.  Both were measured on 
 and scored the same or better in terse, at a third fewer tokens, which is why terse is the
 default.
 
-The eval corpus (`evals/cases`) and `mls eval` measure the loop; `docs/design/EVALS.md` explains
-the case format, the metrics and the measured numbers.  Tests never call the API: setting
-`MLS_LLM_SCRIPT` to a JSON file of answers replays them.
+The default model is `claude-opus-5-5` with effort `high` (`--model`, `--effort`).  Setting
+`MLS_LLM_SCRIPT` to a JSON file of answers replays them instead of calling the API; the tests work
+that way.
+
+How well it works: on the eval corpus (`evals/cases`, measured with `mls eval --llm`), 32 of 35
+seed cases end proved and equivalent in effect to their reference, and 218 of 221 deliberately
+broken rule sets are repaired, after about one repair round.  Those requirement texts were written
+by the loop's author, so they say as much about the phrasing as about the model; a corpus of real
+ones is the open question.  `docs/design/LLM.md` has the loop's internals, the corpus, the metrics
+and every measured run.
 
 ## 13. Performance
 
@@ -1668,11 +1681,10 @@ These are decisions, not gaps; `docs/design/DECISIONS.md` has the reasoning.
   exit code and error format.
 - `docs/SEMANTICS.md`: the meaning of every construct, the source of truth for the prover, the
   evaluator and the compiler.
-- `docs/LLM.md`: how the generation loop works and how to run it.
 - `docs/design/`, for contributors: `DECISIONS.md` (the settled design decisions, numbered, with
   what was rejected and why), `FINDINGS.md` (what the experiments on real Postgres established:
   performance tiers, leakproofness, NULL and UPDATE semantics, what the live LLM runs found),
-  `EVALS.md` (the eval corpus and the measured results of the LLM loop) and `BACKGROUND.md` (what
+  `LLM.md` (the LLM loop's internals, eval corpus and measured results) and `BACKGROUND.md` (what
   `pg_more_ls`, the project MLS grew out of, established: the undecidability result that
   motivates the fragment and the survey of authorization languages).
 - `lean/`: the Lean 4 formalization of the logic, the policy combination, the normalization and

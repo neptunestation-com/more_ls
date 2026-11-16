@@ -816,7 +816,7 @@ case("st_files_forgotten",
 # st_self_grant (a selector by column that also governed memberships, so members could grant
 # themselves memberships) was retired on 2026-11-13: its reference reads member_of in policies on
 # memberships, which Postgres refuses ('infinite recursion detected in policy') and the checker
-# now refuses too, so the case has no valid reference (docs/design/EVALS.md).
+# now refuses too, so the case has no valid reference (docs/design/LLM.md).
 
 
 # ----------------------------------------------------------------------------- write and verify

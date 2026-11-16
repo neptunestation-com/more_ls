@@ -21,9 +21,9 @@ Read before writing code, in this order:
 The milestones that built all of this are in `docs/design/archive/ROADMAP.md` (archived; every one is implemented).
 
 `docs/` is for users: `docs/GUIDE.md` (user guide; §3 is the takeover, step by step),
-`docs/REFERENCE.md` (language and CLI reference), `docs/SEMANTICS.md` and `docs/LLM.md`.
-`docs/design/` is for contributors: DECISIONS, FINDINGS, EVALS (the LLM loop's corpus and
-measured runs), BACKGROUND and `archive/`. The user docs state the current behaviour without its
+`docs/REFERENCE.md` (language and CLI reference) and `docs/SEMANTICS.md`.
+`docs/design/` is for contributors: DECISIONS, FINDINGS, LLM (the LLM loop's internals,
+corpus and measured runs), BACKGROUND and `archive/`. The user docs state the current behaviour without its
 history (invariant 8); the reasoning goes in DECISIONS. When you add or change a construct, a property template, a CLI flag, an exit
 code or a generated object name, update them in the same change. A construct lives in both
 syntaxes (D50): give it its terse form in `terse.py` and its parse in `spec/syntax.py`
@@ -120,7 +120,7 @@ union member the renderer does not cover.
 - Implementation defaults decided during M1 are D21–D27, during M2 D28–D33, during M3 D34–D36,
   after M4 D40–D44, during M5 (brownfield) D45–D49, syntax D50, M6 (takeover) D51–D56, in `docs/design/DECISIONS.md`.  D42: row-dependent column visibility is normalization
   (the column is its own table with its own policies); there is no masking construct.
-- M4: `uv run mls generate` / `mls eval --llm` (src/mls/llm, docs/LLM.md; the evals in docs/design/EVALS.md; D37–D39). Tests never call the
+- M4: `uv run mls generate` / `mls eval --llm` (src/mls/llm; GUIDE §12 for users, docs/design/LLM.md for the internals and the evals; D37–D39). Tests never call the
   API: `MLS_LLM_SCRIPT=<json>` or `ScriptedClient` replays answers. `evals/make_cases.py` regenerates
   the seed corpus (the solver must confirm every intended verdict); `mls eval evals/cases --mutate
   evals/cases/synthetic` regenerates the mutants. Keep both committed and in sync (tests check).
@@ -138,7 +138,7 @@ union member the renderer does not cover.
   section read by `syntax.parse_section` (`loop._terse_answer` finds it in a fence or prose),
   repair quotes the model's own text with line:col feedback; the grader sees the JSON shape.
   Terse is the default (`loop.DEFAULT_SYNTAX`, D50 as amended after the 2026-11-05 corpus run
-  in docs/design/EVALS.md); tests that script JSON answers pass `syntax="json"` / `--syntax json`.
+  in docs/design/LLM.md); tests that script JSON answers pass `syntax="json"` / `--syntax json`.
 - M3: hierarchies and cardinality limits compile to SECURITY DEFINER helpers owned by `mls_internal`
   (compile/internal.py, hierarchy.py, cardinality.py). The parent-row lock is only testable with
   parallel writers (`tests/templates/test_cardinality.py`); `-m cvc5` cross-checks the org_tree

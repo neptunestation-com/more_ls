@@ -846,7 +846,7 @@ A finding whose question relied on an opaque block ends with `(conditional on op
 The last line is `N warning(s), M finding(s)`.  `--json` prints `{"warnings": [{"table",
 "column", "type", "operators", "message"}], "findings": [{"kind", "table", "message", "rules",
 "conditional_on"}]}`.  Exit 0 whatever is found; 1 only if the spec does not check.  The LLM
-loop quotes the findings as hints in its repair prompt (`docs/LLM.md`).
+loop quotes the findings as hints in its repair prompt (GUIDE §12).
 
 ### `mls diff OLD NEW [--format md|json] [--out FILE] [--timeout SECONDS]`
 
@@ -1009,7 +1009,7 @@ The JSON Schema of the spec language (draft 2020-12, from the pydantic model).
 
 ### `mls generate REQUIREMENTS --skeleton SKELETON [--out FILE] [--syntax json|terse] [--model M] [--effort E] [--max-repairs N] [--transcript FILE] [--json]`
 
-The LLM loop (`docs/LLM.md`).  `REQUIREMENTS` is a text file or `-` for stdin; `SKELETON` is a
+The LLM loop (GUIDE §12).  `REQUIREMENTS` is a text file or `-` for stdin; `SKELETON` is a
 spec or a spec without rules and properties (either syntax, by extension: the `.mls` that
 `mls import --policies discard --out spec.mls` writes is taken as it is).  The skeleton's own
 rules (an import's check and inclusion rules) are *fixed*: both passes are shown them,
@@ -1033,7 +1033,7 @@ JSON).  Exit 0 when the status is `proved`, 1 otherwise.  Needs `ANTHROPIC_API_K
 Over the eval corpus (`evals/cases`, case files or directories).  Without flags: proves every
 case's reference spec and checks the expected verdicts (`ok: <id> — <n> properties as
 expected`).  `--llm`: runs the loop on every generation case and grades the result against the
-reference (metrics in `docs/design/EVALS.md`; the summary also says the syntax and totals the API
+reference (metrics in `docs/design/LLM.md`; the summary also says the syntax and totals the API
 calls and tokens); `--repair` starts from each synthetic case's mutated rules; `--syntax` as
 for `generate`.  `--mutate DIR`: writes solver-graded mutants of the cases to `DIR` and prints
 the mutation score.  Exit 1 if any case fails.

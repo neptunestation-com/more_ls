@@ -21,7 +21,7 @@ from mls.spec.check import pydantic_errors_to_mls
 from mls.spec.model import Property, Rule, Spec
 from mls.spec.syntax import Source, parse_section
 
-DEFAULT_SYNTAX = "terse"  # D50 as amended 2026-11-05: the corpus run (docs/design/EVALS.md) made terse the default
+DEFAULT_SYNTAX = "terse"  # D50 as amended 2026-11-05: the corpus run (docs/design/LLM.md) made terse the default
 
 
 @dataclass
