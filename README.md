@@ -128,13 +128,15 @@ a table is refuted. Every command reads `.mls` or `.mls.json` by extension; `mls
 
 The common case is a Supabase or plain Postgres project in production, with tables and data that
 stay where they are and policies that were written by hand and never proved. The takeover keeps
-the schema and lets MLS own the policies:
+the schema and lets MLS own the policies, and an LLM does the writing: you state the
+requirements and approve what it proved.
 
 ```bash
 uv run mls import --dsn "$DATABASE_URL" --out before.mls                       # today's behaviour, to compare and roll back to
 uv run mls import --dsn "$DATABASE_URL" --policies discard --out spec.mls      # the skeleton: tables, keys, CHECKs, no policies
-# write the rules and properties (by hand, from the guide's recipes, or: mls generate req.txt --skeleton spec.mls)
-uv run mls prove spec.mls                                                      # until every property holds
+uv run mls explain before.mls                                                  # today's policies in English: a draft of the requirements
+uv run mls generate requirements.txt --skeleton spec.mls --out spec.mls        # the LLM writes rules and properties; approve its sentences
+uv run mls prove spec.mls                                                      # every property holds
 uv run mls diff before.mls spec.mls                                            # every change in effect, with an example
 uv run mls preflight spec.mls --dsn "$DATABASE_URL"                            # rows the new constraints would reject
 uv run mls compile spec.mls --out deploy.sql

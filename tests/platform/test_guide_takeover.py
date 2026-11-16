@@ -1,13 +1,15 @@
 """The takeover of the user guide (docs/GUIDE.md §3) is replayed on the Supabase starter
 (`tests/brownfield/starter_schema.sql` with `starter_data.sql`) on the `supabase/postgres` image,
 as `postgres`: every command it shows runs and prints the lines it shows (`...` marks an
-elision), every spec line it quotes is a line of `examples/starter_takeover.mls`, the skeleton
+elision; `mls generate` replays the example's rules and properties as the model's answer through
+`MLS_LLM_SCRIPT`, and must write the example), every spec line it quotes is a line of `examples/starter_takeover.mls`, the skeleton
 the import writes is that example without the lines the guide adds, and every note it quotes
 is one the import prints.  Between the confirmation and the rollback the differential test runs
 on the deployed database (the schema's own foreign keys respected, `pg/catalog.py:foreign_keys`);
 after the rollback, the deploy runs again and drift is clean."""
 from __future__ import annotations
 
+import json
 import os
 import shlex
 import subprocess
@@ -20,7 +22,8 @@ from mls.compile import compile_spec
 from mls.pg.catalog import foreign_keys
 from mls.pg.harness import Harness, run_differential
 from mls.props.effective import simple_fks
-from mls.spec import load_checked
+from mls.spec import load_checked, load_spec
+from mls.terse import section
 from tests.conftest import ROOT
 from tests.test_guide import blocks, shown, split
 
@@ -32,7 +35,7 @@ ROLLBACK = "### Step 13: rollback"
 
 # (the command's first words, its exit code), in the order the guide shows them
 EXPECTED = [("pg_dump", 0), ("uv run mls import", 0), ("uv run mls import", 0), ("psql", 0), ("psql", 0),
-            ("uv run mls prove", 0), ("uv run mls diff", 2), ("uv run mls drift", 1),
+            ("uv run mls explain", 0), ("uv run mls generate", 0), ("uv run mls prove", 0), ("uv run mls diff", 2), ("uv run mls drift", 1),
             ("uv run mls preflight", 0), ("uv run mls compile", 0), ("psql", 0), ("uv run mls drift", 0),
             ("uv run mls status", 0),
             ("uv run mls compile", 0), ("psql", 0), ("psql", 0), ("uv run mls drift", 0)]
@@ -74,14 +77,15 @@ class Shell:
     solver's counterexamples depend on what the process solved before), `psql -c` and `psql -f`
     over psycopg with the notices printed as psql prints them, `pg_dump` in the container."""
 
-    def __init__(self, supabase, dsn: str, cwd):
-        self.supabase, self.dsn, self.cwd = supabase, dsn, cwd
+    def __init__(self, supabase, dsn: str, cwd, env: dict[str, str] | None = None):
+        self.supabase, self.dsn, self.cwd, self.env = supabase, dsn, cwd, env or {}
 
     def run(self, command: str) -> tuple[int, str]:
         args = [self.dsn if a == "$DATABASE_URL" else a for a in shlex.split(command)]
         if args[:3] == ["uv", "run", "mls"]:
             r = subprocess.run([sys.executable, "-c", "import sys; from mls.cli import main; sys.exit(main(sys.argv[1:]))",
-                                *args[3:]], capture_output=True, text=True, cwd=self.cwd)
+                                *args[3:]], capture_output=True, text=True, cwd=self.cwd,
+                               env={**os.environ, **self.env})
             return r.returncode, r.stdout + r.stderr
         if args[0] == "psql":
             assert args[1] == self.dsn, command
@@ -117,6 +121,23 @@ def _policies(dsn: str) -> set[tuple[str, str]]:
         return set(conn.execute("select tablename, policyname from pg_policies where schemaname = 'public'").fetchall())
 
 
+def _requirements(text: str) -> str:
+    """The sentences step 5 writes to requirements.txt."""
+    step5 = text[text.index("### Step 5:"):text.index("### Step 6:")] + "(end of step 5)"  # closes its last block
+    [sentences] = [f for f in _fragments(step5) if f[0].startswith("Anyone")]
+    return "\n".join(sentences) + "\n"
+
+
+def _answer(tmp_path) -> str:
+    """The model's answer `mls generate` replays: the example's properties, then its rules without
+    the two the import read (the loop appends those)."""
+    spec = load_spec(EXAMPLE)
+    rules = [r for r in spec.rules if r.id not in ("R1", "R2")]
+    script = tmp_path / "answer.json"
+    script.write_text(json.dumps([section("properties", spec.properties), section("rules", rules)]))
+    return str(script)
+
+
 def test_the_example_is_the_skeleton_with_the_guide_lines():
     """No Docker: every spec line the guide quotes is in the example, and the example is what the
     guide says: the skeleton with the composed relation, the rules R3-R13 and the properties."""
@@ -134,7 +155,7 @@ def test_the_example_is_the_skeleton_with_the_guide_lines():
 @pytest.mark.supabase
 def test_the_takeover_replays_on_the_starter(supabase, project, tmp_path):
     text = takeover()
-    shell = Shell(supabase, project, tmp_path)
+    shell = Shell(supabase, project, tmp_path, env={"MLS_LLM_SCRIPT": _answer(tmp_path)})
     before, after = _commands(text[:text.index(ROLLBACK)]), _commands(text[text.index(ROLLBACK):])
     assert [(c.split()[0] if c.startswith(("psql", "pg_dump")) else " ".join(c.split()[:4])) for c, _ in before + after] == [
         e for e, _ in EXPECTED]
@@ -150,10 +171,12 @@ def test_the_takeover_replays_on_the_starter(supabase, project, tmp_path):
             outputs.append((command, out))
             if "--policies discard" in command:
                 discard_imported(out)
+            if " generate " in command:
+                generated()
 
     def discard_imported(out: str) -> None:
         # the notes the guide quotes are the import's, and the skeleton is the example without
-        # the lines step 6 adds; from step 6 on, spec.mls is the example
+        # the lines step 6 adds; then the reader adds the relation and writes the requirements
         for fragment in _fragments(text):
             if fragment[0].startswith("note:"):
                 shown(fragment, out, "the notes of the discard import")
@@ -163,7 +186,18 @@ def test_the_takeover_replays_on_the_starter(supabase, project, tmp_path):
                  and not line.strip().startswith(("R1 ", "R2 "))]
         assert [l for l in skeleton if not l.startswith("comment ")] == [
             l for l in example if l not in added and not l.startswith("comment ")]
-        (tmp_path / "spec.mls").write_text(EXAMPLE.read_text())
+        relation = next(l for l in example if l.startswith("relation in_project"))
+        at = skeleton.index(next(l for l in skeleton if l.startswith("relation team_members"))) + 1
+        (tmp_path / "spec.mls").write_text("\n".join(skeleton[:at] + [relation] + skeleton[at:]) + "\n")
+        (tmp_path / "requirements.txt").write_text(_requirements(text))
+
+    def generated() -> None:
+        # what generate wrote is the example: the model's rules, then the two imported ones
+        got, want = load_spec(tmp_path / "spec.mls"), load_spec(EXAMPLE)
+        assert [r.id for r in got.rules] == [f"R{i}" for i in range(3, 14)] + ["R1", "R2"]
+        key = lambda r: int(r.id[1:])  # noqa: E731
+        assert got.model_copy(update={"comment": None, "rules": sorted(got.rules, key=key)}) == \
+            want.model_copy(update={"comment": None})
 
     replay(before)
     assert (tmp_path / "before.mls").exists() and (tmp_path / "deploy.sql").exists()

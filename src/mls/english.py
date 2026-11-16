@@ -109,6 +109,18 @@ def rule(spec: Spec, r: Rule) -> str:
     raise TypeError(r)
 
 
+def _always(p) -> bool:
+    return isinstance(p, Lit) and p.lit
+
+
+def _a(word: str) -> str:
+    return f"an {word}" if word[:1].lower() in "aeiou" else f"a {word}"
+
+
+def _or(words: list[str]) -> str:
+    return words[0] if len(words) == 1 else f"{', '.join(words[:-1])} or {words[-1]}"
+
+
 def policy(spec: Spec, p: PolicyRule) -> str:
     verb = VERB[p.command]
     if p.mode == "restrictive":
@@ -118,7 +130,8 @@ def policy(spec: Spec, p: PolicyRule) -> str:
         return s + "."
     if p.command == "insert":
         return f"{p.role} may insert a row into {p.table} where {pred(spec, p.check, 'the new row')}."
-    s = f"{p.role} may {verb} rows of {p.table} where {pred(spec, p.using)}"
+    s = (f"{p.role} may {verb} every row of {p.table}" if _always(p.using)
+         else f"{p.role} may {verb} rows of {p.table} where {pred(spec, p.using)}")
     if p.command in ("update", "all"):
         chk = p.check if p.check is not None else p.using
         s += f", provided the new row satisfies: {pred(spec, chk, 'the new row')}"
@@ -127,8 +140,8 @@ def policy(spec: Spec, p: PolicyRule) -> str:
 
 def prop(spec: Spec, p: Property) -> str:
     if isinstance(p, TenantIsolation):
-        cmds = ", ".join(VERB[c] for c in p.commands)
-        return (f"Any row of {p.table} a user can {cmds} has a {p.column} among "
+        cmds = _or([VERB[c] for c in p.commands])
+        return (f"Any row of {p.table} a user can {cmds} has {_a(p.column)} among "
                 f"{term(spec, p.key)}'s {p.relation}.")
     if isinstance(p, ColumnImmutable):
         return f"No permitted change to a row of {p.table} alters its {p.column}."
@@ -162,6 +175,8 @@ def prop(spec: Spec, p: Property) -> str:
         if p.command == "update":
             return f"{p.role} can change a row of {p.table} whenever {pred(spec, p.when, 'the new row')}."
         img = "the new row" if p.command == "insert" else "the row"
+        if _always(p.when):
+            return f"{p.role} can {VERB[p.command]} every row of {p.table}."
         return f"{p.role} can {VERB[p.command]} every row of {p.table} where {pred(spec, p.when, img)}."
     raise TypeError(p)
 

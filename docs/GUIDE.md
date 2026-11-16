@@ -166,7 +166,7 @@ The steps:
 3. Import the skeleton
 4. Review the notes, and close the bypass paths
 5. Write the requirements
-6. Write the rules and the properties
+6. Let the LLM write the rules and the properties
 7. Prove
 8. Compare with what the old policies allowed
 9. See what the deploy will drop
@@ -257,8 +257,24 @@ does not cover.
 
 ### Step 5: write the requirements
 
-In plain sentences, one per grant, each saying who, which rows and what they may do.  These
-are what a reviewer approves, and what `mls generate` turns into rules:
+The requirements are the part only you can write: they say what the business wants, and every
+later step checks the spec against them.  Start from what the old policies allow, in English:
+
+    $ uv run mls explain before.mls
+    # What the rules say
+
+    - **R1**: anon may read every row of profiles.
+    - **R2**: authenticated may read every row of profiles.
+    - **R3**: anon may update rows of profiles where the row's id is the current user, provided the new row satisfies: the new row's id is the current user.
+    - **R4**: authenticated may update rows of profiles where the row's id is the current user, provided the new row satisfies: the new row's id is the current user.
+    - **R5**: Every row of tasks satisfies: the row's status is 'todo' or the row's status is 'doing' or the row's status is 'done'.
+    ...
+
+Keep what is right, fix what is wrong, add what is missing.  Here the two reads of `profiles`
+stay.  R3 is the old update policy, written `to public` so it also named `anon`; an anonymous
+caller has no user id, so it goes.  The rest is new: today `teams`, `projects` and `tasks` are
+closed to app roles, and `team_members` is open to all.  Write one sentence per grant, each
+saying who, which rows and what they may do, in `requirements.txt`:
 
     Anyone, signed in or not, can read every profile.
     A signed-in user creates their own profile and edits only their own profile.
@@ -266,17 +282,46 @@ are what a reviewer approves, and what `mls generate` turns into rules:
     A member of a team reads the team's projects and creates projects in the team.
     A member reads, creates and edits the tasks of their team's projects.
 
-The first two keep what the old `profiles` policies allowed.  The rest are new: today
-`teams`, `projects` and `tasks` are closed to app roles, and `team_members` is open to all.
+### Step 6: let the LLM write the rules and the properties
 
-### Step 6: write the rules and the properties
-
-A task has no `team_id`: it reaches its team through its project.  A composed relation states
-that path, `team_members` then `projects` through its key `id`:
+One thing the model does not write is a relation, so add the one this schema needs.  A task has
+no `team_id`: it reaches its team through its project.  A composed relation states that path,
+`team_members` then `projects` through its key `id`; add it to `spec.mls` under the relation the
+import wrote:
 
     relation in_project = team_members . projects(team_id, id)
 
-Then the rules, after the two imported CHECKs:
+Then, with `ANTHROPIC_API_KEY` set (section 12):
+
+    $ uv run mls generate requirements.txt --skeleton spec.mls --out spec.mls
+    status: proved after 0 repair round(s)
+    ...
+    # Properties (for approval)
+    - P1 (PROVED): Any row of projects a user can read or insert has a team_id among the current user's team_members.
+    - P2 (PROVED): Any row of tasks a user can read, insert or update has a project_id among the current user's in_project.
+    - P3 (PROVED): authenticated can read every row of projects where the row's team_id is among the current user's team_members.
+    - P4 (PROVED): authenticated can read every row of tasks where the row's project_id is among the current user's in_project.
+    - P5 (PROVED): anon can read every row of profiles.
+    - P6 (PROVED): Whenever authenticated can update a row of profiles, the row's id is the current user.
+    - P7 (PROVED): Any row of teams a user can read has an id among the current user's team_members.
+    - P8 (PROVED): Any row of team_members a user can read has a team_id among the current user's team_members.
+    - P9 (PROVED): Whatever a user can insert into or update in tasks, that user can also read.
+
+The model wrote the properties from the requirements, then, separately, rules that satisfy them,
+and MLS proved them.  The list is what you approve.  Each sentence is rendered from the property
+itself, not from the model's own description of it, so it says exactly what was proved.  Read it
+against the requirements: an upper bound per table (what a user can never see), a lower bound per
+grant (what a member must be able to do).  If a sentence is wrong or missing, the requirement was
+ambiguous: fix the sentence in `requirements.txt` and run `mls generate` again, rather than
+editing the spec.  The two imported CHECKs are kept as they are: the model numbers its own rules
+from R3, and `spec.mls` ends with R1 and R2 after them.
+
+Your run will word and number things its own way; what is shown here is one answer, which the
+test suite replays.  You do not need to read the rules it wrote: step 7 proves them and step 8
+shows what they change for whom.
+
+**Doing it by hand.**  To write the spec yourself, or to see what the model wrote for this
+example, these are the rules, after the two imported CHECKs:
 
     R3 policy profiles_public on profiles: anon select permissive using true
     R4 policy profiles_signed_in on profiles: authenticated select permissive using true
@@ -307,13 +352,8 @@ And the properties, one upper bound per table and a lower bound per grant (`must
     P8 tenant_isolation team_members: team_id in team_members(@uid) for select description 'a user only sees memberships of their own teams'
     P9 write_subset_read tasks description 'a member can read back every task they create or edit'
 
-`examples/starter_takeover.mls` is `spec.mls` with these lines added.
-
-Or let the LLM loop write them: `uv run mls generate requirements.txt --skeleton spec.mls --out
-spec.mls` proposes properties for you to approve, then rules, and repairs them until the
-properties are proved (section 12).  The two imported CHECKs are kept as they are: both
-passes are shown them as rules the spec already has, the model numbers its own rules from R3,
-and the result is its rules followed by R1 and R2.
+`examples/starter_takeover.mls` is `spec.mls` with these lines added.  Section 4 builds a spec by
+hand one requirement at a time.
 
 ### Step 7: prove
 
@@ -854,7 +894,7 @@ properties below answer it).
 Every property carries a `description` in plain English; that sentence is the approval artifact.
 `mls explain` (without `--terse`) renders each rule and property as a sentence too:
 
-    - **P1**: Any row of docs a user can read, insert, update has a tenant_id among the current user's member_of.
+    - **P1**: Any row of docs a user can read, insert or update has a tenant_id among the current user's member_of.
     - **P5**: Whatever a user can insert into or update in docs, that user can also read.
     - **P7**: authenticated can read every row of docs where the row's tenant_id is among the
       current user's member_of and the row's level is at most the user's clearance and (not the
@@ -1546,7 +1586,10 @@ migrations, on every Postgres version.
 
 ## 12. Writing specs with an LLM
 
-`mls generate` turns business requirements and a skeleton into a checked and proved spec:
+`mls generate` turns business requirements and a skeleton into a checked and proved spec.
+Section 3, step 6 is a worked example on an imported schema, the usual case; this section is how
+the loop works and what to do with its answer.
+
 
     export ANTHROPIC_API_KEY=...
     uv run mls generate requirements.txt --skeleton skeleton.json --out spec.mls.json --transcript t.json
@@ -1555,8 +1598,8 @@ The skeleton is a spec without rules and properties (identity, roles, tables, re
 hierarchies, opaques), in either syntax.  The requirements are plain prose.  `--out` writes the
 spec in the syntax its extension names (`spec.mls` for terse).  The loop:
 
-1. asks the model for the *properties* and their plain-English descriptions (the approval
-   artifact), from the requirements;
+1. asks the model for the *properties* and their plain-English descriptions, from the
+   requirements;
 2. separately asks it for the *rules*, from the same requirements, without showing it the
    properties;
 3. checks the spec; every error goes back to the pass that owns that JSON path;
@@ -1572,8 +1615,12 @@ The output ends with the properties for approval, each with its verdict:
     status: proved after 0 repair round(s)
 
     # Properties (for approval)
-    - P1 (PROVED): <the property's description, as the model wrote it>
+    - P1 (PROVED): Any row of projects a user can read or insert has a team_id among the current user's team_members.
     - P2 (PROVED): ...
+
+Each sentence is rendered from the property itself, the way `mls explain` renders it, not taken
+from the model's description, so what you approve is exactly what was proved.  The model's
+descriptions stay in the spec and the transcript.
 
 A skeleton may already have rules: the one `mls import --policies discard` writes carries the
 CHECKs it read (section 3, step 6).  The model is shown them as rules the spec already has, numbers
