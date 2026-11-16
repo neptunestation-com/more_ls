@@ -1,7 +1,8 @@
 # MLS semantics (v1)
 
-This is the reference meaning of every construct. The SMT encoding, the concrete evaluator used in
-differential tests, and every compiler template must agree with it.
+This document defines what every construct means. The SMT encoding, the concrete evaluator used in
+differential tests, and every compiler template must agree with it; `docs/REFERENCE.md` describes
+how to write them.
 
 ## 1. Values and logic
 
