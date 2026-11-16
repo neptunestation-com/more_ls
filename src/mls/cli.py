@@ -515,12 +515,12 @@ def main(argv: list[str] | None = None) -> int:
 
     p = sub.add_parser("check", help="validate, typecheck and fragment-check a spec")
     p.add_argument("spec")
-    p.add_argument("--dsn", help="also verify the adopted tables against this database's catalog (D45)")
+    p.add_argument("--dsn", help="also verify the adopted tables against this database's catalog")
     p.add_argument("--schema", default="public")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_check)
 
-    p = sub.add_parser("fmt", help="convert a spec between the JSON and the terse syntax (D50); the other syntax "
+    p = sub.add_parser("fmt", help="convert a spec between the JSON and the terse syntax; the other syntax "
                                    "by default, `--to terse` on a .mls file formats it")
     p.add_argument("spec")
     p.add_argument("--to", choices=["json", "terse"])
@@ -610,13 +610,13 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_status)
 
     p = sub.add_parser("import", help="write a spec from a live schema: tables adopted, policies lifted into the "
-                                      "fragment where the lifter reads them, opaque otherwise (D45, D46)")
+                                      "fragment where the lifter reads them, opaque otherwise")
     p.add_argument("--dsn", required=True)
     p.add_argument("--schema", default="public")
     p.add_argument("--role", action="append", help="app role (repeatable); default: the roles the policies and grants name")
     p.add_argument("--policies", choices=["keep", "discard"], default="keep",
                    help="keep: lift the existing policies (default); discard: a skeleton for a takeover, every "
-                        "table adopted, no policy imported (each listed in the notes) (D52)")
+                        "table adopted, no policy imported (each listed in the notes)")
     p.add_argument("--observe", action="append", metavar="T1,T2",
                    help="with --policies discard: tables to leave observed (repeatable, comma-separated)")
     p.add_argument("--out", help="write the spec here (default: stdout); the notes go to stderr")
@@ -632,12 +632,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--effort", default="high")
     p.add_argument("--max-repairs", type=int, default=3)
     p.add_argument("--syntax", choices=["json", "terse"], default="terse",
-                   help="with --llm: what the passes answer in (D50; terse: the prompt carries the grammar, json: the JSON Schema)")
+                   help="with --llm: what the passes answer in (terse: the prompt carries the grammar, json: the JSON Schema)")
     p.add_argument("--transcripts", metavar="DIR", help="with --llm: write one transcript per case")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_eval)
 
-    p = sub.add_parser("generate", help="write a spec from requirements with the LLM loop (D16)")
+    p = sub.add_parser("generate", help="write a spec from requirements with the LLM loop")
     p.add_argument("requirements", help="text file of business requirements, or - for stdin")
     p.add_argument("--skeleton", required=True, help="spec (or skeleton) JSON giving identity, roles, tables, relations")
     p.add_argument("--out", help="write the generated spec here (.mls for the terse syntax, else JSON)")
@@ -645,7 +645,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--effort", default="high")
     p.add_argument("--max-repairs", type=int, default=3)
     p.add_argument("--syntax", choices=["json", "terse"], default="terse",
-                   help="what the passes answer in (D50; terse: the prompt carries the grammar, json: the JSON Schema)")
+                   help="what the passes answer in (terse: the prompt carries the grammar, json: the JSON Schema)")
     p.add_argument("--transcript", help="write the full prompt/answer transcript here")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_generate)

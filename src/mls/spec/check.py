@@ -541,7 +541,7 @@ class Checker:
                 key = ("owner", a.owner)
                 if a.owner not in self.spec.roles:
                     self.err(f"{apath}.owner", f"'{a.owner}' is not an app role of this spec; only an app-role "
-                                               f"owner needs an assumption (any other owner is trusted by D13 already)",
+                                               f"owner needs an assumption (any other owner is a trusted role already)",
                              f"one of: {', '.join(self.spec.roles)}; or remove the assumption")
             elif isinstance(a, BypassAssumed):
                 key = ("bypassrls", a.bypassrls)
@@ -758,7 +758,7 @@ class Checker:
         for i, r in enumerate(self.spec.rules):
             path = self.rule_paths[i]
             if r.id in ids:
-                self.err(path + ".id", f"duplicate rule id '{r.id}'" + (" (an expansion of a selector rule, D48)"
+                self.err(path + ".id", f"duplicate rule id '{r.id}'" + (" (an expansion of a selector rule)"
                                                                         if r.from_ is not None else ""))
             ids.add(r.id)
             if r.name is not None and not IDENT.match(r.name):
@@ -827,7 +827,7 @@ class Checker:
         parent = self.spec.tables.get(r.parent)
         if parent is None:
             self.err(path + ".parent", f"unknown table '{r.parent}'",
-                     "the parent table whose row is locked while counting (D4)")
+                     "the parent table whose row is locked while counting")
             return
         if r.parent == r.table:
             self.err(path + ".parent", "the parent table must be a different table")

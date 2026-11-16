@@ -215,7 +215,7 @@ def test_user_function_is_never_inlined():
     assert r.pred == {"or": [{"cmp": [{"col": "level"}, "<", {"const": 1}]}, {"opaque": "op1"}]}
     assert sink.blocks["op1"]["sql"] == "is_member(tenant_id, auth.uid())"
     assert sink.blocks["op1"]["columns"] == ["tenant_id"] and sink.blocks["op1"]["context"] == ["uid"]
-    assert "never inlined" in r.reasons[0] and "D34" in r.reasons[0]
+    assert "never inlined" in r.reasons[0]
     # the whole expression unreadable: one block, the policy's text
     r, sink = do("is_member(tenant_id, auth.uid())")
     assert r.kind == "opaque" and r.pred == {"opaque": "op1"} and sink.blocks["op1"]["sql"].startswith("is_member")

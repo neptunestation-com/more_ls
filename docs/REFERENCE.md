@@ -906,7 +906,7 @@ A property *mentions* the tables it names (`table`, an invariant's rules); `leas
 mentions every governed table and `monotone_in` every table an obligation of it ranges over.
 With `--dsn` a governed table's bypass paths (§5) follow its line: `; bypassed by <path>, ...`
 for the ones the table does not assume, `; trusted path <path>, ...` for the assumed ones.
-The last line is a count per status, then `; <n> bypassed (D54: see mls drift)` when a table
+The last line is a count per status, then `; <n> bypassed (see mls drift)` when a table
 has an unassumed path.  `--json` prints `{"ok", "tables": [{"table", "status", "detail",
 "opaques", "properties", "bypass", "trusted"}]}`.  Exit 2 when a table is `refuted` or, with
 `--dsn`, a governed table is missing, has RLS disabled or has an unassumed bypass path;

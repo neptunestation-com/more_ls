@@ -211,6 +211,6 @@ EXAMPLES = (EXAMPLE_1, EXAMPLE_2, EXAMPLE_3)
 
 def terse_output_reference() -> str:
     """The output contract of a terse pass: the grammar and the three examples."""
-    return "\n\n".join(["# Output syntax (MLS terse, D50)\n" + GRAMMAR,
+    return "\n\n".join(["# Output syntax (MLS terse)\n" + GRAMMAR,
                         "# Three complete examples (schema and the two sections together)"]
                        + [f"```mls\n{e.rstrip()}\n```" for e in EXAMPLES])

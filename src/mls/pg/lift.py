@@ -920,10 +920,10 @@ class Lifter:
                 raise Unreadable(f"the nested subquery reads {t}, which is observed (not governed)")
             if frozenset((v,)) not in self.env.keys.get(t, []):
                 raise Unreadable(f"the nested subquery selects {t}.{v}, which is not the primary key or a unique "
-                                 f"column of {t}: the step is a join, not a lookup (D56)")
+                                 f"column of {t}: the step is a join, not a lookup")
             if self.env.tables[t][k][1] or self.env.tables[t][v][1]:
                 raise Unreadable(f"the nested subquery steps through {t}({k}, {v}), and a hop's columns must be "
-                                 f"NOT NULL (D56)")
+                                 f"NOT NULL")
         of = self.make_relation(rel_table, key_col, val_col)
         if of is None:
             raise Unreadable(f"no relation ({key_col}, {val_col}) of {rel_table} can be declared")
@@ -1086,8 +1086,8 @@ class Lifter:
         return isinstance(node, Str) and node.value == ""
 
     def func_reason(self, node: Func) -> str:
-        return (f"calls {node.name}(), a function the lifter does not read: user functions are never inlined "
-                f"(D34), whatever their body")
+        return (f"calls {node.name}(), a function the lifter does not read: user functions are never inlined, "
+                f"whatever their body")
 
     # --- source text
     @property

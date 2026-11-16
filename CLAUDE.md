@@ -24,8 +24,7 @@ The milestones that built all of this are in `docs/design/archive/ROADMAP.md` (a
 `docs/REFERENCE.md` (language and CLI reference), `docs/SEMANTICS.md` and `docs/LLM.md`.
 `docs/design/` is for contributors: DECISIONS, FINDINGS, EVALS (the LLM loop's corpus and
 measured runs), BACKGROUND and `archive/`. The user docs state the current behaviour without its
-history: no decision or issue numbers and no "amended"; the reasoning goes in DECISIONS, which may
-cite them. When you add or change a construct, a property template, a CLI flag, an exit
+history (invariant 8); the reasoning goes in DECISIONS. When you add or change a construct, a property template, a CLI flag, an exit
 code or a generated object name, update them in the same change. A construct lives in both
 syntaxes (D50): give it its terse form in `terse.py` and its parse in `spec/syntax.py`
 in the same change; `tests/test_terse.py` fails the fast suite when the model has a field or a
@@ -49,6 +48,11 @@ union member the renderer does not cover.
    without a declared bound (e.g. hierarchy depth).
 7. **Error messages are written for an LLM to act on**: what is wrong, where (JSON path), and the
    allowed alternative.
+8. **Development artefacts never reach users.**  Decision numbers (D45), issue numbers (#27),
+   milestones and amendments are for contributors: they may appear in comments, docstrings, commit
+   messages and `docs/design/`, never in anything the tool prints (output, errors, CLI help,
+   generated SQL, the LLM's prompts) or in the user docs.  Say what the decision means instead.
+   `tests/test_no_dev_artefacts.py` enforces it in the fast suite.
 
 ## Stack and conventions
 

@@ -158,7 +158,7 @@ and proved locally, with bounded repair driven by the prover's counterexamples a
 findings; what does not converge is escalated to a human. With `claude-opus-5-5`, 32 of 35 seed
 cases ended proved and equivalent to their reference, and 218 of 221 mutated specs were repaired.
 The seed requirement texts were written by the author of the loop, so a corpus of real ones is the
-open question ([#1](https://github.com/neptunestation-com/more_ls/issues/1)).
+open question: [contributions welcome](https://github.com/neptunestation-com/more_ls/issues/1).
 [`docs/LLM.md`](docs/LLM.md) explains the loop; [`docs/design/EVALS.md`](docs/design/EVALS.md) the
 corpus and the grading.
 

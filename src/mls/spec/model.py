@@ -361,7 +361,7 @@ class RuleBase(Strict):
     @model_validator(mode="after")
     def _table_or_selector(self) -> "RuleBase":
         if self.table is None and self.applies_to is None:
-            raise ValueError("a rule needs \"table\" (one table) or \"applies_to\" (a selector, D48)")
+            raise ValueError("a rule needs \"table\" (one table) or \"applies_to\" (a selector)")
         if self.table is not None and self.applies_to is not None and self.from_ is None:
             raise ValueError("\"table\" and \"applies_to\" are exclusive (only an expanded rule, which carries "
                              "\"from\", has both)")

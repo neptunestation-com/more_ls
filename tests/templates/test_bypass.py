@@ -124,7 +124,7 @@ def test_status_fails_on_an_unassumed_path_and_import_lists_them(bypassed, tmp_p
     out = capsys.readouterr().out
     assert ("docs: proved (P1, P2, P3, P4, P5, P6, P7, P8, P9, P10); bypassed by view doc_counts, view doc_titles, "
             "view outer_titles, function count_docs()") in out, out
-    assert out.strip().endswith("status: 3 proved; 1 bypassed (D54: see mls drift)")
+    assert out.strip().endswith("status: 3 proved; 1 bypassed (see mls drift)")
     notes = import_schema(h.conn).notes
     assert {n.split(" reaches")[0] for n in notes if n.startswith("bypass path: ")} == {
         f"bypass path: {p}" for p in FOUND}

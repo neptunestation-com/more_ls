@@ -161,5 +161,5 @@ def to_text(statuses: list[TableStatus]) -> str:
     summary = ", ".join(f"{n} {k}" for k, n in counts.items() if n)
     bypassed = sum(1 for s in statuses if s.bypass)
     if bypassed:
-        summary += f"; {bypassed} bypassed (D54: see mls drift)"
+        summary += f"; {bypassed} bypassed (see mls drift)"
     return "\n".join([str(s) for s in statuses] + [f"status: {summary}"])
