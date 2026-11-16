@@ -23,7 +23,9 @@ The milestones that built all of this are in `docs/design/archive/ROADMAP.md` (a
 `docs/` is for users: `docs/GUIDE.md` (user guide), `docs/TAKEOVER.md` (the runbook),
 `docs/REFERENCE.md` (language and CLI reference), `docs/SEMANTICS.md` and `docs/LLM.md`.
 `docs/design/` is for contributors: DECISIONS, FINDINGS, EVALS (the LLM loop's corpus and
-measured runs), BACKGROUND and `archive/`. When you add or change a construct, a property template, a CLI flag, an exit
+measured runs), BACKGROUND and `archive/`. The user docs state the current behaviour without its
+history: no decision or issue numbers and no "amended"; the reasoning goes in DECISIONS, which may
+cite them. When you add or change a construct, a property template, a CLI flag, an exit
 code or a generated object name, update them in the same change. A construct lives in both
 syntaxes (D50): give it its terse form in `terse.py` and its parse in `spec/syntax.py`
 in the same change; `tests/test_terse.py` fails the fast suite when the model has a field or a

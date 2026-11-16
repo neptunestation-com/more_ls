@@ -1,4 +1,4 @@
-# The LLM loop (Milestone 4, D16/D37–D39)
+# Writing specs with an LLM
 
 `mls generate` turns business requirements into a checked, proved spec; `mls eval --llm` measures
 how well it does that on the corpus in `evals/cases`.
@@ -10,7 +10,7 @@ how well it does that on the corpus in `evals/cases`.
    not shown) and the output contract, then the requirements.  The contract is the grammar of a
    `properties { ... }` section and three examples (the default, terse syntax; below) or, with
    `--syntax json`, the JSON Schema of `{"properties": [...], "notes": ""}`.  It answers with properties and their plain-English
-   descriptions: the approval artifact (D10).
+   descriptions: the approval artifact.
 2. **Pass 2 — rules.** Same material, the contract of the rules (a `rules { ... }` section, or the
    schema of `{"rules": [...], "notes": ""}`), the same requirements; it never sees pass 1.
 3. **Check.** Skeleton + rules + properties are validated (pydantic), checked (`mls check`:
@@ -18,7 +18,7 @@ how well it does that on the corpus in `evals/cases`.
    carries a JSON path and a fix; errors under `$.properties` go back to pass 1, the rest to pass 2.
 4. **Prove.** `run_all`.  Each refuted property goes back to the rules pass as its English
    statement, the failing obligation and the counterexample scenario in English, followed by the
-   lint findings of the rule set (D49: subsumed, redundant or contradictory policies, dead column
+   lint findings of the rule set (subsumed, redundant or contradictory policies, dead column
    rules) under a *Hints* heading, hygiene the model may act on, never a violation; a rule set
    that proves is never sent back for a finding.
 5. **Repair budget.** `--max-repairs N` bounds the total number of repair requests (structural,
@@ -26,7 +26,7 @@ how well it does that on the corpus in `evals/cases`.
    properties are still refuted (each with its scenario and the rules pass's notes, for a human to
    decide whether the rules or the property is wrong), otherwise `proved`.
 
-Fixed rules (#26).  A skeleton may already have rules: `mls import --policies discard` writes the
+Fixed rules.  A skeleton may already have rules: `mls import --policies discard` writes the
 CHECKs and FK-shaped inclusions it read.  Both passes are shown them after the schema, under
 *Rules the spec already has (read from the database)*, as JSON or as a terse `rules { ... }`
 section, with the instruction not to restate or reuse them and the first free id (`number your
@@ -38,7 +38,7 @@ fixed rules (a case's skeleton is its reference without the rules), so the corpu
 Prompts: `src/mls/llm/prompts.py`.  The stable part (role, language reference, skeleton, schema) is
 the system prompt and is cached; requirements and feedback follow.
 
-## The syntax flag (D50)
+## The syntax flag
 
 `--syntax json|terse` on `mls generate` and `mls eval --llm` chooses what the passes answer in.
 With `terse` the system prompt carries the language reference in terse notation, the grammar and
@@ -47,16 +47,15 @@ table with the corpus) instead of the JSON Schema; the skeleton is shown in ters
 one `rules { ... }` or `properties { ... }` section, read with the same tolerance as JSON (a
 fenced block, else the first section at a line start with balanced braces, else the whole text;
 the prose outside it is the notes).  Repair requests quote the section as the model wrote it
-and every checker error names the line and column in it and the offending line (#15), so a
+and every checker error names the line and column in it and the offending line, so a
 syntax error reads `at $.rules[0] (2:111: R1 policy ...): expected a term ..., found '='`.
-Counterexample feedback is unchanged: English and scenarios (D10, D37).  The grader sees the
+Counterexample feedback is unchanged: English and scenarios.  The grader sees the
 same JSON shape either way; transcripts keep `spec_terse` either way; `--out x.mls` writes the
-terse spec.  The default is `terse` since the corpus run of 2026-11-05 (below; D50 as amended):
-the same rates as JSON on the seed corpus, better on the repair benchmark, a third fewer output
-tokens.
+terse spec.  The default is `terse`: on the eval corpus it scores as well as JSON or better, at a
+third fewer output tokens (`docs/design/EVALS.md`).
 
 Decoding is not constrained by the schema: the API's structured outputs reject recursive schemas
-(the predicate grammar is one) and a free-form envelope forces nested values to scalars (D37).  The
+(the predicate grammar is one) and a free-form envelope forces nested values to scalars.  The
 answer is parsed tolerantly (bare JSON, a ```json``` fence, or the first JSON object in prose) and
 validated locally; an unusable answer keeps the previous one in the next repair request.  When the
 rules pass returns its rules unchanged after a counterexample, the loop stops and escalates: the
@@ -77,5 +76,5 @@ The default model is `claude-opus-5-5` with effort `high`; server-side refusal f
 Measured with `claude-opus-5-5` on the eval corpus (2026-11-05, terse syntax): 32 of 35 seed cases
 end proved and equivalent in effect to their reference, and 218 of 221 repair benchmarks (the loop
 starting from deliberately broken rules) are repaired, after about one repair round.  The corpus's
-requirement texts were written by the loop's author, so a corpus of real ones is the open question
-(issue #1).  `docs/design/EVALS.md` has the corpus, the metrics and every measured run.
+requirement texts were written by the loop's author, so a corpus of real ones is the open
+question.  `docs/design/EVALS.md` has the corpus, the metrics and every measured run.

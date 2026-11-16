@@ -1046,10 +1046,9 @@ pooler sets the role per request with `SET ROLE`.
 **`session_setting`.**  `app.<name>` is a session setting read with
 `current_setting('app.<name>', true)` and cast to the declared type.  A setting that is
 absent or empty is NULL, so every comparison with it is UNKNOWN and the row is denied: no
-context set, denied.  MLS rejected this as an identity source at first (D1), because any client
-with a direct connection can `SET` it; that is still true, so the adapter states its trust
-assumption in every proof report, `explain` and diff: clients cannot execute `SET` on `app.*`;
-the setting is established by a trusted path (a pooler, a `SET LOCAL` inside a `SECURITY
+context set, denied.  Any client with a direct connection can `SET` it, so the adapter states
+its trust assumption in every proof report, `explain` and diff: clients cannot execute `SET`
+on `app.*`; the setting is established by a trusted path (a pooler, a `SET LOCAL` inside a `SECURITY
 DEFINER` entry point, or the application's connection layer) that no untrusted client reaches.
 `mls drift` checks the two ways that path leaks into the database: an app role that may execute
 a function whose body sets `app.*`, and an `ALTER ROLE ... SET app.*` default on an app role.
@@ -1170,7 +1169,7 @@ The policies are not the only way into a table.  A view runs as its owner unless
 `security_invoker`, and the owner of an adopted table is usually the role that created the
 view, which the policies do not bind; a `SECURITY DEFINER` function runs as its owner too.
 Supabase's starter has one of each, a `project_overview` view and an `is_team_member` helper,
-and `mls import`, `mls drift` and `mls status --dsn` all list them as bypass paths (D54):
+and `mls import`, `mls drift` and `mls status --dsn` all list them as bypass paths:
 
     hardening: view project_overview reaches table projects without its policies: it runs as its
       owner (it is not security_invoker), and anon, authenticated may use it (fix: alter view
@@ -1383,8 +1382,8 @@ These are decisions, not gaps; `docs/design/DECISIONS.md` has the reasoning.
   create (section 10.1), but it never silently applies to an adopted table a hardening it would
   have to assume: an app-role owner or unforced row-level security is stated in the spec and
   repeated in every report, or it is drift.  A hand-written policy is lifted into the fragment
-  when the lifter reads it (D46) and adopted as an opaque block otherwise; a function of yours
-  in a policy is never inlined, however short its body (D34).
+  when the lifter reads it and adopted as an opaque block otherwise; a function of yours
+  in a policy is never inlined, however short its body.
 - **The fragment.**  No joins, subqueries, arithmetic or functions in predicates (a chain of
   lookups through keys is a composed relation, section 7).  Comparison
   right-hand sides are context or constants; membership keys are context, not columns; negated
@@ -1394,7 +1393,7 @@ These are decisions, not gaps; `docs/design/DECISIONS.md` has the reasoning.
 - **Timestamp constants** are not supported in v1; compare timestamp columns with `now_between`
   or with a context value.
 - **Column rules are per role, not per row.**  A column some users may see only on some rows
-  (your own salary, others' titles) is its own table with its own row policies (D42).  There is
+  (your own salary, others' titles) is its own table with its own row policies.  There is
   no masking construct.
 - **Hierarchies** have a declared maximum depth (1–16) and an immutable parent: a group cannot
   be reparented in v1.  Both are what make the proofs exact.
@@ -1403,7 +1402,7 @@ These are decisions, not gaps; `docs/design/DECISIONS.md` has the reasoning.
 - **Trusted roles.**  Superusers and roles granted `BYPASSRLS` outside MLS bypass everything.
   The owner does not (RLS is forced), but it can of course alter the objects; drift will tell
   you.  Views that are not `security_invoker` and `SECURITY DEFINER` functions over a governed
-  table are reported as bypass paths (D54), never rewritten: they are your objects.  The
+  table are reported as bypass paths, never rewritten: they are your objects.  The
   function check is a text match on the table's name in the body, so it can report a function
   that only mentions it, and it cannot see a function that reaches the table through another.
 - **Postgres only**, versions 15 through 18.  The templates are validated on those four;

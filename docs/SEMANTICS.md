@@ -2,7 +2,7 @@
 
 This document defines what every construct means. The SMT encoding, the concrete evaluator used in
 differential tests, and every compiler template must agree with it; `docs/REFERENCE.md` describes
-how to write them.
+how to write them, and `docs/design/DECISIONS.md` why each choice was made.
 
 ## 1. Values and logic
 
@@ -53,10 +53,10 @@ Compiled as `(select now())`.
 | `opaque` (name, inputs, sql) | uninterpreted predicate | raw SQL, wrapped and named |
 
 Column rules are per Postgres role, not per row.  Row-dependent column visibility (a user sees
-their own salary, only the titles of others) is modelled by normalization (D42): the column is its
+their own salary, only the titles of others) is modelled by normalization: the column is its
 own table, one row per parent row, with its own row policies.  MLS has no masking construct.
 
-### 3.1 Hierarchies (D5, D35)
+### 3.1 Hierarchies
 
 A hierarchy names a table, its single-column primary key `id`, a nullable `parent` column of the
 same type, an int NOT NULL `depth` column, a bound `max_depth` (1–16) and a `members` relation
@@ -70,7 +70,7 @@ stored rows form a forest of depth ≤ max_depth and a chain of parents from any
 unrolls `parent` exactly max_depth times (the `has_parent`/`parent` functions are uninterpreted;
 the depth bound is what makes the unrolling exact).
 
-### 3.2 Cardinality limits (D4, D36)
+### 3.2 Cardinality limits
 
 `cardinality(table, group, parent, max)` means: for every stored value `g` of `group`, at most
 `max` rows of `table` have `group = g`.  Rows with `group` NULL are not counted.  `group` gets an
@@ -82,7 +82,7 @@ the lock sees committed rows of the writers that held the lock before); not unde
 where the count uses the transaction's snapshot (stated as an assumption in every report).  The
 proof side uses integer functions `cnt@before`, `cnt@after` (SEMANTICS §7).
 
-### 3.3 The internal role (D34)
+### 3.3 The internal role
 
 Both templates need to read tables as a role the app policies do not filter: the reachability
 function must see every group (a user's policy on `groups` would hide the ancestors they are not a
@@ -93,7 +93,7 @@ reads it gets a permissive `SELECT ... USING (true)` policy `mls_internal_<table
 on cardinality parents, which it locks), plus the matching grants.  Nobody can log in as it, no app
 role is a member of it (drift reports both), and the helpers are the only code it runs.
 
-### 3.4 Composed relations (D56)
+### 3.4 Composed relations
 
 A composed relation is a base relation followed through up to three hops:
 `relation in_task = member_of . projects(team_id, id) . tasks(project_id, id)` (JSON `{"of":
@@ -111,20 +111,19 @@ reads a stored row of a hop table (any image but `new`) adds `hop.T.v(row.v) ∧
 = row.k`.  NULL behaves as for any membership: a NULL key or value is UNKNOWN; the hop columns
 are NOT NULL.
 
-A composed relation is a policy atom (and may appear in goals, `must_allow` and
-`tenant_isolation`).  It is refused, with the alternative, in an invariant (a write to a hop
-table changes it, which the induction step does not model), as the relation of an inclusion rule
-(an FK names one table), as a hierarchy's members relation, in an opaque block's relations and in
-`monotone_in` (each is about one table's facts).  Compilation nests one subquery per level:
-`task_id = any(array(select id from tasks where project_id = any(array(select id from projects
-where team_id = any(array(select team_id from team_members where user_id = (select
-auth.uid())))))))`.  Every hop table is read as the app role, so D21 applies per hop: a
-permissive SELECT policy `mls_rel_<R>_h<i>_<role>_<n>` whose `using` is the hop key's
-membership in the previous level (`<R>` the shortest composed relation through that hop, so two
-relations sharing a prefix share the policy), a column grant on `(key, value)`, and the
-relation-visibility obligation per level (a restrictive policy on a hop table that could hide a
-reached row fails it).  The hop key is indexed on an owned table and required as an index
-condition by the EXPLAIN check.
+A composed relation is a policy atom (and may appear in goals, `must_allow` and `tenant_isolation`).
+It is refused, with the alternative, in an invariant (a write to a hop table changes it, which the
+induction step does not model), as the relation of an inclusion rule (an FK names one table), as a
+hierarchy's members relation, in an opaque block's relations and in `monotone_in` (each is about one
+table's facts). Compilation nests one subquery per level: `task_id = any(array(select id from tasks
+where project_id = any(array(select id from projects where team_id = any(array(select team_id from
+team_members where user_id = (select auth.uid())))))))`. Every hop table is read as the app role, so
+each hop gets the implicit relation policy: a permissive SELECT policy `mls_rel_<R>_h<i>_<role>_<n>`
+whose `using` is the hop key's membership in the previous level (`<R>` the shortest composed
+relation through that hop, so two relations sharing a prefix share the policy), a column grant on
+`(key, value)`, and the relation-visibility obligation per level (a restrictive policy on a hop
+table that could hide a reached row fails it). The hop key is indexed on an owned table and required
+as an index condition by the EXPLAIN check.
 
 ## 4. NULL normalization (verified on PG 16)
 
@@ -146,7 +145,7 @@ For a table, role and command:
 - the statement errors unless UPDATE-CHECK(new) and, when it reads columns, SELECT-USING(new),
   and all CHECKs, FKs and transitions hold. So an update that would hide the row from its
   author (e.g. raising `level` above clearance) is an error.
-- Re-verify this per PG version in the M1 differential tests.
+- The differential tests check this on every supported Postgres version.
 
 **INSERT**: errors unless INSERT-CHECK(new) and constraints hold.
 **DELETE**: rows targeted by DELETE-USING (and SELECT-USING when reading columns).
@@ -158,7 +157,7 @@ An adapter maps context names to SQL expressions and declares its trust assumpti
   Assumption: claims are set only by the API layer after JWT verification.
 - `pg_roles`: `current_user → (select current_user::text)`; memberships are ordinary relations
   keyed by the role name. No external assumption: Postgres authenticated the session.
-- `session_setting` (D47): `name → (select nullif(current_setting('app.name', true), '')::type)`.
+- `session_setting`: `name → (select nullif(current_setting('app.name', true), '')::type)`.
   A missing or empty setting is NULL, so every comparison with it is UNKNOWN and the row is
   denied. Assumption: clients cannot execute `SET` on `app.*`; a trusted path (pooler,
   `SET LOCAL` in a `SECURITY DEFINER` entry point, the application's connection layer) sets it.
@@ -167,8 +166,8 @@ An adapter maps context names to SQL expressions and declares its trust assumpti
 
 All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered as a scenario.
 
-- **Template properties** (D9), e.g. isolation: `effective_select(r) → member(memberships, uid, r.tenant)`.
-- **must_allow (the lower bound, D40):** `constraints(every image) ∧ when → admitted`, where
+- **Template properties**, e.g. isolation: `effective_select(r) → member(memberships, uid, r.tenant)`.
+- **must_allow (the lower bound):** `constraints(every image) ∧ when → admitted`, where
   `admitted` is the command's access layers — the effective policies and, for an update, the
   transition rules and the column privileges.  The written image is assumed *valid* (it satisfies
   the table's CHECKs and FKs), so `when` states what the role can do, not the integrity rules; the
@@ -190,27 +189,27 @@ All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered 
   `has_parent` functions; the depth bound d is the declared `max_depth`.  Two versions of a spec
   share these functions when the tree (table, columns, members relation) is the same, so a
   changed `max_depth` diffs exactly; a changed tree is a different function (tagged `@new`).
-- **Composed relations (D56):** the hop functions `hop.T.v`, `hop.T.v.k` are named by the hop, so
+- **Composed relations:** the hop functions `hop.T.v`, `hop.T.v.k` are named by the hop, so
   two versions of a spec (and two relations sharing a hop) share them; the stored-row axioms of
   §3.4 tie them to every stored row an obligation reads.
-- **Relation row axioms (#24):** a stored row of a base relation's table is in the relation.  For
+- **Relation row axioms:** a stored row of a base relation's table is in the relation.  For
   every row an obligation reads of the table of a relation it uses (any image but `new`, which is
   not stored yet when the policies read the table), the encoding asserts `rel(row.key,
   row.value)`.  Without it a property over the relation table itself (`team_id in
   team_members(@uid)` on `team_members`) is refuted by a row the relation does not contain, a
   state no database can be in.
-- **role_separation (D49):** `constraints ∧ effective_a ∧ effective_b` is UNSAT over the command's
+- **role_separation:** `constraints ∧ effective_a ∧ effective_b` is UNSAT over the command's
   images (for update: `using` on `old`, `check` on `new`, plus the transition constraints), with one
   set of context values for both roles; a model is a row both roles may touch.
 - **Opaque blocks:** uninterpreted predicates (a block is a function of its declared inputs). A
   PROVED obligation is conditional on a block when its proof needs that: re-encoded with every
-  occurrence of the block an independent, unconstrained (T, F) pair, it is no longer UNSAT (#27).
+  occurrence of the block an independent, unconstrained (T, F) pair, it is no longer UNSAT.
   Freeing over-approximates whatever the block's SQL does, so a proof that survives holds for
   every block and is not conditional on it; only the blocks occurring in the obligation's own
   terms are tried (the block's `¬(T ∧ F)` axiom is not a use). A property that holds only by
   constraining an opaque block is REFUTED.
 
-Policy-set hygiene (D49) asks the solver the same kind of question but is never a verdict: a
+Policy-set hygiene asks the solver the same kind of question but is never a verdict: a
 contradiction is `constraints ∧ T(p)` UNSAT, a subsumption `constraints ∧ T(p2) → T(p1)` valid,
 a redundancy `constraints → (T(eff) ↔ T(eff without p))` valid, all on the (T, F) encoding; the
 two-valued `p2 ∧ ¬p1` UNSAT is wrong where `p1` is UNKNOWN on a row `p2` admits.
@@ -219,7 +218,7 @@ two-valued `p2 ∧ ¬p1` UNSAT is wrong where `p1` is UNKNOWN on a row `p2` admi
 
 Identity adapter assumption; trusted roles (owner, superuser, and the internal role `mls_internal`
 that owns the SECURITY DEFINER helpers) after hardening; the `assume` entries of adopted tables
-(D45: an app-role owner, unforced row-level security, an app role with BYPASSRLS, each trusted),
+(an app-role owner, unforced row-level security, an app role with BYPASSRLS, each trusted),
 and the lists of adopted and observed tables; isolation level for non-engine-enforced
 constructs (cardinality relies on the parent-row lock under READ COMMITTED); opaque blocks used,
 each with its declared signature and SQL, and the number of proofs conditional on them; Postgres

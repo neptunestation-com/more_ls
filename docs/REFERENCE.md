@@ -66,7 +66,7 @@ match `[a-z_][a-z0-9_]*`.  They are emitted double-quoted, so Postgres keywords 
 | `uuid` | `uuid` | `= <>` | constants are canonical UUID strings |
 
 `int` and `bigint` compare with each other, in a comparison, a membership, an inclusion and a
-cardinality group (D53): the fragment has no arithmetic, so they differ only in range.  A
+cardinality group: the fragment has no arithmetic, so they differ only in range.  A
 context value may be declared `bigint` too (`org_id: jwt.claims.org_id bigint`).  On an
 adopted table a `character varying(n)` column is declared `text`: Postgres compares it as text,
 `mls import` reads it so, `check --dsn` and `drift` accept it; MLS creates owned tables `text`.
@@ -95,7 +95,7 @@ adapter maps each source to SQL and declares the trust assumption the proof repo
 | `supabase` | `auth.uid` | `(select auth.uid())` | must be `uuid` | clients reach the database only through Supabase's API layer, which verifies the JWT before setting `request.jwt.claims` |
 | `supabase` | `jwt.claims.<claim>` | `(select (auth.jwt() ->> '<claim>')::<type>)` | any | same |
 | `pg_roles` | `current_user` | `(select current_user::text)` | must be `text` | none |
-| `session_setting` | `app.<name>` | `(select nullif(current_setting('app.<name>', true), '')::<type>)` | any | clients cannot execute `SET` on `app.*`; the setting is established by a trusted path (a pooler, a `SET LOCAL` inside a `SECURITY DEFINER` entry point, or the application's connection layer) that no untrusted client reaches (D47) |
+| `session_setting` | `app.<name>` | `(select nullif(current_setting('app.<name>', true), '')::<type>)` | any | clients cannot execute `SET` on `app.*`; the setting is established by a trusted path (a pooler, a `SET LOCAL` inside a `SECURITY DEFINER` entry point, or the application's connection layer) that no untrusted client reaches |
 
 `now` is a built-in context value in every adapter (the transaction start time, compiled as
 `(select now())`) and may not be declared.  The adapter cannot be changed by `mls migrate`.
@@ -103,7 +103,7 @@ With `session_setting` a missing or empty setting is NULL: every comparison with
 and the row is denied (the English says "no context set: denied").  The assumption of the
 adapter in use is stated by `mls prove`, `mls explain` and `mls diff`.
 
-An adapter may declare its platform's roles (D55).  `supabase` declares `anon`, `authenticated`
+An adapter may declare its platform's roles.  `supabase` declares `anon`, `authenticated`
 and `service_role`, which Supabase's default privileges grant every new table and function in
 `public`.  The deploy revokes every privilege on governed tables and MLS functions from those
 the spec does not use; `service_role` is the platform's trusted role (BYPASSRLS by design: the
@@ -143,14 +143,14 @@ It is not a role you declare or grant to.
 | `columns` | yes, non-empty | name to `{type, nullable}` |
 | `primary_key` | no | list of NOT NULL columns; compiled as the primary key constraint `<table>_pkey` |
 | `unique` | no | list of column lists; each compiled as a UNIQUE constraint `<table>_<cols>_key` |
-| `mode` | no, default `owned` | `owned`, `adopted` or `observed` (D45, below) |
+| `mode` | no, default `owned` | `owned`, `adopted` or `observed` (below) |
 | `assume` | no | hardening the compiler cannot establish on an `adopted` table, stated as assumptions (below) |
-| `tags` | no | free strings with no meaning of their own; `{"tagged": "x"}` selectors (§11, D48) match them |
+| `tags` | no | free strings with no meaning of their own; `{"tagged": "x"}` selectors (§11) match them |
 
 There is no way to reference a table the spec does not declare.  What the compiler does with a
 declared table depends on its mode:
 
-- **`owned`** (the default; every spec written before D45 is unchanged): MLS creates the table.
+- **`owned`** (the default): MLS creates the table.
   The compiler emits `CREATE TABLE` with exactly these columns and constraints, revokes all
   privileges from `public` and from every declared role, then enables and forces row-level
   security.  Every object on it that the spec does not produce is drift.
@@ -161,7 +161,7 @@ declared table depends on its mode:
   security and does not touch the owner: that hardening is either in place (drift verifies it)
   or stated under `assume`.  A constraint, trigger, index or column on the table that the spec
   does not declare is `foreign` (listed by drift, not drift); a policy or privilege the spec does
-  not declare is still drift.  The spec owns the table's whole policy set (D51): the deploy drops
+  not declare is still drift.  The spec owns the table's whole policy set: the deploy drops
   every policy already on it before creating the spec's (§14), so a hand-written permissive
   policy cannot keep granting what the proofs deny.
 - **`observed`**: the table is in the schema and is mentioned so that the spec can speak about
@@ -177,10 +177,10 @@ declared table depends on its mode:
 | `{"owner": "<app role>"}` | the table is owned by that app role, which could alter its policies, and the role is trusted | `assumed` instead of `hardening: owned by app role`; the owner's privileges are not compared (an owner holds them all) |
 | `{"rls": "not_forced"}` | row-level security is not forced; the owner bypasses the policies and is trusted | `assumed` instead of `hardening: row level security is not forced` |
 | `{"bypassrls": "<app role>"}` | the role has `BYPASSRLS`, reads and writes the table unfiltered, and is trusted | `assumed` instead of `hardening: role has BYPASSRLS` (only when every governed table assumes it) |
-| `{"bypass": "view <v>"}` / `{"bypass": "function <f>(<types>)"}` | a bypass path (D54, below) reaches the table without its policies and is trusted; what an app role reaches through it is not covered by the proofs | `assumed` instead of `hardening: <path> reaches table <t> without its policies` |
+| `{"bypass": "view <v>"}` / `{"bypass": "function <f>(<types>)"}` | a bypass path (below) reaches the table without its policies and is trusted; what an app role reaches through it is not covered by the proofs | `assumed` instead of `hardening: <path> reaches table <t> without its policies` |
 
 Every assumption is repeated in the proof report, `mls explain`, `mls diff` and the compiled
-script's header (D13's list of trusted roles grows by it).  When the catalog no longer needs an
+script's header (the list of trusted roles grows by it).  When the catalog no longer needs an
 assumption (the owner changed, RLS was forced), drift says so in a note: the fix shows up as the
 assumption going away.  Refused at `check`: `assume` on an `owned` table (its hardening is
 emitted and verified, so an app-role owner is an error there, not an assumption; `mls check
@@ -189,7 +189,7 @@ spec, or an `rls` value other than `not_forced` (there is no assumption under wh
 table without row-level security enabled means anything), or a `bypass` value that is not
 `view <name>` or `function <name>(<argument types>)`.
 
-**Bypass paths** (D54).  On an existing database the holes in row-level security are rarely
+**Bypass paths**.  On an existing database the holes in row-level security are rarely
 `BYPASSRLS`; they are views and functions.  `mls drift`, `mls status --dsn` and `mls import`
 report, for every governed table:
 
@@ -208,8 +208,8 @@ Postgres prints them, `function is_team_member(bigint)`), schema-qualified outsi
 Each is `hardening` with the fix (`alter view <v> set (security_invoker = true)` or revoking
 the app roles' privileges; for a function, `revoke execute on function <f> from public, <roles>`);
 on an adopted table `{"bypass": "<path>"}` assumes it instead.  An assumed path the catalog no
-longer shows is a note.  The trusted platform roles (D55: `service_role`) are not app roles, so
-their privileges on a view or function are not a bypass path.
+longer shows is a note.  The trusted platform roles (`service_role` on Supabase) are not app
+roles, so their privileges on a view or function are not a bypass path.
 
 ## 6. `relations`
 
@@ -222,7 +222,7 @@ A relation names the `(key, value)` projection of a table, for use in `member`, 
 the table, and together must be the primary key or a declared unique constraint (so a pair is
 stored at most once and a composite foreign key can target it).
 
-Reading a relation in a policy has an implicit cost (D21): because RLS is forced on the
+Reading a relation in a policy has an implicit cost: because RLS is forced on the
 relation's table too, the compiler emits a permissive SELECT policy `key = <context>` on it for
 every role whose policies use the relation with that key, plus `GRANT SELECT (key, value)`.  A
 restrictive policy the spec puts on the relation table must keep those rows visible; the
@@ -234,7 +234,7 @@ every query on the table with "infinite recursion detected in policy" (FINDINGS)
 refuses such a rule at its `member.relation`; a user's own rows of a membership table are
 `user_id = @uid`, a comparison, not a membership.
 
-**Composed relations** (D56, SEMANTICS §3.4) follow a base relation through up to three tables:
+**Composed relations** (SEMANTICS §3.4) follow a base relation through up to three tables:
 
     "relations": {
       "member_of": {"table": "team_members", "key": "user_id", "value": "team_id"},
@@ -243,19 +243,19 @@ refuses such a rule at its `member.relation`; a user's own rows of a membership 
                                                  {"table": "tasks", "key": "project_id", "value": "id"}]}
     }
 
-`(k, v) ∈ in_task` when `(k, t) ∈ member_of`, a `projects` row has `team_id = t` and `id = p`,
-and a `tasks` row has `project_id = p` and `id = v`.  `of` is a base relation (not composed); at
-most three hops; each hop's `key` and `value` are different NOT NULL columns, the `key` has the
-type of the previous level's value, and the `value` is the table's primary key or a unique
-column (so each hop is a lookup, not a join).  A hop through a column that is not a key is
-refused at `$.relations.R.through[i].value`; the ways out are a membership table (a base
-relation) or the column copied onto the referencing table with an inclusion rule.  A composed
-relation is used with `member` like any relation, in policies, goals, `must_allow` and
-`tenant_isolation`; it is refused in an invariant, as an inclusion rule's relation, as a
-hierarchy's `members`, in an opaque block's `relations` and in `monotone_in`.  D21 applies to
-every hop table: a permissive SELECT policy `mls_rel_<R>_h<i>_<role>_<n>` (the hop key in the
-previous level's values; `<R>` is the shortest composed relation through the hop, so relations
-sharing a prefix share it), `GRANT SELECT (key, value)`, and the relation-visibility obligation.
+`(k, v) ∈ in_task` when `(k, t) ∈ member_of`, a `projects` row has `team_id = t` and `id = p`, and a
+`tasks` row has `project_id = p` and `id = v`. `of` is a base relation (not composed); at most three
+hops; each hop's `key` and `value` are different NOT NULL columns, the `key` has the type of the
+previous level's value, and the `value` is the table's primary key or a unique column (so each hop
+is a lookup, not a join). A hop through a column that is not a key is refused at
+`$.relations.R.through[i].value`; the ways out are a membership table (a base relation) or the
+column copied onto the referencing table with an inclusion rule. A composed relation is used with
+`member` like any relation, in policies, goals, `must_allow` and `tenant_isolation`; it is refused
+in an invariant, as an inclusion rule's relation, as a hierarchy's `members`, in an opaque block's
+`relations` and in `monotone_in`. The implicit relation policy above applies to every hop table: a
+permissive SELECT policy `mls_rel_<R>_h<i>_<role>_<n>` (the hop key in the previous level's values;
+`<R>` is the shortest composed relation through the hop, so relations sharing a prefix share it),
+`GRANT SELECT (key, value)`, and the relation-visibility obligation.
 
 ## 7. `hierarchies`
 
@@ -303,13 +303,13 @@ An opaque block is raw SQL with a declared signature, used as the predicate `{"o
 
 The prover models an opaque block as an uninterpreted predicate over its declared inputs.  A
 proof that needs the block is reported as `conditional on opaque blocks: <names>` and the
-report's assumptions list the block with its SQL.  "Needs" is checked (#27): the proved
+report's assumptions list the block with its SQL.  "Needs" is checked: the proved
 obligation is solved again with every occurrence of the block an independent unknown; if it
 still holds, it holds whatever the block's SQL does (even if the SQL reads more than its
 signature), and the block is not listed.  So a property proved by a restrictive policy, or by
 the other permissive policies, is not conditional on a permissive block next to them; a property
 whose goal reads the same block a policy reads is.  `mls lint` findings and `mls status` follow
-the same rule (the policy-set findings of D49).  A property that could hold only by
+the same rule (the policy-set findings).  A property that could hold only by
 constraining the block is REFUTED.  Opaque blocks are excluded from the performance guarantees
 and from the lint; the differential test executes their SQL.
 
@@ -343,7 +343,7 @@ expands it to `{"or": [{"cmp": [term, "=", c1]}, ...]}` (a single constant becom
 comparison) before anything else reads the spec, so it is allowed exactly where a `=`
 comparison of `term` with each constant is, has that disjunction's meaning (UNKNOWN if `term`
 is NULL) and renders as it in `explain` and `--terse`.  The list must be non-empty.  Compiled as
-`term in (c1, c2, ...)`, one index condition (D14); a hand-written `or` of the same shape
+`term in (c1, c2, ...)`, one index condition; a hand-written `or` of the same shape
 compiles the same way.
 
 **`{"member": {"relation": R, "key": k, "value": v}}`**: `(k, v)` is a stored pair of relation
@@ -396,7 +396,7 @@ Every rule has `id` (unique across rules), `kind`, `name` (an identifier, unique
 names the compiled object), `table` or `applies_to` (below), and optionally `requirement`
 (free text).
 
-**Selectors** (D48).  `"applies_to"` in place of `"table"` makes one rule apply to every
+**Selectors**.  `"applies_to"` in place of `"table"` makes one rule apply to every
 governed table a selector matches:
 
     {"id": "R1", "kind": "policy", "name": "member_read",
@@ -504,7 +504,7 @@ policies cover every column; without a write rule, its insert and update policie
 Compiles to column-list grants (`GRANT SELECT (cols)`, `GRANT INSERT (cols)`, `GRANT UPDATE
 (cols)`) in place of the table-level grant.  `name` is optional for this kind.
 
-Column rules are per role, not per row (D42).  A column whose visibility depends on the row is
+Column rules are per role, not per row.  A column whose visibility depends on the row is
 modelled as its own table with its own policies.
 
 ## 12. Properties
@@ -585,7 +585,7 @@ write, its `check`); the default is `new`.  Goal scope is §10.2.
     {"id": "P7", "template": "must_allow", "table": "docs", "role": "authenticated",
      "command": "select", "when": p}
 
-A lower bound (D40): every row that satisfies `when` and is valid (satisfies the table's checks
+A lower bound: every row that satisfies `when` and is valid (satisfies the table's checks
 and inclusions) is admitted by the role's `<command>`, where "admitted" means the effective
 policies and, for update, the transition rules and the column privileges too.  Two obligations:
 a witness (`some row meets the condition`, reported with an example; a condition no valid row
@@ -598,7 +598,7 @@ is assumed valid, so `when` states what the user can do, not the integrity rules
     {"id": "S1", "template": "role_separation", "table": "approvals",
      "roles": ["requester", "approver"], "command": "update"}
 
-No row is admitted to `<command>` for both roles (D49): the English form of the `custom`
+No row is admitted to `<command>` for both roles: the English form of the `custom`
 property it already was.  One obligation, `<command>: no row is admitted to both a and b`:
 the stored-row constraints and both roles' effective policies (for update, the targeted and the
 written row, with the transition rules) are unsatisfiable together.  Both roles are evaluated
@@ -609,18 +609,18 @@ roles are required.
 ## 13. Renderings: English and terse
 
 `mls explain` prints every rule, property and (in reports) scenario as an English sentence
-(`src/mls/english.py`).  This is the approval artifact (D10): it is what a product owner reads.
+(`src/mls/english.py`).  This is the approval artifact: it is what a product owner reads.
 A selector rule (§11) is printed once, *applies to every governed table that has column
 tenant_id: docs, files*, with its expansion as an indented list of concrete rules.  A composed
 relation (§6) gets a sentence of its own under *Relations read through other tables*: *a user's
 in_task are the id of every tasks row whose project_id is the id of a projects row whose team_id
 is among that user's member_of*.
 
-The terse syntax (D44, completed to the whole spec by D50) is the second concrete syntax of
+The terse syntax is the second concrete syntax of
 the same model: `mls explain --terse` prints the whole spec in it (`src/mls/terse.py:render`),
 the `before`/`after` lines of `mls diff` and the `spec_terse` field of LLM transcripts use its
 predicate and rule forms, and the parser (`src/mls/spec/syntax.py`) reads `.mls` files back,
-with a source span per node (D50; the JSON stays the canonical serialization).  The round trip
+with a source span per node (the JSON stays the canonical serialization).  The round trip
 `parse(render(spec)) == spec` holds for every example and every eval case and is tested; a
 one-element `and`/`or` is the one shape it cannot keep (it reads back as its element).  The
 grammar:
@@ -635,7 +635,7 @@ grammar:
     option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
                 | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced' | 'bypass view v' | 'bypass function f(t)')
     relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
-                | 'relation' NAME '=' BASE ('.' TABLE '(' KEY ',' VALUE ')')+   (composed, D56)
+                | 'relation' NAME '=' BASE ('.' TABLE '(' KEY ',' VALUE ')')+   (composed)
     hierarchy  := 'hierarchy' NAME '=' TABLE 'id' COL 'parent' COL 'depth' COL 'max_depth' INT 'members' REL
     opaque     := 'opaque' NAME 'on' TABLE '(' [input (',' input)*] ')' 'relations' '(' [names] ')' 'sql' DOLLAR
     input      := COL | '@' CTX                                   DOLLAR := $$ sql $$ | $tag$ sql $tag$
@@ -722,7 +722,7 @@ All names are deterministic functions of the spec, so `mls drift` can match them
 | check constraint, foreign key, policy, trigger | the rule's `name` |
 | transition trigger function | `mls_tr_<table>_<name>()` |
 | implicit relation policy | `mls_rel_<relation>_<role>_<n>` |
-| hop visibility policy of a composed relation (D56) | `mls_rel_<relation>_h<i>_<role>_<n>` on the i-th hop table |
+| hop visibility policy of a composed relation | `mls_rel_<relation>_h<i>_<role>_<n>` on the i-th hop table |
 | internal-role policy | `mls_internal_<table>` |
 | hierarchy depth check and parent foreign key | `mls_h_<hierarchy>_depth_max`, `mls_h_<hierarchy>_parent` |
 | hierarchy depth trigger and function | `mls_h_<hierarchy>_depth` |
@@ -734,7 +734,7 @@ All names are deterministic functions of the spec, so `mls drift` can match them
 | adopted-table constraint comparison (dropped in the same block) | `mls_probe` |
 | internal role | `mls_internal` (NOLOGIN, NOBYPASSRLS, NOINHERIT; owns the helpers) |
 
-Policy-set replacement (D51), on every `adopted` table, first in the policies section: a `do`
+Policy-set replacement, on every `adopted` table, first in the policies section: a `do`
 block that drops every policy on the table, by name read from `pg_policy` when the script runs,
 and raises the notice `MLS drops policy <name> on <table>: the spec does not declare it` for
 each one the spec does not declare; the spec's policies are created after it.  The policies the
@@ -743,7 +743,7 @@ Dropping the spec's own names too is what lets the script run again on a deploye
 Owned tables need no replacement (MLS created them), and `mls migrate` emits none (it starts from
 a deployment, which has no foreign policy).
 
-Constraints on an adopted table (D52): the table may already have a constraint under the name
+Constraints on an adopted table: the table may already have a constraint under the name
 of a check or inclusion rule (`mls import` names its rules after the constraints it read), so
 each is a `do` block instead of a bare `add constraint`.  When no constraint has the name, it
 is added.  When one has, the spec's definition is added `NOT VALID` as `mls_probe` (no scan),
@@ -758,23 +758,23 @@ On an adopted table the indexes are `create index if not exists`, so the script 
 after a rollback that left them in place (a policy-set rollback by deploying the previous spec,
 `docs/TAKEOVER.md`); drift reports a same-named index whose definition differs.
 
-Indexes (D14): one composite index per conjunctive group of a permissive policy (membership
+Indexes: one composite index per conjunctive group of a permissive policy (membership
 columns first, then comparison columns), one on each foreign key's referencing columns, and a
 key-leading one on each relation table (its primary key or unique constraint usually supplies
 it), and a `(key, value)` one on each hop table of a composed relation.  A key that is a prefix of another wanted key is covered by it, whatever order the rules
 name them in, so the index set does not depend on rule order.
 
-Hardening (D13), on every deployment: the preamble refuses to run as an app role; app roles
+Hardening, on every deployment: the preamble refuses to run as an app role; app roles
 lose `BYPASSRLS`, `SUPERUSER`, `CREATEDB`, `CREATEROLE` and `SET` on `session_replication_role`
 (one `ALTER ROLE` per attribute the role has, so a role that has none is not altered: Supabase
-refuses any `ALTER ROLE` on its API roles, D55); the helpers' ownership moves to `mls_internal`
+refuses any `ALTER ROLE` on its API roles); the helpers' ownership moves to `mls_internal`
 with `CREATE` on the schema granted for the transfer only (a non-superuser deployer needs it on
 PG 15+); the platform's untrusted roles lose their default privileges (§3);
 every owned table gets `ENABLE` and `FORCE ROW LEVEL SECURITY` (an adopted table only `ENABLE`,
 §5); all privileges are revoked from `public`; `TRUNCATE` is never granted.  With the `session_setting` adapter, `mls drift` also
 reports (kind `hardening`) an app role that may execute a function whose body sets `app.*`
 (`set_config('app....` or `SET app....`, in any schema) and an app role with an
-`ALTER ROLE ... SET app.*` default (D47); nothing is emitted for these, since the fix is to
+`ALTER ROLE ... SET app.*` default; nothing is emitted for these, since the fix is to
 revoke or reset something MLS did not create.
 
 ## 15. Command-line interface
@@ -791,7 +791,7 @@ start Docker containers instead.
 
 Schema, types, fragment and the compiler's soundness obligations.  Prints `SPEC: OK` or the
 errors (§17).  `--json`: `{"ok": true}` or `{"ok": false, "errors": [...]}`.  Exit 0 or 1.
-With `--dsn`, the spec's tables are also verified against the catalog (D45): an `adopted` or
+With `--dsn`, the spec's tables are also verified against the catalog: an `adopted` or
 `observed` table must exist; an `adopted` table must have every column the spec declares, with
 the declared type (a missing column is an error here and drift otherwise); an `owned` table
 that exists must not be owned by an app role (the fix names the `adopted` mode and the
@@ -830,10 +830,10 @@ Rules and properties in English, or one terse line each (§13).
 ### `mls lint SPEC [--dsn DSN] [--timeout SECONDS] [--json]`
 
 Hygiene, never safety: nothing here enters a proof verdict, the eval grading or the exit code.
-Two parts.  The leakproof lint (D14): for each column of a protected table, the operators of
+Two parts.  The leakproof lint: for each column of a protected table, the operators of
 its type that are not leakproof and therefore cannot use an index before the row policy; with
 `--dsn` the list comes from the server's catalog.  Printed as `warning: ...`.  The policy-set
-lint (D49, `src/mls/props/lint.py`), printed as `<kind>: ...`:
+lint (`src/mls/props/lint.py`), printed as `<kind>: ...`:
 
 | Kind | Finding |
 |---|---|
@@ -914,7 +914,7 @@ has an unassumed path.  `--json` prints `{"ok", "tables": [{"table", "status", "
 
 ### `mls import --dsn DSN [--schema NAME] [--role R]... [--policies keep|discard] [--observe T1,T2]... [--out FILE] [--json]`
 
-Writes a spec from a live schema (D45): a starting point the human or the loop edits; from then
+Writes a spec from a live schema: a starting point the human or the loop edits; from then
 on the spec is the source of truth and `mls drift` says whether the database still agrees.
 Every table with row-level security enabled is `adopted` (columns of MLS types, primary key and
 unique constraints read from the catalog; other columns are left out and noted), every other
@@ -945,7 +945,7 @@ prints `{"ok", "spec", "notes"}`.  Exit 1 with the errors when no app role is fo
 schema has no tables, `--observe` names a table the schema does not have, or `--observe` is
 given without `--policies discard`.
 
-`--policies discard` (D52) writes a skeleton for a takeover (keep the tables, replace the
+`--policies discard` writes a skeleton for a takeover (keep the tables, replace the
 policies) instead: identity, roles, tables, relations, inclusion rules and readable CHECKs, and
 no policy, column rule or opaque block.  Every table is `adopted`, with row-level security
 enabled today or not (the deploy enables it; the notes name the tables where it is off today);
@@ -959,14 +959,14 @@ whose primary key refers to `auth.users` such as `profiles`, or failing those th
 identity's `uid` type); when neither or both columns qualify, a note says so and no relation is
 proposed.  The identity is still read from the discarded policies' text; without any, a
 foreign key to `auth.users` means `supabase` with `uid` from `auth.uid`.  The platform's
-trusted roles (`service_role`, D55) are not taken as app roles.  `mls generate --skeleton`
+trusted roles (`service_role`) are not taken as app roles.  `mls generate --skeleton`
 takes the result as it is.
 
 In either mode the bypass paths of the adopted tables (§5) are notes, `bypass path: <path>
 reaches table <t> without its policies: ... (fix: ...)`.  The import never assumes one: drift
 reports each as `hardening` until it is fixed or the spec assumes it.
 
-**The lifter** (D46, `pg/lift.py`) parses the deparsed text of an expression and reads:
+**The lifter** (`pg/lift.py`) parses the deparsed text of an expression and reads:
 
 | Shape in the catalog | Lifted to |
 |---|---|
@@ -976,7 +976,7 @@ reports each as `hardening` until it is fixed or the spec assumes it.
 | `col in (select value from rel where key = <ctx>)` | `member` (noted as lifted; the compiler writes the array shape) |
 | `exists (select 1 from rel where rel.key = <ctx> and rel.value = t.col)` | `member` (noted as the slow per-row shape of FINDINGS) |
 | `col = any ((select mls_reach_<h>(<ctx>))::t[])` | `in_group`, when the spec declares hierarchy `h` |
-| `col = any (array(select v from T where k = any (array(select ... from rel where key = <ctx>))))`, or the same nesting of `in (select ...)`, up to three levels | `member` over a composed relation (D56): an identical chain in the spec is reused, else one is proposed (named `<base>_<last table>`) with a note; when a hop's value is not a key or a hop column is nullable the policy stays opaque |
+| `col = any (array(select v from T where k = any (array(select ... from rel where key = <ctx>))))`, or the same nesting of `in (select ...)`, up to three levels | `member` over a composed relation: an identical chain in the spec is reused, else one is proposed (named `<base>_<last table>`) with a note; when a hop's value is not a key or a hop column is nullable the policy stays opaque |
 | `col is [not] null`, `and`, `or`, `not`, `true`, `false` | the same |
 | `(f is null or f <= (select now())) and (u is null or (select now()) < u)` | `now_between` |
 | a bare boolean column `b` | `b = true` |
@@ -988,7 +988,7 @@ constraint of a governed table, else the lookup stays opaque with the reason.  T
 works at the boolean connectives: a conjunct, disjunct or negand it cannot read becomes an
 opaque block of its own text (an expression it cannot parse at all is one block), so a lifted
 spec always checks.  Never read: a call to any function that is not an identity source or a
-compiler helper (a one-line SQL wrapper included: user functions are never inlined, D34),
+compiler helper (a one-line SQL wrapper included: user functions are never inlined),
 `like` (an opaque block over the column, which the leakproof lint reports), a negated
 membership (an anti-join), a membership subquery that joins tables (nested subqueries are
 composed relations), `IS TRUE` inside an expression (the fragment is three-valued), `CASE`,
@@ -996,7 +996,7 @@ arithmetic.  The notes say which part of which policy stayed opaque and why.
 
 ### `mls fmt SPEC [--to json|terse] [--out FILE]`
 
-Converts a spec between the two syntaxes (D50): to the other one by default, so `mls fmt
+Converts a spec between the two syntaxes: to the other one by default, so `mls fmt
 spec.mls.json` prints the terse form and `mls fmt spec.mls` the JSON; `--to terse` on a `.mls`
 file is the formatter (the renderer: its output is idempotent).  The JSON written is the
 model's canonical serialization (aliases, no nulls, the defaults spelled out).  Exit 1 with
@@ -1012,13 +1012,13 @@ The JSON Schema of the spec language (draft 2020-12, from the pydantic model).
 The LLM loop (`docs/LLM.md`).  `REQUIREMENTS` is a text file or `-` for stdin; `SKELETON` is a
 spec or a spec without rules and properties (either syntax, by extension: the `.mls` that
 `mls import --policies discard --out spec.mls` writes is taken as it is).  The skeleton's own
-rules (an import's check and inclusion rules) are *fixed* (#26): both passes are shown them,
+rules (an import's check and inclusion rules) are *fixed*: both passes are shown them,
 with the first free id `R<n>`; the result is the model's rules followed by the fixed ones (a
 verbatim restatement is not duplicated); a model rule that takes a fixed rule's id, or its name
 on the same table, is an error at the answer's path (`rule id 'R1' is taken by a rule the spec
 already has`, fix: number from `R<n>`), repaired like any other.  `--out` writes the spec as
 written (an `in` list stays one), not as the checker expands it.  Defaults: model
-`claude-opus-5-5`, effort `high`, 3 repairs, syntax `terse` (D50 as amended).  With `terse`
+`claude-opus-5-5`, effort `high`, 3 repairs, syntax `terse`.  With `terse`
 the passes answer with `rules { ... }` / `properties { ... }` sections: the prompt carries the
 grammar and three examples instead of the JSON Schema, the skeleton is shown in terse, and
 the checker's feedback names the line and column in the model's own text; `--syntax json`
@@ -1084,10 +1084,10 @@ Classes of error, with the typical message:
 - **shape**: unknown key, missing key, wrong JSON type (from the pydantic model, with the path);
 - **names**: unknown table, column, role, relation, hierarchy, opaque block, rule or context
   value; invalid identifier; duplicate rule id, rule name per table or property id;
-- **selectors** (D48): `rule 'R1' applies to no table (has column tenant_id)`; `a rule needs
+- **selectors**: `rule 'R1' applies to no table (has column tenant_id)`; `a rule needs
   "table" (one table) or "applies_to" (a selector)`; `"table" and "applies_to" are exclusive`;
   `a selector is exactly one of {has_column}, {named}, {tagged}, {all}, {and}, {or}`;
-- **modes** (D45): `table 't' is observed; a rule cannot name it`; `table 't' is owned: ...
+- **modes**: `table 't' is observed; a rule cannot name it`; `table 't' is owned: ...
   nothing is assumed`; `'r' is not an app role of this spec`; `'disabled' is not an assumption
   the proofs can state`; with `--dsn`: `adopted table 't' has no column 'c'`; `column 't.c' is
   bigint in the catalog, declared int`; `owned table 't' is owned by app role 'r'`;
@@ -1105,7 +1105,7 @@ Classes of error, with the typical message:
   ...`; `'parent' must be nullable (roots have no parent)`; `'parent' needs a single-column
   primary key that 'group' ...`; `a second read column rule for role 'r' on 't'`;
 - **compiler** (soundness obligations): a restrictive policy on a relation table that hides
-  rows a membership atom needs (D21), with the policy's path and a fix; for a composed
+  rows a membership atom needs, with the policy's path and a fix; for a composed
   relation, the same on each hop table (`... can hide rows whose <key> the previous level
   reaches ...`).
 - **recursion**: `a policy on 'T' cannot read 'R': relation 'R' is backed by table 'T', so its
@@ -1113,7 +1113,7 @@ Classes of error, with the typical message:
   table ('infinite recursion detected in policy')` (or `reads table 'T' in one of its hops`;
   fix: the user's own rows, `key` compared with the context value, or a relation backed by
   another table);
-- **composed relations** (D56): `'R' is itself composed; compose from a base relation`; `N hops;
+- **composed relations**: `'R' is itself composed; compose from a base relation`; `N hops;
   a composed relation has at most 3`; `hop column 'T.c' must be NOT NULL`; `'T.v' is not the
   primary key or a unique column of 'T'` (fix: a membership table, or the denormalized column
   with an inclusion rule); `type of T.k (...) does not match the previous level's value`;
