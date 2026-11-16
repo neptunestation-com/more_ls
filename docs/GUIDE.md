@@ -1654,9 +1654,11 @@ The default model is `claude-opus-5-5` with effort `high` (`--model`, `--effort`
 `MLS_LLM_SCRIPT` to a JSON file of answers replays them instead of calling the API; the tests work
 that way.
 
-How well it works: on the eval corpus (`evals/cases`, measured with `mls eval --llm`), 32 of 35
-seed cases end proved and equivalent in effect to their reference, and 218 of 221 deliberately
-broken rule sets are repaired, after about one repair round.  Those requirement texts were written
+How well it works: on the eval corpus (`evals/cases`, measured with `mls eval --llm`), all 37
+seed cases ended proved and equivalent in effect to their reference in the latest run, three of
+them on a skeleton without the relations they need, and all 229 deliberately broken rule sets were
+repaired, after about one repair round.  Runs vary by a few cases on sentences that admit two
+readings.  Those requirement texts were written
 by the loop's author, so they say as much about the phrasing as about the model; a corpus of real
 ones is the open question.  `docs/design/LLM.md` has the loop's internals, the corpus, the metrics
 and every measured run.

@@ -268,3 +268,34 @@ sentences and three reference bugs, which were fixed in the corpus, not by tunin
 (FINDINGS).  A run over the same cases is not a free re-measurement: the model's choices vary
 between runs on sentences that admit two readings, so a failing case should be read, and its
 text made precise, before the number is believed.
+
+### The relations pass, 2026-11-15 (`claude-opus-5-5`, effort high, max 3 repairs, terse)
+
+The whole corpus with pass 0 (#28): 38 seed cases (37 generation cases and one checker case,
+skipped) and 229 mutants.
+
+| Metric | Seed | Repair benchmark |
+|---|---|---|
+| cases | 37 | 229 |
+| outcome_match_rate | 1.0 | 1.0 |
+| spec_correctness_rate | 1.0 (37/37) | 1.0 (229/229) |
+| net_equivalence_rate | 1.0 | 1.0 |
+| reference_properties_hold_rate | 1.0 | 1.0 |
+| mean_repair_rounds | 0.16 (31 cases none, 6 one) | 1.05 |
+| human_escalation_rate | 0.0 | 0.0 |
+| API calls | 117 | 469 |
+| output tokens | 191k | 922k |
+| input tokens (uncached + cache reads) | 26k + 353k | 290k + 2.33M |
+
+Pass 0 added relations in exactly the three cases that withhold them, and nothing in the other
+34: `pj_no_relation` got `member_of = project_members(user_id, project_id)`, both `tt_*` cases the
+base relation and both composed paths (`tt_good` named them `project_of` and `task_of`, which
+`align_relations` matched to the reference's `in_project` and `in_task`).  Its answer never
+needed a repair round.  It cost one call per seed case (37 of the 117) and is skipped by the
+repair benchmark, whose calls are as before.
+
+Every case is correct, against 32/35 and 218/221 on 2026-11-05.  The three seed cases that failed
+then were fixed in the text or retired since (the `st_*` sentence, `st_self_grant`), so this is
+the first run on a corpus with no known ambiguous sentence, not evidence that pass 0 improves the
+other two passes; the run-to-run spread recorded above (two to four cases) still applies to the
+next run.  The transcripts are not committed.

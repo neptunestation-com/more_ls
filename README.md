@@ -157,8 +157,9 @@ uv run mls generate requirements.txt --skeleton spec.mls --out generated.mls
 
 Three passes (the relations the schema lacks, then properties from the requirements, then rules
 that satisfy them), each answer checked and proved locally, with bounded repair driven by the prover's counterexamples and the lint's
-findings; what does not converge is escalated to a human. With `claude-opus-5-5`, 32 of 35 seed
-cases ended proved and equivalent to their reference, and 218 of 221 mutated specs were repaired.
+findings; what does not converge is escalated to a human. With `claude-opus-5-5`, all 37 seed
+cases ended proved and equivalent to their reference in the latest run, and all 229 mutated specs
+were repaired.
 The seed requirement texts were written by the author of the loop, so a corpus of real ones is the
 open question: [contributions welcome](https://github.com/neptunestation-com/more_ls/issues/1).
 [GUIDE §12](docs/GUIDE.md#12-writing-specs-with-an-llm) explains how to use it;
