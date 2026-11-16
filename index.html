@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MLS: row-level security, proved</title>
+  <meta name="description" content="MLS states who may see and change which rows of a Postgres database, proves the guarantees you care about with an SMT solver, and compiles the rules to RLS policies, CHECKs, foreign keys and triggers tested against Postgres 15-18. Keep your tables, replace your policies." />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+    :root {
+      /* Supabase dark family + official green (the PROVED colour); lilac is this project's own accent. */
+      --bg: #121212;
+      --bg-surface: #181818;
+      --bg-raised: #1E1E1E;
+      --bg-control: #232323;
+      --green: #3ECF8E;
+      --green-dark: #24B47E;
+      --green-glow: rgba(62, 207, 142, 0.13);
+      --lilac: #B9A6F5;          /* MLS's accent */
+      --lilac-dim: #9884DE;
+      --lilac-glow: rgba(185, 166, 245, 0.12);
+      --amber: #E8B96B;          /* UNKNOWN */
+      --fg: #FAFAFA;
+      --fg-dim: #B4B4B4;
+      --fg-muted: #8A8A8A;
+      --fg-faint: #565656;
+      --border: #262626;
+      --border-strong: #383838;
+      --red: #E5675D;            /* REFUTED */
+      --font-display: 'Fraunces', Georgia, 'Times New Roman', serif;
+      --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --font-mono: 'JetBrains Mono', 'Source Code Pro', Menlo, monospace;
+      --ease: cubic-bezier(0.16, 1, 0.3, 1);
+      --maxw: 1120px;
+    }
+
+    html { color-scheme: dark; scroll-behavior: smooth; overflow-x: clip; }
+    body {
+      font-family: var(--font-sans);
+      background: var(--bg);
+      color: var(--fg);
+      line-height: 1.6;
+      font-size: 16px;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+    a { color: var(--green); text-decoration: none; }
+    a:hover { color: var(--green-dark); }
+    ::selection { background: rgba(185, 166, 245, 0.28); }
+    code { font-family: var(--font-mono); font-size: 0.86em; color: var(--green); }
+    strong { color: var(--fg); font-weight: 600; }
+
+    .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 28px; }
+    @media (max-width: 520px) { .wrap { padding: 0 16px; } }
+
+    .eyebrow {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--lilac);
+    }
+    .display { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.015em; line-height: 1.05; }
+
+    /* ---------- nav ---------- */
+    nav {
+      position: sticky; top: 0; z-index: 50;
+      background: rgba(18, 18, 18, 0.72);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-inner { display: flex; align-items: center; justify-content: space-between; height: 60px; }
+    .brand { display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-weight: 500; font-size: 15px; color: var(--fg); }
+    .brand:hover { color: var(--fg); }
+    .nav-links { display: flex; align-items: center; gap: 28px; }
+    .nav-links a { color: var(--fg-dim); font-size: 14px; }
+    .nav-links a:hover { color: var(--fg); }
+    .nav-gh { display: inline-flex; align-items: center; gap: 7px; color: var(--fg) !important; padding: 7px 14px; border: 1px solid var(--border-strong); border-radius: 7px; }
+    .nav-gh:hover { border-color: var(--green); }
+    .nav-gh svg { width: 15px; height: 15px; }
+    @media (max-width: 760px) { .nav-links a:not(.nav-gh) { display: none; } }
+
+    /* ---------- hero ---------- */
+    .hero { position: relative; padding: 96px 0 80px; overflow: hidden; }
+    .hero-spot {
+      position: absolute; top: -200px; left: 50%; transform: translateX(-50%);
+      width: 1100px; height: 640px;
+      background: radial-gradient(ellipse at center, var(--lilac-glow) 0%, transparent 65%);
+      pointer-events: none; z-index: 0;
+    }
+    .hero-inner { position: relative; z-index: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 56px; align-items: center; }
+    .hero-inner > div { min-width: 0; }
+    .hero h1 { font-size: clamp(2rem, 4.8vw, 3.7rem); margin: 18px 0 22px; white-space: nowrap; }
+    .hero h1 em { font-style: italic; color: var(--lilac); }
+    .hero p.lede { color: var(--fg-dim); font-size: 1.12rem; max-width: 52ch; }
+    .hero-actions { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 32px; }
+    .pill { display: inline-flex; align-items: center; gap: 8px; padding: 5px 13px; border: 1px solid var(--border-strong); border-radius: 100px; font-family: var(--font-mono); font-size: 12px; color: var(--fg-dim); }
+    .pill .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); }
+
+    .btn { display: inline-flex; align-items: center; gap: 9px; padding: 12px 22px; border-radius: 8px; font-family: var(--font-sans); font-size: 15px; font-weight: 500; cursor: pointer; border: 1px solid transparent; transition: background 140ms var(--ease), border-color 140ms var(--ease), color 140ms var(--ease), transform 140ms var(--ease); }
+    .btn:active { transform: translateY(1px); }
+    .btn-primary { background: var(--green); color: #06140D; }
+    .btn-primary:hover { background: var(--green-dark); color: #06140D; }
+    .btn-ghost { background: var(--bg-control); color: var(--fg); border-color: var(--border-strong); }
+    .btn-ghost:hover { border-color: var(--green); color: var(--fg); }
+    .btn svg { width: 16px; height: 16px; }
+
+    /* ---------- signature: the proof stack (requirement, rule, refuted, fix, proved) ---------- */
+    .stack { position: relative; display: flex; flex-direction: column; gap: 10px; }
+    .slip {
+      position: relative; border-radius: 12px; border: 1px solid var(--border-strong);
+      background: var(--bg-surface); padding: 13px 16px 14px;
+      opacity: 0; transform: translateY(14px);
+      transition: opacity 600ms var(--ease), transform 600ms var(--ease);
+      box-shadow: 0 14px 34px rgba(0,0,0,0.38);
+    }
+    .stack.play .slip { opacity: 1; transform: none; }
+    .stack.play .slip:nth-child(2) { transition-delay: 450ms; }
+    .stack.play .slip:nth-child(3) { transition-delay: 1100ms; }
+    .stack.play .slip:nth-child(4) { transition-delay: 2100ms; }
+    .slip .k { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--fg-muted); margin-bottom: 6px; }
+    .slip .say { font-family: var(--font-display); font-style: italic; font-size: 1.12rem; color: var(--fg); line-height: 1.3; }
+    .slip pre { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; color: var(--fg-dim); white-space: pre-wrap; word-break: break-word; }
+    .slip pre .kw { color: var(--lilac); }
+    .slip pre .id { color: var(--fg); }
+    .slip.ce { border-color: rgba(229,103,93,0.45); background: linear-gradient(160deg, rgba(229,103,93,0.08), var(--bg-surface)); }
+    .slip.fix { border-color: var(--green-dark); background: linear-gradient(160deg, rgba(62,207,142,0.08), var(--bg-surface)); }
+    .verdict { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 5px; text-transform: uppercase; }
+    .verdict.no { color: var(--red); border: 1px solid rgba(229,103,93,0.5); background: rgba(229,103,93,0.08); }
+    .verdict.yes { color: var(--green); border: 1px solid var(--green-dark); background: var(--green-glow); }
+    .verdict.unk { color: var(--amber); border: 1px solid rgba(232,185,107,0.5); background: rgba(232,185,107,0.08); }
+
+    /* ---------- sections ---------- */
+    .section { padding: 96px 0; border-top: 1px solid var(--border); }
+    .section-head { max-width: 660px; margin-bottom: 56px; }
+    .section-head h2 { font-size: clamp(1.9rem, 3.6vw, 2.7rem); margin: 14px 0 16px; }
+    .section-head p { color: var(--fg-dim); font-size: 1.06rem; }
+
+    /* three failure modes */
+    .wrongs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+    .wrong { background: var(--bg-surface); border: 1px solid var(--border); border-radius: 14px; padding: 28px; min-width: 0; transition: border-color 160ms var(--ease), transform 160ms var(--ease); }
+    .wrong:hover { border-color: var(--border-strong); transform: translateY(-3px); }
+    .wrong .no { font-family: var(--font-display); font-style: italic; font-size: 1.5rem; color: var(--lilac); }
+    .wrong h3 { font-size: 1.1rem; margin: 10px 0 9px; letter-spacing: -0.01em; }
+    .wrong p { color: var(--fg-dim); font-size: 0.95rem; }
+    .wrong pre { margin-top: 16px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 13px; overflow-x: auto; font-family: var(--font-mono); font-size: 11.5px; line-height: 1.6; color: var(--fg-dim); }
+    .wrong .caught { margin-top: 16px; font-family: var(--font-mono); font-size: 11.5px; color: var(--green); }
+    @media (max-width: 880px) { .wrongs { grid-template-columns: 1fr; } }
+
+    /* beats: how it works */
+    .beats { display: flex; flex-direction: column; gap: 76px; }
+    .beat { display: grid; grid-template-columns: 1fr 1fr; gap: 52px; align-items: center; }
+    .beat:nth-child(even) .beat-copy { order: 2; }
+    .beat:nth-child(even) .fig { order: 1; }
+    .beat-copy { min-width: 0; overflow-wrap: break-word; }
+    .beat-copy .move { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.03em; color: var(--lilac); display: inline-flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+    .beat-copy .move code { color: var(--lilac-dim); font-size: 0.92em; }
+    .move-n { flex: none; width: 23px; height: 23px; border-radius: 50%; border: 1px solid var(--lilac-dim); display: inline-grid; place-items: center; font-family: var(--font-display); font-size: 13px; color: var(--lilac); }
+    .beat-copy h3 { font-family: var(--font-display); font-weight: 500; font-size: clamp(1.3rem, 2.4vw, 1.72rem); line-height: 1.16; letter-spacing: -0.01em; margin: 15px 0 13px; }
+    .beat-copy h3 em { font-style: italic; color: var(--lilac); }
+    .beat-copy p { color: var(--fg-dim); font-size: 1rem; }
+    .beat-copy p + p { margin-top: 12px; }
+
+    .fig { margin: 0; min-width: 0; }
+    .dg { --p: 0; position: relative; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 14px; padding: 26px 24px; min-height: 240px; display: flex; flex-direction: column; justify-content: center; gap: 14px; overflow: hidden; }
+    .term { font-family: var(--font-mono); font-size: 12px; line-height: 1.6; color: var(--fg-dim); white-space: pre-wrap; word-break: break-word; }
+    .term .pr { color: var(--fg-muted); }
+    .term .kw { color: var(--lilac); }
+    .term .ok { color: var(--green); }
+    .term .bad { color: var(--red); }
+    .term .hi { color: var(--fg); }
+    .term .cm { color: var(--fg-muted); }
+    @media (max-width: 520px) { .term { white-space: pre; overflow-x: auto; font-size: 11px; word-break: normal; } }
+    .fig-cap { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted); letter-spacing: 0.02em; }
+
+    /* the NULL figure: one expression, three targets */
+    .tvl { display: grid; grid-template-columns: 1.25fr 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; font-family: var(--font-mono); font-size: 11.5px; }
+    .tvl > div { background: var(--bg); padding: 10px 12px; color: var(--fg-dim); display: flex; align-items: center; gap: 8px; min-width: 0; }
+    .tvl .h { background: var(--bg-raised); color: var(--fg-muted); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; }
+    .tvl .mls { background: rgba(185,166,245,0.07); color: var(--fg); }
+    .expr { font-family: var(--font-mono); font-size: 12px; color: var(--fg); display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .expr .arrow { color: var(--fg-muted); }
+
+    /* the performance figure: scroll-scrubbed bars on a log scale */
+    .perf { display: flex; flex-direction: column; gap: 10px; }
+    .prow { display: grid; grid-template-columns: 178px 1fr 62px; gap: 12px; align-items: center; }
+    .prow .lbl { font-family: var(--font-mono); font-size: 10.5px; color: var(--fg-muted); line-height: 1.3; }
+    .prow .lbl b { color: var(--fg-dim); font-weight: 500; }
+    .prow .t { font-family: var(--font-mono); font-size: 11px; color: var(--fg-dim); text-align: right; }
+    .track { position: relative; height: 14px; border-radius: 5px; background: var(--bg-control); overflow: hidden; }
+    .track i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(calc(var(--p) * var(--w))); }
+    .track.good i { background: linear-gradient(90deg, rgba(62,207,142,0.45), rgba(62,207,142,0.85)); }
+    .track.slow i { background: linear-gradient(90deg, rgba(229,103,93,0.45), rgba(229,103,93,0.85)); }
+    .prow.mine .lbl b { color: var(--green); }
+    @media (max-width: 520px) { .prow { grid-template-columns: 1fr 56px; } .prow .track { grid-column: 1 / -1; grid-row: 2; } }
+
+    /* the test matrix */
+    .matrix { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+    .cell { border: 1px solid var(--green-dark); background: var(--green-glow); border-radius: 8px; padding: 12px 6px; text-align: center; font-family: var(--font-mono); font-size: 12px; color: var(--green); }
+    .cell small { display: block; font-size: 9px; color: var(--fg-muted); margin-top: 3px; }
+    .mut { display: flex; align-items: center; gap: 10px; font-family: var(--font-mono); font-size: 11.5px; color: var(--fg-dim); border: 1px dashed var(--border-strong); border-radius: 8px; padding: 10px 12px; }
+    .mut .x { color: var(--red); }
+    @media (max-width: 520px) { .matrix { grid-template-columns: repeat(3, 1fr); } }
+
+    @media (max-width: 860px) {
+      .beat, .beat:nth-child(even) .beat-copy, .beat:nth-child(even) .fig { grid-template-columns: 1fr; order: 0; }
+      .beat { gap: 26px; }
+    }
+
+    /* takeover steps */
+    .acts { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: 14px; overflow: hidden; }
+    .act { background: var(--bg-surface); padding: 30px 30px; min-width: 0; }
+    .act:hover { background: var(--bg-raised); }
+    .act-no { font-family: var(--font-display); font-style: italic; font-size: 1.4rem; color: var(--lilac); }
+    .act h3 { font-size: 1.1rem; margin: 8px 0 8px; letter-spacing: -0.01em; }
+    .act p { color: var(--fg-dim); font-size: 0.95rem; }
+    .act pre { margin-top: 12px; font-family: var(--font-mono); font-size: 11px; line-height: 1.55; color: var(--fg-dim); white-space: pre-wrap; word-break: break-word; }
+    .act pre .pr { color: var(--fg-muted); }
+    .act pre .ok { color: var(--green); }
+    @media (max-width: 760px) { .acts { grid-template-columns: 1fr; } }
+    .after { margin-top: 28px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .after .dg { min-height: 0; }
+    @media (max-width: 760px) { .after { grid-template-columns: 1fr; } }
+
+    /* honesty grid */
+    .truths { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; }
+    .truth { display: flex; gap: 16px; padding: 24px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 12px; min-width: 0; }
+    .truth .mk { flex: none; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; background: var(--lilac-glow); }
+    .truth .mk svg { width: 17px; height: 17px; stroke: var(--lilac); fill: none; stroke-width: 1.6; }
+    .truth > div:last-child { min-width: 0; }
+    .truth h3 { font-size: 1rem; margin-bottom: 5px; }
+    .truth p { color: var(--fg-dim); font-size: 0.93rem; }
+    @media (max-width: 720px) { .truths { grid-template-columns: 1fr; } }
+
+    /* install cta */
+    .cta { text-align: center; }
+    .cta h2 { font-size: clamp(1.9rem, 3.6vw, 2.6rem); margin-bottom: 14px; }
+    .cta p { color: var(--fg-dim); margin-bottom: 28px; }
+    .cta .cta-note { font-size: 14px; color: var(--fg-muted); max-width: 640px; margin: 16px auto 0; }
+    .codecopy { max-width: 680px; margin: 0 auto; display: flex; align-items: center; gap: 10px; background: var(--bg-surface); border: 1px solid var(--border-strong); border-radius: 10px; padding: 6px 6px 6px 18px; text-align: left; }
+    .codecopy code { flex: 1; font-size: 13px; color: var(--fg-dim); overflow-x: auto; white-space: nowrap; }
+    .codecopy button { flex: none; }
+    .cta-actions { margin-top: 26px; display: flex; justify-content: center; gap: 14px; flex-wrap: wrap; }
+
+    /* ---------- footer ---------- */
+    footer { border-top: 1px solid var(--border); padding: 48px 0 64px; }
+    .foot-inner { display: flex; justify-content: space-between; gap: 32px; flex-wrap: wrap; }
+    .foot-inner p { color: var(--fg-muted); font-size: 14px; }
+    .foot-brand { font-family: var(--font-mono); color: var(--fg); margin-bottom: 8px; }
+    .foot-right { text-align: right; max-width: 40ch; }
+    @media (max-width: 680px) { .foot-right { text-align: left; } }
+
+    /* reveal */
+    .reveal { opacity: 0; transform: translateY(36px); transition: opacity 720ms var(--ease), transform 720ms var(--ease); }
+    .reveal.in { opacity: 1; transform: none; }
+
+    @media (max-width: 920px) {
+      .hero { padding: 40px 0 56px; }
+      .hero-inner { grid-template-columns: 1fr; gap: 36px; }
+      .hero h1 { font-size: min(10vw, 3.4rem); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { scroll-behavior: auto !important; }
+      .reveal { opacity: 1; transform: none; transition: none; }
+      .slip { opacity: 1; transform: none; transition: none; }
+      .dg { --p: 1; }
+    }
+  </style>
+</head>
+<body>
+  <nav>
+    <div class="wrap nav-inner">
+      <a class="brand" href="#top">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="4" rx="1.5" fill="var(--lilac)"/>
+          <rect x="3" y="10" width="18" height="4" rx="1.5" fill="var(--green)"/>
+          <rect x="3" y="16" width="11" height="4" rx="1.5" fill="var(--green-dark)"/>
+          <path d="M16.5 18l1.6 1.6 3.2-3.4" stroke="var(--green)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        mls
+      </a>
+      <div class="nav-links">
+        <a href="#wrong">Why</a>
+        <a href="#how">How it works</a>
+        <a href="#takeover">Takeover</a>
+        <a href="#truth">Honesty</a>
+        <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md" target="_blank" rel="noopener">Docs</a>
+        <a class="nav-gh" href="https://github.com/neptunestation-com/more_ls" target="_blank" rel="noopener">
+          <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+          <span>GitHub</span>
+        </a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero" id="top">
+    <div class="hero-spot"></div>
+    <div class="wrap hero-inner">
+      <div>
+        <span class="eyebrow">RLS, more or less</span>
+        <h1 class="display">Say who sees what.<br>Prove it holds.<br>Then <em>compile</em> it.</h1>
+        <p class="lede">MLS states who may see and change which rows of a Postgres database, once. It <strong>proves</strong> the guarantees you care about with an SMT solver before anything is deployed, and compiles the rules to ordinary RLS policies, <code>CHECK</code>s, foreign keys and triggers, each tested against the real server. Keep your tables; replace your policies.</p>
+        <div class="hero-actions">
+          <a class="btn btn-primary" href="#install">Get started</a>
+          <a class="btn btn-ghost" href="https://github.com/neptunestation-com/more_ls" target="_blank" rel="noopener">
+            <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+            View on GitHub
+          </a>
+        </div>
+        <div style="margin-top:26px"><span class="pill"><span class="dot"></span>Postgres 15–18 · Supabase · Z3 + cvc5 · Lean 4</span></div>
+      </div>
+
+      <div class="stack" id="stack" aria-label="A requirement, the rule written for it, the counterexample the prover finds, and the fix that makes the guarantee hold">
+        <div class="slip">
+          <div class="k"><span>The requirement</span></div>
+          <div class="say">“Team admins can read every note of their team.”</div>
+        </div>
+        <div class="slip">
+          <div class="k"><span>The rule you'd write by hand</span></div>
+          <pre><span class="id">R2</span> <span class="kw">policy</span> admin_read <span class="kw">on</span> notes: authenticated select
+   permissive <span class="kw">using</span> admin_of(@uid, team_id)</pre>
+        </div>
+        <div class="slip ce">
+          <div class="k"><span>P1 · a user only reads the notes of their own teams</span><span class="verdict no">Refuted</span></div>
+          <pre>counterexample:
+  context: uid = uuid#0
+  r (notes): team_id = 1
+  admin_of  = {(uuid#0, 1)}
+  member_of = {∅}</pre>
+        </div>
+        <div class="slip fix">
+          <div class="k"><span>The fix: admins are members</span><span class="verdict yes">P1 Proved</span></div>
+          <pre><span class="id">R3</span> <span class="kw">inclusion</span> admin_is_member <span class="kw">on</span> admins:
+   (user_id, team_id) <span class="kw">in</span> member_of on_delete restrict</pre>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <section class="section" id="wrong">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow">Why it exists</span>
+        <h2 class="display">Three ways hand-written RLS goes wrong.</h2>
+        <p>Each is easy to see once someone points at it, and hard to see in a review of forty policies. MLS takes them in turn.</p>
+      </div>
+      <div class="wrongs">
+        <div class="wrong reveal">
+          <div class="no">i.</div>
+          <h3>A second policy opens a second door.</h3>
+          <p>Postgres ORs permissive policies. Add "admins read their team's notes" next to "members read their team's notes", and isolation now rests on every admin also being a member: a fact in another table, enforced by nothing.</p>
+          <div class="caught">→ the prover finds it, with a counterexample</div>
+        </div>
+        <div class="wrong reveal">
+          <div class="no">ii.</div>
+          <h3>NULL is not false.</h3>
+          <p>A policy admits a row only when its expression is TRUE; a <code>CHECK</code> rejects one only when it is FALSE. The same expression means two things in two places, and a NULL column falls in the gap.</p>
+          <pre>-- archived IS NULL:
+using (not archived = 1) -- hidden
+check (not archived = 1) -- let in</pre>
+          <div class="caught">→ three-valued semantics, one meaning everywhere</div>
+        </div>
+        <div class="wrong reveal">
+          <div class="no">iii.</div>
+          <h3>The policy is right, and slow.</h3>
+          <p>Membership checks that return the same rows can run in a fraction of a millisecond or in hundreds, depending on how they're written. Nothing in the policy text tells you which kind you wrote.</p>
+          <div class="caught">→ the compiler emits only the shape that stays on the index</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="how">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow">How it works</span>
+        <h2 class="display">Rules are enforced. Properties are proved.</h2>
+        <p>A spec says who may see and change which rows, and which invariants the data must satisfy. The <em>rules</em> are what gets enforced; the <em>properties</em> are what gets proved about them, whatever the rules end up being. Everything below is real output from the guide's tour, which the test suite replays.</p>
+      </div>
+
+      <div class="beats">
+
+        <!-- 1 -->
+        <div class="beat reveal">
+          <div class="beat-copy">
+            <span class="move"><span class="move-n">1</span> Write the rules &middot; <code>.mls</code></span>
+            <h3>One line per rule, in a language small enough to <em>prove</em>.</h3>
+            <p>Membership, comparisons with the current user or constants, hierarchies with a declared depth, time windows, column rules. No joins, no arithmetic, no functions in predicates: that's what keeps every proof decidable. Anything else goes in an explicit <code>opaque</code> block, and every proof that needs it says so.</p>
+            <p>The terse syntax and the JSON are the same model; <code>mls fmt</code> converts.</p>
+          </div>
+          <figure class="fig" aria-hidden="true">
+            <div class="dg">
+              <div class="term"><span class="kw">identity</span> supabase { uid: auth.uid uuid }
+<span class="kw">relation</span> member_of = members(user_id, team_id)
+<span class="kw">relation</span> admin_of  = admins(user_id, team_id)
+
+<span class="kw">rules</span> {
+  <span class="hi">R1</span> <span class="kw">policy</span> member_read <span class="kw">on</span> notes: authenticated
+     select permissive <span class="kw">using</span> member_of(@uid, team_id)
+  <span class="hi">R4</span> <span class="kw">policy</span> hide_archived <span class="kw">on</span> notes: authenticated
+     all restrictive <span class="kw">using</span> archived is null or archived &lt;&gt; 1
+}</div>
+              <div class="fig-cap">examples/team_notes.mls (abridged)</div>
+            </div>
+          </figure>
+        </div>
+
+        <!-- 2 -->
+        <div class="beat reveal">
+          <div class="beat-copy">
+            <span class="move"><span class="move-n">2</span> State the promises &middot; <code>properties</code></span>
+            <h3>Say what must <em>never</em> happen, and what must <em>always</em> work.</h3>
+            <p>Tenant isolation, immutable columns, monotonicity in membership, write&nbsp;⊆&nbsp;read, least privilege, inductive invariants, role separation, custom upper bounds. And <code>must_allow</code>, the lower bound: a spec that denies everything satisfies every safety property, so you also say what a role must be able to do.</p>
+          </div>
+          <figure class="fig" aria-hidden="true">
+            <div class="dg">
+              <div class="term"><span class="kw">properties</span> {
+  <span class="hi">P1</span> <span class="kw">tenant_isolation</span> notes:
+     team_id in member_of(@uid) for select
+     description <span class="ok">'a user only reads the notes
+                  of their own teams'</span>
+  <span class="hi">P2</span> <span class="kw">must_allow</span> notes authenticated select:
+     member_of(@uid, team_id)
+       and (archived is null or archived = 0)
+     description <span class="ok">'a member reads every note of
+                  their team that is not archived'</span>
+}</div>
+            </div>
+          </figure>
+        </div>
+
+        <!-- 3 -->
+        <div class="beat reveal">
+          <div class="beat-copy">
+            <span class="move"><span class="move-n">3</span> Prove &middot; <code>mls prove</code></span>
+            <h3>A failed proof is a database you can <em>read aloud</em>.</h3>
+            <p>The solver checks each property against every possible database, not the rows you happened to test with. When one fails you get a concrete situation that breaks it, small enough to read in a meeting. Here, a member of team 3 can't read their team's note, because its <code>archived</code> is NULL and the restrictive policy said <code>not archived = 1</code>.</p>
+            <p><code>mls prove</code> exits 2 when anything is refuted, so CI fails the build.</p>
+          </div>
+          <figure class="fig" aria-hidden="true">
+            <div class="dg">
+              <div class="term"><span class="pr">$</span> <span class="hi">uv run mls prove notes.mls</span>
+<span class="hi">**1 proved, 1 refuted, 0 unknown**</span>
+...
+### P2 (must_allow): <span class="bad">REFUTED</span> — a member reads every
+    note of their team that is not archived
+
+- <span class="ok">PROVED</span>: select as authenticated: some row meets the condition
+- <span class="bad">REFUTED</span>: select as authenticated: every row meeting
+  the condition is admitted
+  counterexample:
+  - context: uid = uuid#2
+  - r (notes): team_id = 3, <span class="hi">archived = None</span>
+  - member_of = {(uuid#2, 3)}</div>
+            </div>
+          </figure>
+        </div>
+
+        <!-- 4 -->
+        <div class="beat reveal">
+          <div class="beat-copy">
+            <span class="move"><span class="move-n">4</span> Three values, one meaning</span>
+            <h3>TRUE, FALSE, and <em>UNKNOWN</em>, everywhere.</h3>
+            <p>Every predicate has SQL's three-valued meaning, in the prover and in the compiler. The solver works on (is-true, is-false) pairs, so it can't take the two-valued shortcut that hides the NULL. And the compiler normalizes every target to the same reading: <code>CHECK ((p) IS TRUE)</code>, a trigger's <code>IF NOT ((p) IS TRUE)</code>. A rule admits the same rows whether it's enforced by a policy, a constraint or a trigger.</p>
+          </div>
+          <figure class="fig" aria-hidden="true">
+            <div class="dg">
+              <div class="expr"><span>not archived = 1</span><span class="arrow">with archived NULL →</span><span class="verdict unk">Unknown</span></div>
+              <div class="tvl">
+                <div class="h">Enforced as</div><div class="h">By hand</div><div class="h">Compiled by MLS</div>
+                <div>RLS <code>using</code></div><div><span class="verdict no">hidden</span></div><div class="mls"><span class="verdict no">hidden</span></div>
+                <div><code>CHECK</code></div><div><span class="verdict yes">accepted</span></div><div class="mls"><span class="verdict no">rejected</span></div>
+                <div>trigger guard</div><div><span class="verdict yes">accepted</span></div><div class="mls"><span class="verdict no">rejected</span></div>
+              </div>
+              <div class="fig-cap">by hand, the same expression disagrees with itself; compiled, it means one thing</div>
+            </div>
+          </figure>
+        </div>
+
+        <!-- 5 -->
+        <div class="beat reveal">
+          <div class="beat-copy">
+            <span class="move"><span class="move-n">5</span> Compile &middot; <code>mls compile</code></span>
+            <h3>One SQL script, in the one shape that stays <em>fast</em>.</h3>
+            <p>Policies, <code>CHECK</code>s, composite foreign keys, triggers from fixed templates, column privileges, indexes, grants, and hardening: row-level security forced on every table, so the owner obeys the policies too. Every statement ends with the rule it came from.</p>
+            <p>Membership always compiles to <code>col = any(array(select ...))</code>, which Postgres runs once per statement and drives from an index, and the script adds that index. Measured on a million rows:</p>
+          </div>
+          <figure class="fig" aria-hidden="true">
+            <div class="dg">
+              <div class="term"><span class="kw">create policy</span> "member_read" <span class="kw">on</span> "notes"
+  as permissive for select to "authenticated"
+  using (("team_id" = any (array(
+    select "team_id" from "members"
+    where "user_id" = (select auth.uid())))));  <span class="cm">-- R1</span></div>
+              <div class="perf" id="perf">
+                <div class="prow mine"><span class="lbl"><b>= any(array(select ..))</b><br>what MLS emits</span><span class="track good"><i style="--w:0.07"></i></span><span class="t">0.23 ms</span></div>
+                <div class="prow"><span class="lbl"><b>in (select ..)</b></span><span class="track slow"><i style="--w:0.57"></i></span><span class="t">71 ms</span></div>
+                <div class="prow"><span class="lbl"><b>correlated exists(..)</b></span><span class="track slow"><i style="--w:0.70"></i></span><span class="t">332 ms</span></div>
+                <div class="prow"><span class="lbl"><b>per-row function</b></span><span class="track slow"><i style="--w:0.95"></i></span><span class="t">5,700 ms</span></div>
+              </div>
+              <div class="fig-cap">select count(*) as the app role · 1M rows, 1,000 tenants · log scale · docs/FINDINGS.md</div>
+            </div>
+          </figure>
+        </div>
+
+        <!-- 6 -->
+        <div class="beat reveal">
+          <div class="beat-copy">
+            <span class="move"><span class="move-n">6</span> Test against the real thing &middot; <code>mls test</code></span>
+            <h3>The proofs are about the model. The tests tie the model to <em>Postgres</em>.</h3>
+            <p>Every compiler template has a differential test: generated databases and statements, run through MLS's own evaluator and through the compiled objects on Postgres 15, 16, 17 and 18, which must agree row for row. The Supabase examples run again on Supabase's own image, deployed as its non-superuser <code>postgres</code> role.</p>
+            <p>And every template has a mutation: a deliberately wrong version the differential test must catch. A test that still passes against a broken template isn't testing anything, so it fails the build.</p>
+          </div>
+          <figure class="fig" aria-hidden="true">
+            <div class="dg">
+              <div class="matrix">
+                <div class="cell">15<small>postgres</small></div>
+                <div class="cell">16<small>postgres</small></div>
+                <div class="cell">17<small>postgres</small></div>
+                <div class="cell">18<small>postgres</small></div>
+                <div class="cell">supabase<small>non-superuser</small></div>
+              </div>
+              <div class="mut"><span class="x">✕</span> IN_DROP_LAST · REPLACE_KEEPS_FOREIGN · HOP_VISIBILITY_DROPPED · …</div>
+              <div class="fig-cap">19 template mutations, each caught by the differential test · proofs cross-checked with cvc5 · core semantics formalized in Lean 4</div>
+            </div>
+          </figure>
+        </div>
+
+        <!-- 7 -->
+        <div class="beat reveal">
+          <div class="beat-copy">
+            <span class="move"><span class="move-n">7</span> Approve in English &middot; <code>mls explain</code></span>
+            <h3>Nobody has to read the spec to <em>approve</em> it.</h3>
+            <p>The person who owns the requirements approves the properties and the scenarios, in plain English. Each sentence is a promise the solver has checked. When a spec changes, <code>mls diff</code> lists every change in effect, for whom, with an example row.</p>
+            <p>That's also what makes it safe to let an LLM write the spec: <code>mls generate</code> turns requirement sentences into rules and properties, and repairs them against the prover until they hold.</p>
+          </div>
+          <figure class="fig" aria-hidden="true">
+            <div class="dg">
+              <div class="term"><span class="pr">$</span> <span class="hi">uv run mls explain notes.mls</span>
+# What is guaranteed (properties)
+
+- <span class="hi">P1</span>: Any row of notes a user can read has a
+  team_id among the current user's member_of.
+- <span class="hi">P2</span>: authenticated can read every row of notes
+  where the row's team_id is among the current
+  user's member_of and (the row's archived is
+  empty or the row's archived is 0).</div>
+            </div>
+          </figure>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="takeover">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow">The common case</span>
+        <h2 class="display">Keep your tables. Replace your policies.</h2>
+        <p>Most projects already have a database: tables and data that stay where they are, and policies written by hand and never proved. The takeover keeps the schema and lets MLS own the policies. The <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/TAKEOVER.md">runbook</a> has every command with what it prints, and the test suite replays it on Supabase's own image.</p>
+      </div>
+      <div class="acts reveal">
+        <div class="act">
+          <div class="act-no">i.</div>
+          <h3>Record what the old policies allow</h3>
+          <p>Before touching anything, import today's behaviour as a spec. It's what you compare against, and what you roll back to.</p>
+          <pre><span class="pr">$</span> mls import --dsn "$DATABASE_URL" --out before.mls</pre>
+        </div>
+        <div class="act">
+          <div class="act-no">ii.</div>
+          <h3>Import the skeleton</h3>
+          <p>Tables, keys, readable <code>CHECK</code>s, membership tables and the identity adapter, read from the catalog. No policy is imported. MLS adds rules to these tables and never recreates them.</p>
+          <pre><span class="pr">$</span> mls import --dsn "$DATABASE_URL" --policies discard --out spec.mls
+spec.mls: imported 5 table(s), 28 note(s)</pre>
+        </div>
+        <div class="act">
+          <div class="act-no">iii.</div>
+          <h3>Read the notes, close the bypass paths</h3>
+          <p>Every policy the deploy will drop, the tables with RLS off today, and the <em>bypass paths</em>: a view that isn't <code>security_invoker</code>, a <code>SECURITY DEFINER</code> function an app role can call. Each note ends with its fix.</p>
+        </div>
+        <div class="act">
+          <div class="act-no">iv.</div>
+          <h3>Write the requirements, then the rules</h3>
+          <p>One sentence per grant. Then the rules and properties that state them: by hand, from the guide's recipes, or with <code>mls generate --skeleton spec.mls</code>.</p>
+        </div>
+        <div class="act">
+          <div class="act-no">v.</div>
+          <h3>Prove, then compare</h3>
+          <p>Prove until every property holds, then diff against the old behaviour: every change in effect, with an example, for the people who own the requirements.</p>
+          <pre><span class="pr">$</span> mls diff before.mls spec.mls
+- authenticated can now read rows of tasks
+  that were not allowed before
+  - before: `false`
+  - after: `in_project(@uid, project_id)`</pre>
+        </div>
+        <div class="act">
+          <div class="act-no">vi.</div>
+          <h3>Preview, deploy, confirm</h3>
+          <p><code>mls preflight</code> finds rows the new constraints would reject; <code>mls drift</code> lists what the deploy drops and creates. The script runs in one transaction and names each policy it drops. Afterwards, drift is clean and every table is proved.</p>
+          <pre><span class="pr">$</span> mls status spec.mls --dsn "$DATABASE_URL"
+profiles: <span class="ok">proved</span> (P5, P6)
+projects: <span class="ok">proved</span> (P1, P3)
+tasks: <span class="ok">proved</span> (P2, P4, P9)
+team_members: <span class="ok">proved</span> (P8)
+teams: <span class="ok">proved</span> (P7)</pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section" id="truth">
+    <div class="wrap">
+      <div class="section-head reveal">
+        <span class="eyebrow">Stated assumptions</span>
+        <h2 class="display">It tells you what it didn't prove.</h2>
+        <p>A proof is only as good as what it assumes, so every proof report states its assumptions, and MLS refuses rather than silently enforce something weaker.</p>
+      </div>
+      <div class="truths">
+        <div class="truth reveal">
+          <div class="mk"><svg viewBox="0 0 20 20"><path d="M10 3l6 3v4c0 4-2.6 6-6 7-3.4-1-6-3-6-7V6z"/></svg></div>
+          <div><h3>Never silently weaker</h3><p>If a target can't enforce a construct soundly, the compiler refuses with an error that says what's wrong, where, and what to write instead. Errors are written for an LLM to act on, which also makes them good for people.</p></div>
+        </div>
+        <div class="truth reveal">
+          <div class="mk"><svg viewBox="0 0 20 20"><rect x="4" y="4" width="12" height="12" rx="2"/><path d="M8 10h4"/></svg></div>
+          <div><h3>Opaque means conditional</h3><p>Raw SQL is allowed only in an explicit <code>opaque</code> block. The prover treats it as a black box, and a proof that actually needs it is reported as conditional on it, by name. Opaque blocks are outside every performance guarantee too.</p></div>
+        </div>
+        <div class="truth reveal">
+          <div class="mk"><svg viewBox="0 0 20 20"><circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/></svg></div>
+          <div><h3>Trusted roles, and the ways around</h3><p>Superusers and <code>BYPASSRLS</code> roles (Supabase's <code>service_role</code>) bypass everything, and every report says so. Non-invoker views and <code>SECURITY DEFINER</code> functions over a governed table are reported as bypass paths, never rewritten: they're your objects.</p></div>
+        </div>
+        <div class="truth reveal">
+          <div class="mk"><svg viewBox="0 0 20 20"><path d="M3 14l4-5 3 3 4-6 3 4"/><path d="M3 17h14"/></svg></div>
+          <div><h3>A small language, on purpose</h3><p>No construct goes in whose proofs would leave a decidable fragment without a declared bound. Hierarchies have a maximum depth; a column some users see only on some rows becomes its own table, because there is no masking construct.</p></div>
+        </div>
+        <div class="truth reveal">
+          <div class="mk"><svg viewBox="0 0 20 20"><path d="M7 10l2 2 4-4"/><circle cx="10" cy="10" r="7.5"/></svg></div>
+          <div><h3>Measured on our own words</h3><p>With <code>claude-opus-5-5</code>, the LLM loop ended proved and equivalent to the reference on 32 of 35 seed cases, and repaired 218 of 221 mutated specs. But we wrote those requirement texts ourselves. A corpus of real ones is the open question.</p></div>
+        </div>
+        <div class="truth reveal">
+          <div class="mk"><svg viewBox="0 0 20 20"><path d="M10 6v5"/><circle cx="10" cy="14" r="0.6"/><circle cx="10" cy="10" r="7.5"/></svg></div>
+          <div><h3>Alpha, and Postgres only</h3><p>Version 0.1: the spec language and the CLI may change before 1.0; the semantics and the design decisions are settled. Postgres 15 to 18 only. Cardinality limits rely on a parent-row lock and are correct under READ COMMITTED; the report says so.</p></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="section cta" id="install">
+    <div class="wrap">
+      <div class="reveal">
+        <span class="eyebrow">Get started</span>
+        <h2 class="display">Clone it. Prove something.</h2>
+        <p>A Python 3.12+ package managed with <code style="color:var(--lilac)">uv</code>. Checking and proving need no database; testing uses Docker or a server you provide.</p>
+        <div class="codecopy">
+          <code id="install-cmd">git clone https://github.com/neptunestation-com/more_ls && cd more_ls && uv sync --all-extras && uv run mls prove examples/team_notes.mls</code>
+          <button class="btn btn-ghost" id="copy-install" type="button">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
+            <span class="lbl">Copy</span>
+          </button>
+        </div>
+        <p class="cta-note">Already running Supabase or Postgres in production? Start with the <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/TAKEOVER.md">takeover runbook</a>. New schema? The guide's ten-minute tour builds a spec one requirement at a time.</p>
+        <div class="cta-actions">
+          <a class="btn btn-primary" href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md" target="_blank" rel="noopener">Read the guide</a>
+          <a class="btn btn-ghost" href="https://github.com/neptunestation-com/more_ls/blob/main/docs/REFERENCE.md" target="_blank" rel="noopener">Reference</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="wrap foot-inner">
+      <div>
+        <p class="foot-brand">MLS · more_ls</p>
+        <p>Row-level security, more or less, proved.<br><a href="https://github.com/neptunestation-com/more_ls">GitHub</a> · <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md">Guide</a> · <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/REFERENCE.md">Reference</a> · <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/TAKEOVER.md">Runbook</a></p>
+      </div>
+      <div class="foot-right">
+        <p>Works with Supabase's <code style="color:var(--fg-dim)">auth.uid()</code> and is tested on Supabase's own Postgres image. A community project, not an official Supabase product.</p>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Scroll-reveal (respects reduced-motion via the CSS fallback).
+    const io = new IntersectionObserver((entries) => {
+      for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
+    }, { threshold: 0.12 });
+    document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+    // Scroll-driven figures: --p (0 = before, 1 = resolved) from each figure's viewport progress.
+    const figs = Array.from(document.querySelectorAll('.dg'));
+    const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) {
+      figs.forEach((f) => f.style.setProperty('--p', '1'));
+    } else if (figs.length) {
+      let ticking = false;
+      const update = () => {
+        ticking = false;
+        const vh = window.innerHeight || document.documentElement.clientHeight;
+        const lo = vh * 0.85, hi = vh * 0.45;
+        for (const f of figs) {
+          const r = f.getBoundingClientRect();
+          if (r.bottom < -40 || r.top > vh + 40) continue;
+          const c = r.top + r.height / 2;
+          const p = (lo - c) / (lo - hi);
+          f.style.setProperty('--p', Math.max(0, Math.min(1, p)).toFixed(3));
+        }
+      };
+      const onScroll = () => { if (!ticking) { ticking = true; requestAnimationFrame(update); } };
+      window.addEventListener('scroll', onScroll, { passive: true });
+      window.addEventListener('resize', onScroll, { passive: true });
+      update();
+    }
+
+    // Play the proof stack on load: requirement, rule, counterexample, fix.
+    const stack = document.getElementById('stack');
+    if (reduced) stack.classList.add('play');
+    else requestAnimationFrame(() => setTimeout(() => stack.classList.add('play'), 200));
+
+    // Copy the install command.
+    const btn = document.getElementById('copy-install');
+    btn.addEventListener('click', async () => {
+      const lbl = btn.querySelector('.lbl');
+      try {
+        await navigator.clipboard.writeText(document.getElementById('install-cmd').textContent);
+        lbl.textContent = 'Copied';
+        setTimeout(() => { lbl.textContent = 'Copy'; }, 1800);
+      } catch { lbl.textContent = 'Copy failed'; }
+    });
+  </script>
+</body>
+</html>

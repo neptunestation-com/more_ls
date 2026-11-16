@@ -1,146 +1,207 @@
 # MLS — "More LS": RLS more-or-less
 
-A specification language and verified compiler for PostgreSQL access-control and data-integrity
-rules. A spec (JSON, or the equivalent terse `.mls` syntax) says who may see and change which rows and which invariants the data must
-satisfy. `mls` proves properties about the spec with an SMT solver, then compiles it to Postgres
-primitives (RLS policies, `CHECK ((p) IS TRUE)`, composite foreign keys, trigger templates, column
-privileges, indexes, grants, hardening), and differential-tests the result against real Postgres.
+**[→ Explainer page](https://neptunestation-com.github.io/more_ls/)**
 
-**Start with `docs/GUIDE.md`** (the user guide: taking over an existing schema, a walkthrough,
-deploying, evolving a spec, the LLM loop), `docs/TAKEOVER.md` (the runbook for replacing the
-policies of a live database, step by step) and `docs/REFERENCE.md` (every construct, property template, CLI flag and
-error).  For the design: `CLAUDE.md`, then `docs/DECISIONS.md`, `docs/SEMANTICS.md`,
-`docs/ROADMAP.md`, `docs/FINDINGS.md`, and `docs/BACKGROUND.md` for what the project grew out of.
+[![MLS: say who sees what, prove it holds, then compile it](docs/screenshot.png)](https://neptunestation-com.github.io/more_ls/)
+
+A specification language and verified compiler for PostgreSQL **row-level security** and
+data-integrity rules. You state who may see and change which rows, once. MLS **proves** the
+guarantees you care about with an SMT solver before anything is deployed, then compiles the rules
+to ordinary Postgres objects, each one differential-tested against the real server. Keep your
+tables; replace your policies.
+
+A spec is a `.mls` file (one line per rule) or the equivalent JSON, and the `mls` tool takes it
+through the whole lifecycle:
+
+- **`check`**: JSON shape, column types, and that every predicate stays inside the fragment the
+  prover and the compiler support.
+- **`prove`**: tenant isolation, immutable columns, monotonicity in membership, write ⊆ read,
+  least privilege, inductive invariants, role separation, custom upper bounds, and `must_allow`
+  lower bounds, on SQL's three-valued logic. A failed proof comes with a **counterexample**: a
+  concrete database small enough to read aloud. Exit code 2 when anything is refuted.
+- **`compile`**: one SQL script of RLS policies, `CHECK ((p) IS TRUE)` constraints, composite
+  foreign keys, triggers from fixed templates, column privileges, indexes, grants and hardening.
+  Membership always compiles to the one policy shape Postgres runs once per statement and drives
+  from an index (`col = any(array(select ...))`): 0.23 ms on a million rows where the usual
+  hand-written `IN (select ...)` takes 71 ms.
+- **`test`**: the differential test of the compiled objects against MLS's own evaluator, on
+  Postgres 15–18 in Docker.
+- **`import`**: a spec from a live database. `--policies discard` keeps the tables, keys and
+  readable `CHECK`s and drops the hand-written policies, for the
+  [takeover](docs/TAKEOVER.md); the default lifts the policies into the verified fragment.
+- **`diff`**, **`migrate`**, **`preflight`**, **`drift`**: every change in effect between two
+  specs, with an example row; a phased migration with its lock levels; the existing rows a new
+  constraint would reject; the live catalog against what the spec deploys.
+- **`explain`**, **`status`**, **`lint`**: the rules and properties in plain English (the approval
+  artifact); proved / refuted / opaque per table; dead, redundant and slow rules.
+- **`generate`**: an LLM writes the rules and properties from requirement sentences and repairs
+  them against the prover until they hold.
+
+The intended workflow: an LLM writes the spec from business requirements, and a human approves
+the *properties* and the *scenarios* in plain English. Nobody has to read MLS or DDL to approve a
+change, though both are there to be read.
+
+Two caveats, both covered in the [guide](docs/GUIDE.md#15-limits-and-things-mls-refuses-to-do).
+The language is **small on purpose**: membership, comparisons with the current user or constants,
+hierarchies with a declared depth, time windows and column rules, with no joins, arithmetic or
+functions in predicates. That is what keeps every proof decidable. Anything else goes in an explicit
+`opaque` block, and every proof that needs one is reported as conditional on it, by name. And the
+proofs are about the model: **trusted roles** (superusers, `BYPASSRLS`, Supabase's `service_role`)
+bypass everything, and views or `SECURITY DEFINER` functions that reach a table without its
+policies are reported as bypass paths, never rewritten. Every proof report states its assumptions.
+
+## Why it exists
+
+Hand-written RLS goes wrong in three ways that are easy to see once someone points at them, and
+hard to see in a review of forty policies:
+
+- **A second policy opens a second door.** Permissive policies are ORed, so "admins read their
+  team's notes" quietly makes isolation depend on every admin also being a member. The prover
+  finds it, with a counterexample.
+- **NULL is not false.** A policy admits a row only when its expression is TRUE; a `CHECK` rejects
+  one only when it is FALSE. The same expression means two things, and a NULL falls in the gap.
+  MLS gives every predicate SQL's three-valued meaning and compiles every target to the same
+  reading.
+- **The policy is right, and slow.** Equivalent membership checks differ by three orders of
+  magnitude on a million rows. The compiler emits only the shape that stays on the index.
+
+[GUIDE §1](docs/GUIDE.md#1-why-mls) tells each story in full; [FINDINGS](docs/FINDINGS.md) has the
+measurements.
 
 ## Install
 
-    uv sync --all-extras
+A Python 3.12+ package managed with [`uv`](https://docs.astral.sh/uv/):
 
-## Use
+```bash
+git clone https://github.com/neptunestation-com/more_ls
+cd more_ls
+uv sync --all-extras
+```
 
-    uv run mls check   examples/tenant_docs.mls.json        # schema + types + fragment (+ soundness obligations)
-    uv run mls prove   examples/tenant_docs.mls.json        # proof report (Markdown; --format json)
-    uv run mls compile examples/tenant_docs.mls.json        # DDL
-    uv run mls test    examples/tenant_docs.mls.json        # differential test on Postgres 15–18 (Docker)
-    uv run mls explain examples/org_tree.mls.json           # group hierarchy + per-tenant limit, in English
-    uv run mls generate req.txt --skeleton skel.json        # LLM loop: requirements -> proved spec (docs/LLM.md; --syntax json|terse)
-    uv run mls eval evals/cases [--llm] [--mutate DIR]      # grade the corpus; run the loop on it; make mutants
-    uv run mls test    examples/tenant_docs.mls.json --versions 16 --explain   # + EXPLAIN checks at 1M rows
-    uv run mls lint    examples/tenant_docs.mls.json        # leakproof warnings and policy-set findings (hygiene, exit 0)
-    uv run mls explain examples/tenant_docs.mls.json        # the rules and properties in plain English
-    uv run mls explain examples/tenant_docs.mls.json --terse   # the whole spec in the terse syntax (D50), one line per item
-    uv run mls fmt     examples/tenant_docs.mls.json        # convert to the terse syntax (and back from a .mls file)
-    uv run mls check   examples/tenant_docs.mls             # every command reads .mls (terse) or .mls.json by extension
-    uv run mls diff    examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json     # access diff with scenarios
-    uv run mls migrate examples/tenant_docs.mls.json examples/tenant_docs_v2.mls.json     # phased DDL with lock levels
-    uv run mls preflight examples/tenant_docs_v2.mls.json --old examples/tenant_docs.mls.json --dsn $DSN
-    uv run mls drift   examples/tenant_docs_v2.mls.json --dsn $DSN   # live catalog vs. a shadow deploy
-    uv run mls import  --dsn $DSN --out imported.mls.json   # a spec from a live schema: tables adopted, policies lifted
-    uv run mls status  examples/tenant_docs.mls.json [--dsn $DSN]   # per table: ungoverned, refuted, opaque, unproved, proved
-    uv run mls schema                                       # JSON Schema of the spec language
-    uv run mls eval    evals/cases                          # expected verdicts of the eval corpus
+`check`, `prove`, `compile`, `explain`, `lint` and `diff` need no database. `test`, `preflight`,
+`drift` and `import` need Docker (for `postgres:15` to `postgres:18`) or a DSN of a server you
+provide. `generate` needs `ANTHROPIC_API_KEY`; nothing else makes a network call.
+
+## Quickstart
+
+The [guide's tour](docs/GUIDE.md#4-starting-from-nothing-a-ten-minute-tour) builds this spec one
+requirement at a time and lets the prover catch two real mistakes along the way:
+
+```
+mls 0.1
+
+identity supabase { uid: auth.uid uuid }
+roles authenticated
+
+table members owned { user_id uuid not null, team_id int not null; primary_key (user_id, team_id) }
+table notes owned { id int not null, team_id int not null, author_id uuid not null, body text not null, archived int; primary_key (id) }
+relation member_of = members(user_id, team_id)
+
+rules {
+  R1 policy member_read on notes: authenticated select permissive using member_of(@uid, team_id)
+  R4 policy hide_archived on notes: authenticated all restrictive using archived is null or archived <> 1
+}
+
+properties {
+  P1 tenant_isolation notes: team_id in member_of(@uid) for select description 'a user only reads the notes of their own teams'
+  P2 must_allow notes authenticated select: member_of(@uid, team_id) and (archived is null or archived = 0) description 'a member reads every note of their team that is not archived'
+}
+```
+
+The rules are what gets enforced; the properties are what gets proved. The full spec, with the
+admins table and the rule that fixes the first mistake, is
+[`examples/team_notes.mls`](examples/team_notes.mls):
+
+```bash
+uv run mls check   examples/team_notes.mls    # examples/team_notes.mls: OK
+uv run mls prove   examples/team_notes.mls    # a Markdown proof report: 2 proved, 0 refuted
+uv run mls explain examples/team_notes.mls    # the rules and the guarantees, in plain English
+uv run mls compile examples/team_notes.mls    # the SQL script; each statement names its rule
+uv run mls test    examples/team_notes.mls    # the differential test on Postgres 15-18 (Docker)
+```
 
 Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 on mismatches,
-`diff` 2 if anything changed, `preflight` and `drift` 1 when they find something (`drift` lists an
-adopted table's foreign objects and assumed hardening without failing), `status` 2 when a table is
-refuted or, with `--dsn`, a governed table is missing or has lost row-level security.
-`docs/MIGRATION.md` describes the migration phases and the observed lock levels.
+`diff` 2 if anything changed, `preflight` and `drift` 1 when they find something, `status` 2 when
+a table is refuted. Every command reads `.mls` or `.mls.json` by extension; `mls fmt` converts.
 
-## Test
+## Taking over an existing database
 
-    uv run pytest -m "not pg"                 # unit: spec, logic, proofs, CLI (seconds)
-    uv run pytest -m "pg and not slow"        # differential, mutation, migration, lock, pre-flight, drift tests (Docker)
-    uv run pytest -m slow                     # EXPLAIN checks at 1M rows
-    MLS_PG_VERSIONS=16 uv run pytest -m pg    # one version
-    MLS_PG_DSN=postgresql://postgres:pw@host:port/postgres uv run pytest -m pg   # an existing superuser server
+The common case is a Supabase or plain Postgres project in production, with tables and data that
+stay where they are and policies that were written by hand and never proved. The takeover keeps
+the schema and lets MLS own the policies:
 
-## Layout
+```bash
+uv run mls import --dsn "$DATABASE_URL" --out before.mls                       # today's behaviour, to compare and roll back to
+uv run mls import --dsn "$DATABASE_URL" --policies discard --out spec.mls      # the skeleton: tables, keys, CHECKs, no policies
+# write the rules and properties (by hand, from the guide's recipes, or: mls generate req.txt --skeleton spec.mls)
+uv run mls prove spec.mls                                                      # until every property holds
+uv run mls diff before.mls spec.mls                                            # every change in effect, with an example
+uv run mls preflight spec.mls --dsn "$DATABASE_URL"                            # rows the new constraints would reject
+uv run mls compile spec.mls --out deploy.sql
+psql "$DATABASE_URL" --single-transaction -v ON_ERROR_STOP=1 -f deploy.sql
+uv run mls status spec.mls --dsn "$DATABASE_URL"                               # every table proved
+```
 
-    src/mls/spec      pydantic models, JSON Schema, typechecker + fragment checker, selectors,
-                      the terse parser (syntax.py)
-    src/mls/logic     term AST, 3VL encoding, Z3 backend, SMT-LIB2 printer, cvc5 cross-check
-    src/mls/props     policy combination, property templates as obligations, scenarios, reports, access diff
-    src/mls/compile   one module per template + indexes, grants, hardening, plan, objects, migrate
-    src/mls/identity  supabase, pg_roles, session_setting adapters
-    src/mls/pg        concrete oracle, differential harness, EXPLAIN checks, leakproof lint,
-                      pre-flight, catalog snapshots, drift, lock observation, import (adopt.py)
-    src/mls/pg        (also) the lifter (lift.py)
-    src/mls/llm       the generation loop, prompts (JSON and terse), grader, mutator
-    src/mls/english.py  plain-English rendering of rules, properties, scenarios (the approval artifact)
-    src/mls/terse.py  the terse renderer (also the formatter)
-    src/mls/status.py governance status per table
-    tests/            spec, logic, props, cli (no Postgres); templates (Postgres 15–18, Docker);
-                      brownfield/ a hand-written Supabase-style schema `mls import` adopts
-    evals/cases       the eval corpus: seed cases (evals/make_cases.py) and solver-graded mutants (synthetic/)
-    examples/         tenant_docs (supabase), tenant_docs_v2 (its next version), pg_roles_docs (pg_roles),
-                      session_docs (session_setting), org_tree (hierarchy with in_group policies and a
-                      cardinality limit); each as .mls.json and as its .mls twin
-    prototype/        the throwaway Python + Z3 prototype this grew from
-    docs/             GUIDE (user guide), TAKEOVER (the runbook), REFERENCE (language and CLI), SEMANTICS, DECISIONS,
-                      ROADMAP, FINDINGS, BACKGROUND (what pg_more_ls established), MIGRATION, LLM
+The import's notes quote every policy the deploy will drop, the tables with row-level security off
+today, and the bypass paths, each with its fix. [`docs/TAKEOVER.md`](docs/TAKEOVER.md) is the
+runbook, every command with what it prints, on Supabase's team-and-projects starter; the test
+suite replays it on Supabase's own image.
+
+## Writing specs with an LLM
+
+```bash
+uv run mls generate requirements.txt --skeleton spec.mls --out generated.mls
+```
+
+Two passes (properties from the requirements, then rules that satisfy them), each answer checked
+and proved locally, with bounded repair driven by the prover's counterexamples and the lint's
+findings; what does not converge is escalated to a human. With `claude-opus-5-5`, 32 of 35 seed
+cases ended proved and equivalent to their reference, and 218 of 221 mutated specs were repaired.
+The seed requirement texts were written by the author of the loop, so a corpus of real ones is the
+open question ([#1](https://github.com/neptunestation-com/more_ls/issues/1)).
+[`docs/LLM.md`](docs/LLM.md) explains the loop and the grading.
+
+## Documentation
+
+- **[User guide](docs/GUIDE.md)**: why MLS, install, the takeover, a ten-minute tour, a complete
+  example, recipes, failed proofs, identity, deploying, changing a live spec, the LLM loop, limits.
+- **[Takeover runbook](docs/TAKEOVER.md)**: replacing the policies of a live database, step by step.
+- **[Reference](docs/REFERENCE.md)**: every construct, property template, CLI flag, exit code and
+  error.
+- **[Semantics](docs/SEMANTICS.md)**: the meaning of every construct, the source of truth for the
+  prover, the evaluator and the compiler.
+- **[Decisions](docs/DECISIONS.md)**: the settled design decisions, with what was rejected and why.
+- **[Findings](docs/FINDINGS.md)**: what experiments on real Postgres established.
+- **[Migration](docs/MIGRATION.md)**: the migration phases and their observed lock levels.
+- **[LLM](docs/LLM.md)**: the generation loop, the eval corpus and the grading.
+- **[Roadmap](docs/ROADMAP.md)** and **[Background](docs/BACKGROUND.md)**: the milestones, and what
+  `pg_more_ls` established before this project.
+- **[Explainer](https://neptunestation-com.github.io/more_ls/)**: the visual overview.
+
+## Tests
+
+```bash
+uv run pytest -m "not pg"                 # spec, logic, proofs, CLI, no Postgres (seconds)
+uv run pytest -m pg                       # differential, mutation, migration, lock, drift; PG 15-18 + Supabase (Docker)
+uv run pytest -m slow                     # EXPLAIN checks at 1M rows
+uv run pytest -m cvc5                     # cross-check the proofs with a second solver
+MLS_PG_VERSIONS=16 uv run pytest -m pg    # one version
+MLS_PG_DSN=postgresql://postgres:pw@host:port/postgres uv run pytest -m pg   # an existing superuser server
+```
+
+Every compiler template has a differential test against Postgres 15, 16, 17 and 18, and a mutation
+(a deliberately wrong version of the template) that the differential test must catch. The Supabase
+examples run again on the `supabase/postgres` image as its non-superuser `postgres` role.
+
+`lean/` formalizes the core semantics in Lean 4 and proves, among other things, that the pair
+encoding is sound against SQL's meaning of every construct of the fragment, that `IS TRUE` makes
+RLS, `CHECK` and triggers admit the same rows, and that the `CHECK`, FK, transition, hierarchy and
+cardinality templates keep their invariants. Generated test vectors tie the transcription to the
+Python. [`CLAUDE.md`](CLAUDE.md) is the contributor's map of the code.
 
 ## Status
 
-Alpha (0.1).  Every milestone of `docs/ROADMAP.md` is implemented:
-
-1. the core loop: check, prove, compile, differential test, with no LLM;
-2. evolution: `diff`, `migrate`, `preflight`, `drift`, and the English rendering;
-3. the harder constructs: group hierarchies with `in_group`, cardinality limits with a
-   parent-row lock, full opaque-block reporting;
-4. the LLM loop with bounded repair and human escalation, and the evaluation corpus with
-   solver-graded mutants (`docs/LLM.md`);
-5. brownfield (the `pg_more_ls` graft): ownership modes per table (`owned` / `adopted` /
-   `observed`) with stated hardening assumptions, `mls import` of a live schema, the lifter
-   (D46: the policies MLS itself emits and the usual hand-written idioms read back into the
-   verified fragment, the rest opaque blocks with their catalog signature), the
-   `session_setting` adapter, `in` with a constant list, selectors (`applies_to`, D48), `mls
-   status`, and the lint pack with `role_separation` (D49);
-6. the terse syntax (D50): a second concrete syntax of the same model (`.mls`, `mls fmt`, the
-   round trip as the evidence), errors with source spans, and `--syntax` for the LLM loop, whose
-   default became terse after a corpus run with both syntaxes.
-7. the takeover (D51–D56): keep a live schema, replace its policies.  `mls import --policies
-   discard` writes the skeleton, the deploy owns each adopted table's whole policy set, bypass
-   paths (non-invoker views, `SECURITY DEFINER` functions) are drift, `bigint` keys, composed
-   relations for ownership two or three tables away, Supabase's own image in the test matrix,
-   and the runbook (`docs/TAKEOVER.md`) replayed end to end on a Supabase starter.
-
-Open: a real seed corpus to replace the author's cases (issue #1, on hold).
-
-### Measured with `claude-opus-5-5` (2026-11-05, terse syntax, the default)
-
-- **Seed corpus, 35 generation cases:** 32 end proved, net-equivalent to their reference and with
-  the reference properties' expected verdicts; the two reworded selector cases then passed too.
-  9 cases needed one repair round; none was escalated.
-- **Repair benchmark, 221 synthetic cases** (the loop starts from mutated rules): 218 end proved
-  and net-equivalent after about one repair round.  JSON answers scored 217 at a third more
-  output tokens.
-- **Mutation score of the corpus's property sets: 75 %** (221 of 295 mutants detected).  Properties state both bounds: the
-  safety templates say what a role may never do, `must_allow` says what it must be able to do
-  (D40).
-
-The seed cases are the author's rendering of common patterns, so these numbers are as much a
-statement about their requirement texts as about the model.  Every failure so far was read
-before it was counted, and most were a sentence with two readings or a defect in the author's
-reference.  `docs/FINDINGS.md` records what the runs found; `docs/LLM.md` explains the grading.
-
-### The Lean 4 track
-
-`lean/` (core Lean, no Mathlib) formalizes the semantics and proves, among other things:
-
-- the three-valued logic, the pair encoding and the predicate encoder are sound against the SQL
-  meaning of every construct of the verified fragment, `in_group` included;
-- Postgres policy combination: a row is admitted iff some permissive policy is TRUE on it and
-  every restrictive one is;
-- the statement outcomes: every executed statement satisfies what the proofs assume, and
-  without column reads it is executed exactly when the net-effect predicate admits it;
-- the NULL normalization: with `IS TRUE`, RLS, CHECK and triggers admit the same rows, and
-  without it they disagree exactly on UNKNOWN;
-- against a small relational model, the CHECK, FK and transition templates keep their invariants
-  under every statement, the RESTRICT guard the proofs assume is the one the FK enforces, and
-  the induction step the solver discharges for the written row is enough for the state;
-- the compiled hierarchy helper computes `in_group` (descending from the user's groups meets the
-  walk up from the row's group), and the cardinality trigger keeps its bound over a bag of rows
-  when the writers of a group are serialized, which is what the parent-row lock provides.
-
-The transcription is checked against the Python by generated test vectors: the evaluator, the
-encoder and the oracle on the same data, as `#guard`s in the Lean build.
+Alpha (0.1). The spec language and the CLI may change before 1.0; the semantics and the design
+decisions are settled. Every milestone of the [roadmap](docs/ROADMAP.md) is implemented: the core
+loop, evolution, hierarchies and cardinality limits, the LLM loop, brownfield adoption, the terse
+syntax, and the takeover. Postgres 15 to 18 only.
