@@ -38,7 +38,7 @@ and subtree depth recomputation. Reparenting is v2.
 
 **D6. Evaluation set: real patterns + synthetic.** Seed 30–50 cases from anonymized real-world RLS
 patterns David has seen in the field; expand with solver-graded synthetic mutations.
-Built in Milestone 4, but the case format is defined in Milestone 1 (see `docs/archive/ROADMAP.md`).
+Built in Milestone 4, but the case format is defined in Milestone 1 (see `docs/design/archive/ROADMAP.md`).
 
 ## Change over time
 
@@ -96,7 +96,7 @@ human as scenarios.
 **D17. Ownership: personal open-source project, Apache-2.0.** (David to confirm compatibility with
 his employment agreement before publishing.)
 **D18. Python.** **D19. Z3 primary behind a solver-agnostic layer, cvc5 cross-check in CI.**
-**D20. Milestone 1 = core loop without the LLM.** See `docs/archive/ROADMAP.md`.
+**D20. Milestone 1 = core loop without the LLM.** See `docs/design/archive/ROADMAP.md`.
 
 ## Implementation defaults recorded during Milestone 1 (2026-11-02)
 
@@ -287,7 +287,7 @@ cases are skipped (they would repeat their base case).  Current corpus: 75 % (21
 `must_allow` properties in every reference (D40); 38 % before them, when the templates were all
 safety properties (upper bounds on access) and removing a grant was rarely caught.  Measured live
 over the 100 cases that existed before D40: 99 proved and net-equivalent after 1.02 repair rounds
-on average, none escalated (LLM.md).
+on average, none escalated (`docs/design/EVALS.md`).
 
 **D40. `must_allow`: the lower bound on access (liveness).** Every other template is a safety
 property, an upper bound on what a role can do, so a rule set that denies too much proves
@@ -345,7 +345,7 @@ Postgres" of the later steps is our own axiomatization, and the differential tes
 link to the real thing (D11).  *Amended (issue #4):* the transition trigger
 (`lean/MLS/Transition.lean`), the compiled hierarchy helper and depth trigger
 (`lean/MLS/Reach.lean`) and the cardinality trigger over a bag of rows
-(`lean/MLS/Cardinality.lean`) are in the track since step 5 (`docs/archive/ROADMAP.md`).  What stays outside it,
+(`lean/MLS/Cardinality.lean`) are in the track since step 5 (`docs/design/archive/ROADMAP.md`).  What stays outside it,
 by nature: that `FOR UPDATE` under READ COMMITTED serializes the writers of a group (the model
 takes the serial schedule as the assumption the proof report states) and that the
 `SECURITY DEFINER` helper sees every row (D34) — the concurrency test and the Postgres
@@ -641,10 +641,10 @@ test. The remaining distance is a parser. So:
   first section keyword in prose). Acceptance for changing the default: the full corpus (30 seed
   cases, 194 repair benchmarks) run with both syntaxes on the same model, reporting proved rate,
   net-equivalence, repair rounds, escalations and prompt/completion tokens, written into
-  `docs/LLM.md`. The default becomes terse only if proved and net-equivalent rates are not worse
+  `docs/design/EVALS.md`. The default becomes terse only if proved and net-equivalent rates are not worse
   by more than the run-to-run spread already recorded there; token reduction alone does not
   decide. Transcripts keep `spec_terse` either way.
-  *Amended 2026-11-05:* the corpus was run with both syntaxes (`docs/LLM.md`, "The two
+  *Amended 2026-11-05:* the corpus was run with both syntaxes (`docs/design/EVALS.md`, "The two
   syntaxes"): the same rates on the seed cases, better on the repair benchmark, a third fewer
   output tokens, no repair round spent on syntax. **The default syntax of `mls generate` and
   `mls eval --llm` is `terse`** (`llm/loop.py:DEFAULT_SYNTAX`); `--syntax json` keeps the JSON

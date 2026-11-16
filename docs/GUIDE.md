@@ -21,7 +21,7 @@ You should know PostgreSQL and have met RLS.  Everything else is introduced as i
 than repeating it.
 
 MLS is alpha software (version 0.1).  The spec language and the CLI may change before 1.0, but
-the semantics in `docs/SEMANTICS.md` and the decisions in `docs/DECISIONS.md` are settled.
+the semantics in `docs/SEMANTICS.md` and the decisions in `docs/design/DECISIONS.md` are settled.
 
 Contents
 
@@ -62,7 +62,7 @@ places, and neither of them is what the person who wrote it was thinking about.
 **The policy is right and slow.**  A membership check can be written several ways that all
 return the same rows.  Depending on which one you pick, Postgres evaluates `auth.uid()` once
 per statement or once per row, and uses the index on `tenant_id` or does not.  On a
-million-row table the difference is three orders of magnitude (`docs/FINDINGS.md`), and
+million-row table the difference is three orders of magnitude (`docs/design/FINDINGS.md`), and
 nothing in the policy text tells you which kind you wrote.
 
 Each of these is easy to see once someone points at it, and hard to see in a review of forty
@@ -732,7 +732,7 @@ Things to notice:
   passed on UNKNOWN would let a row through that the policy would hide.
 - Membership compiles to `col = any(array(select ...))` with the context value wrapped in
   `(select auth.uid())`.  That exact shape is the one Postgres turns into an InitPlan and an
-  index condition; the alternatives are ten to a thousand times slower (`docs/FINDINGS.md`).
+  index condition; the alternatives are ten to a thousand times slower (`docs/design/FINDINGS.md`).
 - The implicit policy `mls_rel_member_of_authenticated_1` on `memberships` is what lets the
   app role see its own membership rows, and only those, while RLS is forced on every table.
 - The preamble refuses to run as an app role; the roles section strips `BYPASSRLS` and the
@@ -1334,8 +1334,8 @@ text.  `--syntax json` gives it the JSON Schema instead.  Both were measured on 
 and scored the same or better in terse, at a third fewer tokens, which is why terse is the
 default.
 
-The eval corpus (`evals/cases`) and `mls eval` measure the loop; `docs/LLM.md` explains the
-case format, the metrics and the measured numbers.  Tests never call the API: setting
+The eval corpus (`evals/cases`) and `mls eval` measure the loop; `docs/design/EVALS.md` explains
+the case format, the metrics and the measured numbers.  Tests never call the API: setting
 `MLS_LLM_SCRIPT` to a JSON file of answers replays them.
 
 ## 13. Performance
@@ -1345,7 +1345,7 @@ The compiler emits the one policy shape that stays index-driven at scale (`col =
 permissive policy, membership columns first.  Measured on a one-million-row table with a
 thousand tenants, a count as the app role takes a fraction of a millisecond with this shape and
 tens to thousands of milliseconds with the shapes hand-written policies usually use
-(`docs/FINDINGS.md`).  `mls test --explain` checks the plan on your spec; `mls lint` warns
+(`docs/design/FINDINGS.md`).  `mls test --explain` checks the plan on your spec; `mls lint` warns
 about non-leakproof operators that defeat the index.
 
 Hierarchies (`in_group`) compile to a `SECURITY DEFINER` function that returns the array of
@@ -1377,7 +1377,7 @@ solver, and `-m lean` builds the Lean formalization when `lake` is on the path.
 
 ## 15. Limits and things MLS refuses to do
 
-These are decisions, not gaps; `docs/DECISIONS.md` has the reasoning.
+These are decisions, not gaps; `docs/design/DECISIONS.md` has the reasoning.
 
 - **Ownership is per table.**  MLS creates the tables it owns and adopts the ones it did not
   create (section 10.1), but it never silently applies to an adopted table a hardening it would
@@ -1417,11 +1417,12 @@ These are decisions, not gaps; `docs/DECISIONS.md` has the reasoning.
   exit code and error format.
 - `docs/SEMANTICS.md`: the meaning of every construct, the source of truth for the prover, the
   evaluator and the compiler.
-- `docs/DECISIONS.md`: the settled design decisions, numbered, with what was rejected and why.
-- `docs/LLM.md`: the generation loop, the eval corpus and the measured results.
-- `docs/FINDINGS.md`: what the experiments on real Postgres established (performance tiers,
-  leakproofness, NULL and UPDATE semantics, what the live LLM runs found).
-- `docs/BACKGROUND.md`: what `pg_more_ls`, the project MLS grew out of, established: the
-  undecidability result that motivates the fragment and the survey of authorization languages.
+- `docs/LLM.md`: how the generation loop works and how to run it.
+- `docs/design/`, for contributors: `DECISIONS.md` (the settled design decisions, numbered, with
+  what was rejected and why), `FINDINGS.md` (what the experiments on real Postgres established:
+  performance tiers, leakproofness, NULL and UPDATE semantics, what the live LLM runs found),
+  `EVALS.md` (the eval corpus and the measured results of the LLM loop) and `BACKGROUND.md` (what
+  `pg_more_ls`, the project MLS grew out of, established: the undecidability result that
+  motivates the fragment and the survey of authorization languages).
 - `lean/`: the Lean 4 formalization of the logic, the policy combination, the normalization and
   the templates, checked against the Python by generated test vectors.

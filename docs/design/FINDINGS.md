@@ -158,7 +158,7 @@ deliberately wrong model as a mutation check (a 2VL model produced 157 mismatche
   families all pass (one repair round for the mutants, none for the seeds).  Same lesson as the
   seed corpus: a run's failures are read before they are counted, and the fix goes into the text,
   not the model.
-- The corpus with both syntaxes (2026-11-05, D50; `docs/LLM.md`, "The two syntaxes"): JSON and
+- The corpus with both syntaxes (2026-11-05, D50; `docs/design/EVALS.md`, "The two syntaxes"): JSON and
   terse score the same on the 35 seed cases (32 each, the same three failures) and terse scores
   better on the 221 mutants (218 against 213), with a third fewer output tokens and no repair
   round spent on syntax: the model wrote parseable sections at the first attempt in every case,

@@ -1033,7 +1033,7 @@ JSON).  Exit 0 when the status is `proved`, 1 otherwise.  Needs `ANTHROPIC_API_K
 Over the eval corpus (`evals/cases`, case files or directories).  Without flags: proves every
 case's reference spec and checks the expected verdicts (`ok: <id> — <n> properties as
 expected`).  `--llm`: runs the loop on every generation case and grades the result against the
-reference (metrics in `docs/LLM.md`; the summary also says the syntax and totals the API
+reference (metrics in `docs/design/EVALS.md`; the summary also says the syntax and totals the API
 calls and tokens); `--repair` starts from each synthetic case's mutated rules; `--syntax` as
 for `generate`.  `--mutate DIR`: writes solver-graded mutants of the cases to `DIR` and prints
 the mutation score.  Exit 1 if any case fails.

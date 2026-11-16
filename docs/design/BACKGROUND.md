@@ -3,8 +3,8 @@
 MLS grew out of [`pg_more_ls`](https://github.com/neptunestation-com/pg_more_ls) (February to
 May 2026, Kotlin, archived in November 2026), a governance tool for PostgreSQL row-level
 security: a human-authored DSL, nine proofs, introspection of live policies, drift against them,
-and late-binding selectors. `docs/archive/ROADMAP.md` Milestone 5 says what MLS re-expresses from it and
-D45 to D49 in `docs/DECISIONS.md` say how. This document carries over the two pieces of that
+and late-binding selectors. `docs/design/archive/ROADMAP.md` Milestone 5 says what MLS re-expresses from it and
+D45 to D49 in `docs/design/DECISIONS.md` say how. This document carries over the two pieces of that
 project that are argument rather than code: the undecidability theorem that motivates a
 restricted language, and the survey of existing authorization languages that justified writing
 one. Both are cited, not rewritten. The paper is
@@ -49,7 +49,7 @@ listed in every proof report that depends on it). Three things changed in the cr
   nullability flag; the paper's decidability argument does not cover `UNKNOWN`. MLS encodes every
   predicate as an (is-true, is-false) pair (`docs/SEMANTICS.md`; `logic/tvl.py`, proved sound
   against the SQL meaning in `lean/MLS/Pred.lean`), so the fragment stays in the same theories
-  and the proofs talk about the same outcomes Postgres produces (`docs/FINDINGS.md`, "NULL
+  and the proofs talk about the same outcomes Postgres produces (`docs/design/FINDINGS.md`, "NULL
   semantics").
 - **The bounds are declared per construct, not globally.** The paper's traversals (§7) are
   existential subqueries over declared relationships, cut off at a global maximum depth
@@ -60,7 +60,7 @@ listed in every proof report that depends on it). Three things changed in the cr
 - **The target is not only RLS.** The paper's compilation (§10) emits `CREATE POLICY`. MLS
   compiles the same spec to CHECK constraints, foreign keys, transition triggers, column
   privileges and grants as well, because some properties (a tenant id that never changes, an
-  owner who is always a member) are not expressible as policies at all (`docs/FINDINGS.md`,
+  owner who is always a member) are not expressible as policies at all (`docs/design/FINDINGS.md`,
   "Integrity proofs"); RLS is one compilation target, not the foundation.
 
 ## 2. The survey of authorization languages (`spec/dsl-survey.md`)
@@ -132,7 +132,7 @@ like the same chain written in the query. It is not: the policy is wrapped in a 
 subquery that the pull-up pass refuses to flatten (`is_simple_subquery()` in
 `prepjointree.c`), so the `EXISTS` becomes a hashed SubPlan filter on the scan, 10 to 20 times
 slower than the hand-written join, while a flat column predicate under the same policy was the
-fastest plan measured. `docs/FINDINGS.md` supersedes those notes: it measures the same effect at
+fastest plan measured. `docs/design/FINDINGS.md` supersedes those notes: it measures the same effect at
 1M rows on PG 16, adds the shapes the notes did not try, and finds the one that keeps the index
 condition (`col = any(array(select ...))`), which is what the compiler emits (D14) and what the
 EXPLAIN checks in the test suite hold it to.

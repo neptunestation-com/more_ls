@@ -32,4 +32,4 @@ What a Python change left untranscribed.  Remove an entry when the transcription
 
 What each step states rather than proves (sets rather than bags outside `Cardinality.lean`,
 self-referencing FKs, the `SECURITY DEFINER` helper seeing every row, `FOR UPDATE` serializing
-writers) is in `docs/archive/ROADMAP.md`, "Parallel track — Lean 4".
+writers) is in `docs/design/archive/ROADMAP.md`, "Parallel track — Lean 4".

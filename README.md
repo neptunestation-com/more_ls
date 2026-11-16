@@ -65,7 +65,7 @@ hard to see in a review of forty policies:
 - **The policy is right, and slow.** Equivalent membership checks differ by three orders of
   magnitude on a million rows. The compiler emits only the shape that stays on the index.
 
-[GUIDE §1](docs/GUIDE.md#1-why-mls) tells each story in full; [FINDINGS](docs/FINDINGS.md) has the
+[GUIDE §1](docs/GUIDE.md#1-why-mls) tells each story in full; [FINDINGS](docs/design/FINDINGS.md) has the
 measurements.
 
 ## Install
@@ -159,7 +159,8 @@ findings; what does not converge is escalated to a human. With `claude-opus-5-5`
 cases ended proved and equivalent to their reference, and 218 of 221 mutated specs were repaired.
 The seed requirement texts were written by the author of the loop, so a corpus of real ones is the
 open question ([#1](https://github.com/neptunestation-com/more_ls/issues/1)).
-[`docs/LLM.md`](docs/LLM.md) explains the loop and the grading.
+[`docs/LLM.md`](docs/LLM.md) explains the loop; [`docs/design/EVALS.md`](docs/design/EVALS.md) the
+corpus and the grading.
 
 ## Documentation
 
@@ -170,11 +171,16 @@ open question ([#1](https://github.com/neptunestation-com/more_ls/issues/1)).
   error.
 - **[Semantics](docs/SEMANTICS.md)**: the meaning of every construct, the source of truth for the
   prover, the evaluator and the compiler.
-- **[Decisions](docs/DECISIONS.md)**: the settled design decisions, with what was rejected and why.
-- **[Findings](docs/FINDINGS.md)**: what experiments on real Postgres established.
-- **[LLM](docs/LLM.md)**: the generation loop, the eval corpus and the grading.
-- **[Background](docs/BACKGROUND.md)**: what `pg_more_ls` established before this project.
+- **[Writing specs with an LLM](docs/LLM.md)**: how `mls generate` works and how to run it.
 - **[Explainer](https://neptunestation-com.github.io/more_ls/)**: the visual overview.
+
+For contributors, `docs/design/` holds why MLS is the way it is:
+
+- **[Decisions](docs/design/DECISIONS.md)**: the settled design decisions, with what was rejected and why.
+- **[Findings](docs/design/FINDINGS.md)**: what experiments on real Postgres established.
+- **[Evals](docs/design/EVALS.md)**: the LLM loop's eval corpus, metrics and measured runs.
+- **[Background](docs/design/BACKGROUND.md)**: what `pg_more_ls` established before this project.
+- **[Archive](docs/design/archive/)**: the roadmap MLS was built from, and other retired documents.
 
 ## Tests
 
