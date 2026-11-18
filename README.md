@@ -80,7 +80,7 @@ uv sync --all-extras
 
 `check`, `prove`, `compile`, `explain`, `lint` and `diff` need no database. `test`, `preflight`,
 `drift` and `import` need Docker (for `postgres:15` to `postgres:18`) or a DSN of a server you
-provide. `generate` needs `ANTHROPIC_API_KEY`; nothing else makes a network call.
+provide. `generate` and `eval --llm` need `ANTHROPIC_API_KEY`; nothing else makes a network call.
 
 ## Quickstart
 
@@ -122,7 +122,7 @@ uv run mls test    examples/team_notes.mls    # the differential test on Postgre
 
 Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 on mismatches,
 `diff` 2 if anything changed, `preflight` and `drift` 1 when they find something, `status` 2 when
-a table is refuted. Every command reads `.mls` or `.mls.json` by extension; `mls fmt` converts.
+a table is refuted, `generate` 1 when the result is not proved. Every command reads `.mls` or `.mls.json` by extension; `mls fmt` converts.
 
 ## Taking over an existing database
 
@@ -167,8 +167,9 @@ open question: [contributions welcome](https://github.com/neptunestation-com/mor
 
 ## Documentation
 
-- **[User guide](docs/GUIDE.md)**: why MLS, install, taking over a live database step by step, a ten-minute tour, a complete
-  example, recipes, failed proofs, identity, deploying, changing a live spec, the LLM loop, limits.
+- **[User guide](docs/GUIDE.md)**: why MLS, install, taking over a live database step by step, a ten-minute tour, how a
+  spec is put together, a complete example, recipes, failed proofs, identity, deploying, changing a live spec, the LLM
+  loop, performance, testing your specs in CI, limits.
 - **[Reference](docs/REFERENCE.md)**: every construct, property template, CLI flag, exit code and
   error.
 - **[Semantics](docs/SEMANTICS.md)**: the meaning of every construct, the source of truth for the

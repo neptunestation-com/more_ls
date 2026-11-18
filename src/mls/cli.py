@@ -1,4 +1,4 @@
-"""mls: check | prove | compile | test | diff | migrate | preflight | drift | import | status | explain | fmt | lint | schema | eval"""
+"""mls: check | prove | compile | test | diff | migrate | preflight | drift | import | status | explain | fmt | lint | schema | eval | generate"""
 from __future__ import annotations
 
 import argparse
