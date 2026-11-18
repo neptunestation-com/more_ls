@@ -1,4 +1,4 @@
-# MLS — "More LS": RLS more-or-less
+# MoreLS (MLS): RLS more-or-less
 
 **[→ Explainer page](https://neptunestation-com.github.io/more_ls/)**
 

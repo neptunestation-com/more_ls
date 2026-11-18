@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>MLS: row-level security, proved</title>
-  <meta name="description" content="MLS states who may see and change which rows of a Postgres database, proves the guarantees you care about with an SMT solver, and compiles the rules to RLS policies, CHECKs, foreign keys and triggers tested against Postgres 15-18. Keep your tables, replace your policies." />
+  <title>MoreLS: RLS more-or-less</title>
+  <meta name="description" content="MoreLS (MLS) states who may see and change which rows of a Postgres database, proves the guarantees you care about with an SMT solver, and compiles the rules to RLS policies, CHECKs, foreign keys and triggers tested against Postgres 15-18. Keep your tables, replace your policies." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;1,9..144,500&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -64,6 +64,14 @@
       text-transform: uppercase;
       color: var(--lilac);
     }
+    /* the name and the tagline: M and LS picked out, because MLS is what MoreLS abbreviates */
+    .tagline { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; font-family: var(--font-display); font-size: 1.4rem; line-height: 1.2; }
+    .tagline .name { color: var(--fg); font-weight: 600; letter-spacing: -0.01em; }
+    .tagline .name b { color: var(--lilac); font-weight: 600; }
+    .tagline .rule { align-self: center; width: 1px; height: 1.1em; background: var(--border-strong); }
+    .tagline .motto { color: var(--fg-dim); font-style: italic; font-weight: 500; }
+    .tagline .motto em { color: var(--lilac); }
+    .brand b { color: var(--lilac); font-weight: 500; }
     .display { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.015em; line-height: 1.05; }
 
     /* ---------- nav ---------- */
@@ -281,7 +289,7 @@
           <rect x="3" y="16" width="11" height="4" rx="1.5" fill="var(--green-dark)"/>
           <path d="M16.5 18l1.6 1.6 3.2-3.4" stroke="var(--green)" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
         </svg>
-        mls
+        <span><b>M</b>ore<b>LS</b></span>
       </a>
       <div class="nav-links">
         <a href="#wrong">Why</a>
@@ -301,9 +309,9 @@
     <div class="hero-spot"></div>
     <div class="wrap hero-inner">
       <div>
-        <span class="eyebrow">RLS, more or less</span>
+        <p class="tagline"><span class="name"><b>M</b>ore<b>LS</b></span><span class="rule" aria-hidden="true"></span><span class="motto">RLS <em>more-or-less</em></span></p>
         <h1 class="display">Say who sees what.<br>Prove it holds.<br>Then <em>compile</em> it.</h1>
-        <p class="lede">MLS states who may see and change which rows of a Postgres database, once. It <strong>proves</strong> the guarantees you care about with an SMT solver before anything is deployed, and compiles the rules to ordinary RLS policies, <code>CHECK</code>s, foreign keys and triggers, each tested against the real server. Keep your tables; replace your policies.</p>
+        <p class="lede">MoreLS, or MLS for short, states who may see and change which rows of a Postgres database, once. It <strong>proves</strong> the guarantees you care about with an SMT solver before anything is deployed, and compiles the rules to ordinary RLS policies, <code>CHECK</code>s, foreign keys and triggers, each tested against the real server. Keep your tables; replace your policies.</p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="#install">Get started</a>
           <a class="btn btn-ghost" href="https://github.com/neptunestation-com/more_ls" target="_blank" rel="noopener">
@@ -674,8 +682,8 @@ teams: <span class="ok">proved</span> (P7)</pre>
   <footer>
     <div class="wrap foot-inner">
       <div>
-        <p class="foot-brand">MLS · more_ls</p>
-        <p>Row-level security, more or less, proved.<br><a href="https://github.com/neptunestation-com/more_ls">GitHub</a> · <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md">Guide</a> · <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/REFERENCE.md">Reference</a></p>
+        <p class="foot-brand">MoreLS · RLS more-or-less</p>
+        <p>Row-level security, proved, then compiled.<br><a href="https://github.com/neptunestation-com/more_ls">GitHub</a> · <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md">Guide</a> · <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/REFERENCE.md">Reference</a></p>
       </div>
       <div class="foot-right">
         <p>Plain PostgreSQL: the current user comes from a session setting, a database role or an identity provider's auth function.</p>
