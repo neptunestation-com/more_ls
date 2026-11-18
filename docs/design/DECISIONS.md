@@ -979,3 +979,14 @@ but the rules pass would then be shown part of the properties pass's answer); le
 propose them (two names for one path, merged after the fact); and leaving the relation to the
 human (the hand-written line was the one step of the takeover an LLM-first user could not hand
 off).  Cost: one more model call per run, usually with an empty answer.
+
+Implementation defaults (2026-11-18).  MLS is for PostgreSQL; an identity provider is one
+adapter.  The README and the explainer page name no provider, and the guide's tour, whose spec
+(`examples/team_notes.mls`) both quote, runs on `session_setting`; the provider-specific material
+stays where a reader looks for it (GUIDE §3's takeover of the Supabase starter, §9, the
+reference, `tests/platform`).  The English rendering calls a context value "the current user"
+when the adapter names it as the user (`Adapter.user_context_name`: `auth.uid`, `current_user`,
+or on `session_setting` the policies' one membership key), not by a list of sources that left
+`session_setting` specs saying "the user's uid's member_of".  The explainer's green is its own,
+no longer a provider's brand colour.  Rejected: keeping the tour on `supabase` and removing only
+the prose mentions (the quoted code would still name the provider).

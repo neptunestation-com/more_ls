@@ -21,14 +21,16 @@ OPS = {"=": "is", "<>": "is not", "<": "is less than", "<=": "is at most", ">": 
        ">=": "is at least"}
 VERB = {"select": "read", "insert": "insert", "update": "update", "delete": "delete", "all": "read and change"}
 VERB_PAST = {"select": "read", "insert": "inserted", "update": "updated", "delete": "deleted"}
-USER_SOURCES = ("auth.uid", "current_user")
 
 
 def ctx_phrase(spec: Spec, name: str) -> str:
+    """The adapter says which context value is the user (on `session_setting`, the policies'
+    membership key); the others are the user's attributes."""
+    from mls.identity.base import get_adapter
+
     if name == CONTEXT_NOW:
         return "the current time"
-    cv = spec.identity.context.get(name)
-    if cv is not None and cv.source in USER_SOURCES:
+    if name in spec.identity.context and name == get_adapter(spec).user_context_name():
         return "the current user"
     return f"the user's {name}"
 

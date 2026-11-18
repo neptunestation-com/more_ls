@@ -46,8 +46,8 @@ The language is **small on purpose**: membership, comparisons with the current u
 hierarchies with a declared depth, time windows and column rules, with no joins, arithmetic or
 functions in predicates. That is what keeps every proof decidable. Anything else goes in an explicit
 `opaque` block, and every proof that needs one is reported as conditional on it, by name. And the
-proofs are about the model: **trusted roles** (superusers, `BYPASSRLS`, Supabase's `service_role`)
-bypass everything, and views or `SECURITY DEFINER` functions that reach a table without its
+proofs are about the model: **trusted roles** (superusers and `BYPASSRLS` roles) bypass
+everything, and views or `SECURITY DEFINER` functions that reach a table without its
 policies are reported as bypass paths, never rewritten. Every proof report states its assumptions.
 
 ## Why it exists
@@ -90,7 +90,7 @@ requirement at a time and lets the prover catch two real mistakes along the way:
 ```
 mls 0.1
 
-identity supabase { uid: auth.uid uuid }
+identity session_setting { uid: app.uid uuid }
 roles authenticated
 
 table members owned { user_id uuid not null, team_id int not null; primary_key (user_id, team_id) }
@@ -126,8 +126,8 @@ a table is refuted, `generate` 1 when the result is not proved. Every command re
 
 ## Taking over an existing database
 
-The common case is a Supabase or plain Postgres project in production, with tables and data that
-stay where they are and policies that were written by hand and never proved. The takeover keeps
+The common case is a Postgres database in production, with tables and data that stay where
+they are and policies that were written by hand and never proved. The takeover keeps
 the schema and lets MLS own the policies, and an LLM does the writing: you state the
 requirements and approve what it proved.
 
@@ -146,8 +146,8 @@ uv run mls status spec.mls --dsn "$DATABASE_URL"                               #
 
 The import's notes quote every policy the deploy will drop, the tables with row-level security off
 today, and the bypass paths, each with its fix. [GUIDE §3](docs/GUIDE.md#3-taking-over-the-schema-you-have)
-walks through it step by step, every command with what it prints, on Supabase's team-and-projects
-starter; the test suite replays it on Supabase's own image.
+walks through it step by step on a team-and-projects starter schema, every command with what it
+prints, and the test suite replays it.
 
 ## Writing specs with an LLM
 
@@ -188,7 +188,7 @@ For contributors, `docs/design/` holds why MLS is the way it is:
 
 ```bash
 uv run pytest -m "not pg"                 # spec, logic, proofs, CLI, no Postgres (seconds)
-uv run pytest -m pg                       # differential, mutation, migration, lock, drift; PG 15-18 + Supabase (Docker)
+uv run pytest -m pg                       # differential, mutation, migration, lock, drift; PG 15-18 (Docker)
 uv run pytest -m slow                     # EXPLAIN checks at 1M rows
 uv run pytest -m cvc5                     # cross-check the proofs with a second solver
 MLS_PG_VERSIONS=16 uv run pytest -m pg    # one version
@@ -196,8 +196,8 @@ MLS_PG_DSN=postgresql://postgres:pw@host:port/postgres uv run pytest -m pg   # a
 ```
 
 Every compiler template has a differential test against Postgres 15, 16, 17 and 18, and a mutation
-(a deliberately wrong version of the template) that the differential test must catch. The Supabase
-examples run again on the `supabase/postgres` image as its non-superuser `postgres` role.
+(a deliberately wrong version of the template) that the differential test must catch. Examples also
+deploy and pass as a role that is not a superuser, the way managed Postgres services run them.
 
 `lean/` formalizes the core semantics in Lean 4 and proves, among other things, that the pair
 encoding is sound against SQL's meaning of every construct of the fragment, that `IS TRUE` makes

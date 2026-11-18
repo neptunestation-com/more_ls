@@ -484,7 +484,7 @@ assumptions the proofs carry, and the bypass paths.
 
 ## 4. Starting from nothing: a ten-minute tour
 
-This section builds a spec from nothing for a small team-notes app on Supabase, one requirement
+This section builds a spec from nothing for a small team-notes app, one requirement
 at a time: the tables are MLS's own (`owned`), so the spec declares them and the compiled script
 creates them.  You need no database: everything here runs on your machine in seconds.  Every output shown is
 what `mls` actually prints, trimmed only where marked.  The finished spec is
@@ -497,7 +497,7 @@ The requirement: *members of a team can read the team's notes.*  Save this as `n
 
     mls 0.1
 
-    identity supabase { uid: auth.uid uuid }
+    identity session_setting { uid: app.uid uuid }
     roles authenticated
 
     table members owned {
@@ -524,8 +524,9 @@ The requirement: *members of a team can read the team's notes.*  Save this as `n
       P1 tenant_isolation notes: team_id in member_of(@uid) for select description 'a user only reads the notes of their own teams'
     }
 
-Reading it from the top: the current user's id comes from Supabase's `auth.uid()` and is
-called `@uid`.  There are two tables.  `relation member_of` says that the `members` table, read
+Reading it from the top: the current user's id is the session setting `app.uid`, which your
+application sets on each connection, and is called `@uid` (section 9 has the other ways to say who
+the user is).  There are two tables.  `relation member_of` says that the `members` table, read
 as (user, team) pairs, is a membership relation, so `member_of(@uid, team_id)` means "the
 current user is a member of this row's team".  `R1` is a rule, the thing that gets enforced.
 `P1` is a property, the thing that gets *proved*: whatever the rules end up being, a user only
@@ -666,9 +667,9 @@ The fix is to say what NULL means:
 prints one SQL script.  The policies on `notes`:
 
     create policy "member_read" on "notes" as permissive for select to "authenticated"
-      using (("team_id" = any (array(select "team_id" from "members" where "user_id" = (select auth.uid())))));  -- R1
+      using (("team_id" = any (array(select "team_id" from "members" where "user_id" = (select nullif(current_setting('app.uid', true), '')::uuid)))));  -- R1
     create policy "admin_read" on "notes" as permissive for select to "authenticated"
-      using (("team_id" = any (array(select "team_id" from "admins" where "user_id" = (select auth.uid())))));  -- R2
+      using (("team_id" = any (array(select "team_id" from "admins" where "user_id" = (select nullif(current_setting('app.uid', true), '')::uuid)))));  -- R2
     create policy "hide_archived" on "notes" as restrictive for all to "authenticated"
       using ((("archived" is null) or ("archived" <> 1)))
       with check ((("archived" is null) or ("archived" <> 1)));  -- R4
@@ -1328,16 +1329,6 @@ A policy's context values (`@uid`, `@clearance`) come from an identity adapter. 
 decides how a name becomes SQL and what has to be true outside the database for the policy to
 mean anything.  Three adapters ship:
 
-**`supabase`.**  `auth.uid` is the user id (`(select auth.uid())`, type `uuid`) and
-`jwt.claims.<name>` is a JWT claim (`(select (auth.jwt() ->> 'name')::type)`).  The trust
-assumption, stated in every proof report, is that clients reach the database only through
-Supabase's API layer, which verifies the JWT.  A direct connection as `authenticated` with a
-forged claim is outside the model.
-
-**`pg_roles`.**  `current_user` is the identity (type `text`).  No external assumption: Postgres
-authenticated the session.  Use this when every user is a database role, or when a connection
-pooler sets the role per request with `SET ROLE`.
-
 **`session_setting`.**  `app.<name>` is a session setting read with
 `current_setting('app.<name>', true)` and cast to the declared type.  A setting that is
 absent or empty is NULL, so every comparison with it is UNKNOWN and the row is denied: no
@@ -1347,7 +1338,18 @@ on `app.*`; the setting is established by a trusted path (a pooler, a `SET LOCAL
 DEFINER` entry point, or the application's connection layer) that no untrusted client reaches.
 `mls drift` checks the two ways that path leaks into the database: an app role that may execute
 a function whose body sets `app.*`, and an `ALTER ROLE ... SET app.*` default on an app role.
-`examples/session_docs.mls.json` is the document store on this adapter.
+The tour's spec (`examples/team_notes.mls`) and the document store
+(`examples/session_docs.mls.json`) use this adapter.
+
+**`pg_roles`.**  `current_user` is the identity (type `text`).  No external assumption: Postgres
+authenticated the session.  Use this when every user is a database role, or when a connection
+pooler sets the role per request with `SET ROLE`.
+
+**`supabase`.**  `auth.uid` is the user id (`(select auth.uid())`, type `uuid`) and
+`jwt.claims.<name>` is a JWT claim (`(select (auth.jwt() ->> 'name')::type)`).  The trust
+assumption, stated in every proof report, is that clients reach the database only through
+Supabase's API layer, which verifies the JWT.  A direct connection as `authenticated` with a
+forged claim is outside the model.
 
 `now` is a built-in context value in every adapter (the transaction start time), used by
 `now_between`.

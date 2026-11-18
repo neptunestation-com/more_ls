@@ -12,14 +12,14 @@
     *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
     :root {
-      /* Supabase dark family + official green (the PROVED colour); lilac is this project's own accent. */
+      /* Dark greys, MLS's green (the PROVED colour) and lilac accent. */
       --bg: #121212;
       --bg-surface: #181818;
       --bg-raised: #1E1E1E;
       --bg-control: #232323;
-      --green: #3ECF8E;
-      --green-dark: #24B47E;
-      --green-glow: rgba(62, 207, 142, 0.13);
+      --green: #63D47A;
+      --green-dark: #3FAF59;
+      --green-glow: rgba(99, 212, 122, 0.13);
       --lilac: #B9A6F5;          /* MLS's accent */
       --lilac-dim: #9884DE;
       --lilac-glow: rgba(185, 166, 245, 0.12);
@@ -128,7 +128,7 @@
     .slip pre .kw { color: var(--lilac); }
     .slip pre .id { color: var(--fg); }
     .slip.ce { border-color: rgba(229,103,93,0.45); background: linear-gradient(160deg, rgba(229,103,93,0.08), var(--bg-surface)); }
-    .slip.fix { border-color: var(--green-dark); background: linear-gradient(160deg, rgba(62,207,142,0.08), var(--bg-surface)); }
+    .slip.fix { border-color: var(--green-dark); background: linear-gradient(160deg, rgba(99,212,122,0.08), var(--bg-surface)); }
     .verdict { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em; padding: 2px 8px; border-radius: 5px; text-transform: uppercase; }
     .verdict.no { color: var(--red); border: 1px solid rgba(229,103,93,0.5); background: rgba(229,103,93,0.08); }
     .verdict.yes { color: var(--green); border: 1px solid var(--green-dark); background: var(--green-glow); }
@@ -193,7 +193,7 @@
     .prow .t { font-family: var(--font-mono); font-size: 11px; color: var(--fg-dim); text-align: right; }
     .track { position: relative; height: 14px; border-radius: 5px; background: var(--bg-control); overflow: hidden; }
     .track i { position: absolute; inset: 0; transform-origin: left; transform: scaleX(calc(var(--p) * var(--w))); }
-    .track.good i { background: linear-gradient(90deg, rgba(62,207,142,0.45), rgba(62,207,142,0.85)); }
+    .track.good i { background: linear-gradient(90deg, rgba(99,212,122,0.45), rgba(99,212,122,0.85)); }
     .track.slow i { background: linear-gradient(90deg, rgba(229,103,93,0.45), rgba(229,103,93,0.85)); }
     .prow.mine .lbl b { color: var(--green); }
     @media (max-width: 520px) { .prow { grid-template-columns: 1fr 56px; } .prow .track { grid-column: 1 / -1; grid-row: 2; } }
@@ -311,7 +311,7 @@
             View on GitHub
           </a>
         </div>
-        <div style="margin-top:26px"><span class="pill"><span class="dot"></span>Postgres 15–18 · Supabase · Z3 + cvc5 · Lean 4</span></div>
+        <div style="margin-top:26px"><span class="pill"><span class="dot"></span>Postgres 15–18 · Z3 + cvc5 · Lean 4</span></div>
       </div>
 
       <div class="stack" id="stack" aria-label="A requirement, the rule written for it, the counterexample the prover finds, and the fix that makes the guarantee hold">
@@ -394,7 +394,7 @@ check (not archived = 1) -- let in</pre>
           </div>
           <figure class="fig" aria-hidden="true">
             <div class="dg">
-              <div class="term"><span class="kw">identity</span> supabase { uid: auth.uid uuid }
+              <div class="term"><span class="kw">identity</span> session_setting { uid: app.uid uuid }
 <span class="kw">relation</span> member_of = members(user_id, team_id)
 <span class="kw">relation</span> admin_of  = admins(user_id, team_id)
 
@@ -495,7 +495,7 @@ check (not archived = 1) -- let in</pre>
   as permissive for select to "authenticated"
   using (("team_id" = any (array(
     select "team_id" from "members"
-    where "user_id" = (select auth.uid())))));  <span class="cm">-- R1</span></div>
+    where "user_id" = (select nullif(current_setting('app.uid', true), '')::uuid)))));  <span class="cm">-- R1</span></div>
               <div class="perf" id="perf">
                 <div class="prow mine"><span class="lbl"><b>= any(array(select ..))</b><br>what MLS emits</span><span class="track good"><i style="--w:0.07"></i></span><span class="t">0.23 ms</span></div>
                 <div class="prow"><span class="lbl"><b>in (select ..)</b></span><span class="track slow"><i style="--w:0.57"></i></span><span class="t">71 ms</span></div>
@@ -512,7 +512,7 @@ check (not archived = 1) -- let in</pre>
           <div class="beat-copy">
             <span class="move"><span class="move-n">6</span> Test against the real thing &middot; <code>mls test</code></span>
             <h3>The proofs are about the model. The tests tie the model to <em>Postgres</em>.</h3>
-            <p>Every compiler template has a differential test: generated databases and statements, run through MLS's own evaluator and through the compiled objects on Postgres 15, 16, 17 and 18, which must agree row for row. The Supabase examples run again on Supabase's own image, deployed as its non-superuser <code>postgres</code> role.</p>
+            <p>Every compiler template has a differential test: generated databases and statements, run through MLS's own evaluator and through the compiled objects on Postgres 15, 16, 17 and 18, which must agree row for row. Examples also deploy and pass as a role that is not a superuser, the way managed Postgres services run them.</p>
             <p>And every template has a mutation: a deliberately wrong version the differential test must catch. A test that still passes against a broken template isn't testing anything, so it fails the build.</p>
           </div>
           <figure class="fig" aria-hidden="true">
@@ -522,7 +522,7 @@ check (not archived = 1) -- let in</pre>
                 <div class="cell">16<small>postgres</small></div>
                 <div class="cell">17<small>postgres</small></div>
                 <div class="cell">18<small>postgres</small></div>
-                <div class="cell">supabase<small>non-superuser</small></div>
+                <div class="cell">hosted<small>non-superuser</small></div>
               </div>
               <div class="mut"><span class="x">✕</span> IN_DROP_LAST · REPLACE_KEEPS_FOREIGN · HOP_VISIBILITY_DROPPED · …</div>
               <div class="fig-cap">19 template mutations, each caught by the differential test · proofs cross-checked with cvc5 · core semantics formalized in Lean 4</div>
@@ -562,7 +562,7 @@ check (not archived = 1) -- let in</pre>
       <div class="section-head reveal">
         <span class="eyebrow">The common case</span>
         <h2 class="display">Keep your tables. Replace your policies.</h2>
-        <p>Most projects already have a database: tables and data that stay where they are, and policies written by hand and never proved. The takeover keeps the schema and lets MLS own the policies. The <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md#3-taking-over-the-schema-you-have">user guide</a> walks through it with every command with what it prints, and the test suite replays it on Supabase's own image.</p>
+        <p>Most projects already have a database: tables and data that stay where they are, and policies written by hand and never proved. The takeover keeps the schema and lets MLS own the policies. The <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md#3-taking-over-the-schema-you-have">user guide</a> walks through it with every command with what it prints, and the test suite replays it.</p>
       </div>
       <div class="acts reveal">
         <div class="act">
@@ -631,7 +631,7 @@ teams: <span class="ok">proved</span> (P7)</pre>
         </div>
         <div class="truth reveal">
           <div class="mk"><svg viewBox="0 0 20 20"><circle cx="9" cy="9" r="5.5"/><path d="M13 13l4 4"/></svg></div>
-          <div><h3>Trusted roles, and the ways around</h3><p>Superusers and <code>BYPASSRLS</code> roles (Supabase's <code>service_role</code>) bypass everything, and every report says so. Non-invoker views and <code>SECURITY DEFINER</code> functions over a governed table are reported as bypass paths, never rewritten: they're your objects.</p></div>
+          <div><h3>Trusted roles, and the ways around</h3><p>Superusers and <code>BYPASSRLS</code> roles bypass everything, and every report says so. Non-invoker views and <code>SECURITY DEFINER</code> functions over a governed table are reported as bypass paths, never rewritten: they're your objects.</p></div>
         </div>
         <div class="truth reveal">
           <div class="mk"><svg viewBox="0 0 20 20"><path d="M3 14l4-5 3 3 4-6 3 4"/><path d="M3 17h14"/></svg></div>
@@ -662,7 +662,7 @@ teams: <span class="ok">proved</span> (P7)</pre>
             <span class="lbl">Copy</span>
           </button>
         </div>
-        <p class="cta-note">Already running Supabase or Postgres in production? Start with <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md#3-taking-over-the-schema-you-have">taking over the schema you have</a>. New schema? The guide's ten-minute tour builds a spec one requirement at a time.</p>
+        <p class="cta-note">Already running Postgres in production? Start with <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md#3-taking-over-the-schema-you-have">taking over the schema you have</a>. New schema? The guide's ten-minute tour builds a spec one requirement at a time.</p>
         <div class="cta-actions">
           <a class="btn btn-primary" href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md" target="_blank" rel="noopener">Read the guide</a>
           <a class="btn btn-ghost" href="https://github.com/neptunestation-com/more_ls/blob/main/docs/REFERENCE.md" target="_blank" rel="noopener">Reference</a>
@@ -678,7 +678,7 @@ teams: <span class="ok">proved</span> (P7)</pre>
         <p>Row-level security, more or less, proved.<br><a href="https://github.com/neptunestation-com/more_ls">GitHub</a> · <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md">Guide</a> · <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/REFERENCE.md">Reference</a></p>
       </div>
       <div class="foot-right">
-        <p>Works with Supabase's <code style="color:var(--fg-dim)">auth.uid()</code> and is tested on Supabase's own Postgres image. A community project, not an official Supabase product.</p>
+        <p>Plain PostgreSQL: the current user comes from a session setting, a database role or an identity provider's auth function.</p>
       </div>
     </div>
   </footer>

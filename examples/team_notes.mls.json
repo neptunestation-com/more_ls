@@ -1,11 +1,11 @@
 {
-  "$comment": "The spec the user guide builds in its tour (docs/GUIDE.md section 4): team notes on Supabase, read by members and admins, archived notes hidden. tests/test_guide.py replays the tour on it.",
+  "$comment": "The spec the user guide builds in its tour (docs/GUIDE.md section 4): team notes, read by members and admins, archived notes hidden. tests/test_guide.py replays the tour on it.",
   "mls_version": "0.1",
   "identity": {
-    "adapter": "supabase",
+    "adapter": "session_setting",
     "context": {
       "uid": {
-        "source": "auth.uid",
+        "source": "app.uid",
         "type": "uuid"
       }
     }

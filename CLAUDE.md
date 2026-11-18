@@ -121,7 +121,8 @@ union member the renderer does not cover.
   fixtures (`tests/templates/specs.py`) derive from the example specs; `test_specs.py` builds and
   checks every one without Docker, so an example edit that breaks a fixture fails in the fast
   suite, not only in the Postgres jobs.
-- The guide's tour (GUIDE §4) is replayed by `tests/test_guide.py` on `examples/team_notes.mls`:
+- The guide's tour (GUIDE §4) is replayed by `tests/test_guide.py` on `examples/team_notes.mls`
+  (adapter `session_setting`: the README and the explainer quote it and name no identity provider):
   every command it shows runs in its own process (in-process runs get other counterexamples)
   and must print the lines the guide shows. A change to report, lint, explain or compile output
   updates the tour in the same change.
