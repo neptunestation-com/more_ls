@@ -81,7 +81,7 @@ it:
   prover and the compiler support;
 - **proves** properties about it with an SMT solver (Z3, cross-checked with cvc5 in CI): tenant
   isolation, immutable columns, monotonicity in membership, write ⊆ read, least privilege,
-  inductive invariants, custom upper bounds and `must_allow` lower bounds;
+  inductive invariants, role separation, custom upper bounds and `must_allow` lower bounds;
 - **compiles** it to plain Postgres objects: RLS policies, `CHECK` constraints, composite foreign
   keys, trigger functions from fixed templates, column privileges, indexes, grants and hardening.
 
@@ -109,8 +109,8 @@ The pieces fit together like this:
   policy shape it can prove and index.  Raw SQL is allowed only in an explicit `opaque` block,
   and every proof that depends on one says so.
 - **Not only greenfield.**  MLS adopts the tables you have: `mls import` reads the live tables,
-  keys and constraints into a spec, and either drops the old policies for rules you write
-  (section 3) or lifts them into the verified fragment, keeping what it cannot read as opaque
+  keys and constraints into a spec, and either drops the old policies and has an LLM write the rules from your
+  requirements (section 3) or lifts them into the verified fragment, keeping what it cannot read as opaque
   blocks (section 10.1).  It can also create and own the tables of a new schema.
 
 The intended workflow is that an LLM writes the spec from business requirements and a
@@ -610,7 +610,7 @@ The finding is worth a second look.  Once every admin is a member, `admin_read` 
 that `member_read` does not already admit: the requirement "admins read their team's notes"
 was met before you wrote R2.  You can delete R2, or keep it as documentation; either way you
 now *know*, rather than suspect.  (The warning is about performance, not safety: a
-`LIKE` search on `body` cannot run ahead of the row policy.  Section 5.7 explains.)
+`LIKE` search on `body` cannot run ahead of the row policy.  Section 6.7 explains.)
 
 ### Step 4: a NULL, and the second mistake
 
@@ -719,16 +719,16 @@ spec has a fixed skeleton and two lists:
       "identity":   { "adapter": "supabase", "context": { ... } },
       "roles":      ["authenticated"],
       "tables":     { ... },
-      "relations":  { ... },       // membership relations: (key, value) projections of tables
+      "relations":  { ... },       // membership relations: (key, value) projections of tables, or paths through keys
       "hierarchies": { ... },      // optional: trees of groups
       "opaques":    { ... },       // optional: named raw-SQL predicates
       "rules":      [ ... ],       // what is enforced
       "properties": [ ... ]        // what is proved about the rules
     }
 
-The skeleton (identity, roles, tables, relations, hierarchies, opaques) is the part a developer
-writes, because it mirrors the schema.  The rules and properties are the part an LLM can write
-from requirements (section 12).
+The skeleton (identity, roles, tables, relations, hierarchies, opaques) mirrors the schema:
+`mls import` reads it from a live database, or a developer writes it.  The rules, the properties
+and any relation the schema lacks are the part an LLM can write from requirements (section 12).
 
 **Rules** are of six kinds.  Each one compiles to exactly one Postgres mechanism:
 
@@ -752,7 +752,7 @@ and the rule covers it the next time `check` runs.
 
 **Properties** are statements the solver proves about the rules.  They come in templates (tenant
 isolation, column immutable, monotone in a relation, write ⊆ read, least privilege, invariant
-preserved) plus two general ones: `custom` (an upper bound: every row a role can touch satisfies
+preserved, role separation) plus two general ones: `custom` (an upper bound: every row a role can touch satisfies
 a goal) and `must_allow` (a lower bound: every valid row meeting a condition is admitted).  A
 good property set has both bounds: the upper bounds catch rules that grant too much, the
 `must_allow`s catch rules that deny too much.
@@ -843,7 +843,7 @@ Identity is Supabase: the current user is `auth.uid()` and a `clearance` claim f
 ### 6.1 The rules
 
 Here is the whole rule set as `mls explain --terse` prints it (the `rules` block of the terse
-syntax, §4):
+syntax, reference §13):
 
     R1 policy member_read on docs: authenticated select permissive using member_of(@uid, tenant_id) and level <= @clearance requirement 'REQ-1'
     R2 policy admin_read on docs: authenticated select permissive using admin_of(@uid, tenant_id) requirement 'REQ-2'
@@ -1320,7 +1320,7 @@ Some other outcomes:
       fix: declare a table the selector matches, or name the table with "table"
 
 They are written to be acted on by a program as much as by a person: the LLM loop (section
-11) feeds them back to the model.
+12) feeds them back to the model.
 
 ## 9. Identity: who the current user is
 
@@ -1596,8 +1596,8 @@ the loop works and what to do with its answer.
     export ANTHROPIC_API_KEY=...
     uv run mls generate requirements.txt --skeleton skeleton.json --out spec.mls.json --transcript t.json
 
-The skeleton is a spec without rules and properties (identity, roles, tables, relations,
-hierarchies, opaques), in either syntax.  The requirements are plain prose.  `--out` writes the
+The skeleton is a spec without properties (identity, roles, tables, relations, hierarchies,
+opaques, and any rules it already has), in either syntax.  The requirements are plain prose.  `--out` writes the
 spec in the syntax its extension names (`spec.mls` for terse).  The loop:
 
 1. asks the model for the *relations* the requirements need that the skeleton lacks (often
@@ -1634,7 +1634,7 @@ relation makes a correct-sounding property say the wrong thing.  The model's
 descriptions stay in the spec and the transcript.
 
 A skeleton may already have rules: the one `mls import --policies discard` writes carries the
-CHECKs it read (section 3, step 6).  Its relations are kept as they are too: the model may add relations, never
+CHECKs it read (section 3, step 3).  Its relations are kept as they are too: the model may add relations, never
 change or rename one.  The model is shown the rules as rules the spec already has, numbers
 its own rules after them, and the result is its rules followed by those; a rule of its own that
 takes one of their ids or names is sent back for repair.
@@ -1712,7 +1712,8 @@ These are decisions, not gaps; `docs/design/DECISIONS.md` has the reasoning.
   in a policy is never inlined, however short its body.
 - **The fragment.**  No joins, subqueries, arithmetic or functions in predicates (a chain of
   lookups through keys is a composed relation, section 7).  Comparison
-  right-hand sides are context or constants; membership keys are context, not columns; negated
+  right-hand sides are context or constants; membership keys in policies are context or constants,
+  not columns; negated
   membership is rejected in policies (it is an anti-join the planner cannot drive from an
   index); `in_group` is not allowed in checks and transitions (it reads other tables).  Anything
   else is an `opaque` block, and its proofs are conditional.
