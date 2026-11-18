@@ -536,7 +536,7 @@ check (not archived = 1) -- let in</pre>
             <span class="move"><span class="move-n">7</span> Approve in English &middot; <code>mls explain</code></span>
             <h3>Nobody has to read the spec to <em>approve</em> it.</h3>
             <p>The person who owns the requirements approves the properties and the scenarios, in plain English. Each sentence is a promise the solver has checked. When a spec changes, <code>mls diff</code> lists every change in effect, for whom, with an example row.</p>
-            <p>That's also what makes it safe to let an LLM write the spec: <code>mls generate</code> turns requirement sentences into rules and properties, and repairs them against the prover until they hold.</p>
+            <p>That's also what makes it safe to let an LLM write the spec: <code>mls generate</code> turns requirement sentences into rules and properties, and any relation the schema lacks, and repairs them against the prover until they hold.</p>
           </div>
           <figure class="fig" aria-hidden="true">
             <div class="dg">
