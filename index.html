@@ -447,7 +447,7 @@ check (not archived = 1) -- let in</pre>
             <span class="move"><span class="move-n">3</span> Prove &middot; <code>mls prove</code></span>
             <h3>A failed proof is a database you can <em>read aloud</em>.</h3>
             <p>The solver checks each property against every possible database, not the rows you happened to test with. When one fails you get a concrete situation that breaks it, small enough to read in a meeting. Here, a member of team 3 can't read their team's note, because its <code>archived</code> is NULL and the restrictive policy said <code>not archived = 1</code>.</p>
-            <p><code>mls prove</code> exits 2 when anything is refuted, so CI fails the build.</p>
+            <p><code>mls prove</code> exits 2 when anything is refuted or undecided, so CI fails the build.</p>
           </div>
           <figure class="fig" aria-hidden="true">
             <div class="dg">

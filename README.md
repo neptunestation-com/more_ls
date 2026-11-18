@@ -18,7 +18,7 @@ through the whole lifecycle:
 - **`prove`**: tenant isolation, immutable columns, monotonicity in membership, write ⊆ read,
   least privilege, inductive invariants, role separation, custom upper bounds, and `must_allow`
   lower bounds, on SQL's three-valued logic. A failed proof comes with a **counterexample**: a
-  concrete database small enough to read aloud. Exit code 2 when anything is refuted.
+  concrete database small enough to read aloud. Exit code 2 when anything is refuted or undecided.
 - **`compile`**: one SQL script of RLS policies, `CHECK ((p) IS TRUE)` constraints, composite
   foreign keys, triggers from fixed templates, column privileges, indexes, grants and hardening.
   Membership always compiles to the one policy shape Postgres runs once per statement and drives
@@ -120,7 +120,7 @@ uv run mls compile examples/team_notes.mls    # the SQL script; each statement n
 uv run mls test    examples/team_notes.mls    # the differential test on Postgres 15-18 (Docker)
 ```
 
-Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted, `test` 1 on mismatches,
+Exit codes: `check` 1 on errors, `prove` 2 if any property is refuted or unknown, `test` 1 on mismatches,
 `diff` 2 if anything changed, `preflight` and `drift` 1 when they find something, `status` 2 when
 a table is refuted, `generate` 1 when the result is not proved. Every command reads `.mls` or `.mls.json` by extension; `mls fmt` converts.
 

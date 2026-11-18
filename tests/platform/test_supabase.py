@@ -1,7 +1,6 @@
 """Supabase as a target platform (D55): the Supabase examples deploy as Supabase's `postgres` role
 (not a superuser) on the `supabase/postgres` image, the differential test passes on the deployed
-database, and drift is clean.  `MLS_SUPABASE_DSN=<postgres dsn>|<supabase_admin dsn>` uses a
-running image instead of starting one."""
+database, and drift is clean."""
 from __future__ import annotations
 
 import os

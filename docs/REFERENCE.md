@@ -614,7 +614,9 @@ A selector rule (§11) is printed once, *applies to every governed table that ha
 tenant_id: docs, files*, with its expansion as an indented list of concrete rules.  A composed
 relation (§6) gets a sentence of its own under *Relations read through other tables*: *a user's
 in_task are the id of every tasks row whose project_id is the id of a projects row whose team_id
-is among that user's member_of*.
+is among that user's member_of*.  A context value reads as *the current user* when the adapter
+names it as the user (`auth.uid`, `current_user`, or on `session_setting` the one context value
+the policies use as a membership key), and as *the user's <name>* otherwise.
 
 The terse syntax is the second concrete syntax of
 the same model: `mls explain --terse` prints the whole spec in it (`src/mls/terse.py:render`),
@@ -803,7 +805,7 @@ The proof report (§12).  `--timeout` is per obligation, default 20; a timed-out
 UNKNOWN.  JSON shape: `{"assumptions": [str], "summary": {"PROVED", "REFUTED", "UNKNOWN",
 "CONDITIONAL"}, "properties": [{"id", "template", "description", "verdict", "conditional_on",
 "obligations": [{"name", "verdict", "message", "scenario", "opaque_deps"}]}]}`.  Exit 2 if
-any property is REFUTED, else 0.
+any property is REFUTED or UNKNOWN, else 0.
 
 ### `mls compile SPEC [--out FILE]`
 
@@ -1054,6 +1056,7 @@ the mutation score.  Exit 1 if any case fails.
 | `MLS_LLM_SCRIPT` | the same | path to a JSON list of answers that replaces the model (tests and offline runs; no network call) |
 | `MLS_PG_VERSIONS` | `pytest -m pg` | comma-separated Postgres majors to test (default all four) |
 | `MLS_PG_DSN` | `pytest -m pg` | an existing superuser server instead of Docker |
+| `MLS_SKIP_PG` | `pytest` | skip every test that needs Postgres |
 
 ## 17. Errors
 

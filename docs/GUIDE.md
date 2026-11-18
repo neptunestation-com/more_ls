@@ -1687,7 +1687,7 @@ Opaque blocks are excluded from every performance guarantee.
 A minimal pipeline for a repository that holds `spec.mls.json`:
 
     uv run mls check spec.mls.json                    # exit 1 on any error
-    uv run mls prove spec.mls.json --format json --out proof.json   # exit 2 if a property is refuted
+    uv run mls prove spec.mls.json --format json --out proof.json   # exit 2 if a property is refuted or unknown
     git show main:spec.mls.json > /tmp/spec.main.json
     uv run mls diff /tmp/spec.main.json spec.mls.json             # exit 2 if the effect changed
     uv run mls drift spec.mls.json --dsn "$PROD_RO_DSN"             # exit 1 on drift (scheduled)
