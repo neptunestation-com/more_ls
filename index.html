@@ -296,8 +296,8 @@
         <a href="#how">How it works</a>
         <a href="#takeover">Takeover</a>
         <a href="#truth">Honesty</a>
-        <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md" target="_blank" rel="noopener">Docs</a>
-        <a class="nav-gh" href="https://github.com/neptunestation-com/more_ls" target="_blank" rel="noopener">
+        <a href="https://github.com/neptunestation-org/more_ls/blob/main/docs/GUIDE.md" target="_blank" rel="noopener">Docs</a>
+        <a class="nav-gh" href="https://github.com/neptunestation-org/more_ls" target="_blank" rel="noopener">
           <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
           <span>GitHub</span>
         </a>
@@ -314,7 +314,7 @@
         <p class="lede">MoreLS, or MLS for short, states who may see and change which rows of a Postgres database, once. It <strong>proves</strong> the guarantees you care about with an SMT solver before anything is deployed, and compiles the rules to ordinary RLS policies, <code>CHECK</code>s, foreign keys and triggers, each tested against the real server. Keep your tables; replace your policies.</p>
         <div class="hero-actions">
           <a class="btn btn-primary" href="#install">Get started</a>
-          <a class="btn btn-ghost" href="https://github.com/neptunestation-com/more_ls" target="_blank" rel="noopener">
+          <a class="btn btn-ghost" href="https://github.com/neptunestation-org/more_ls" target="_blank" rel="noopener">
             <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
             View on GitHub
           </a>
@@ -570,7 +570,7 @@ check (not archived = 1) -- let in</pre>
       <div class="section-head reveal">
         <span class="eyebrow">The common case</span>
         <h2 class="display">Keep your tables. Replace your policies.</h2>
-        <p>Most projects already have a database: tables and data that stay where they are, and policies written by hand and never proved. The takeover keeps the schema and lets MLS own the policies. The <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md#3-taking-over-the-schema-you-have">user guide</a> walks through it with every command with what it prints, and the test suite replays it.</p>
+        <p>Most projects already have a database: tables and data that stay where they are, and policies written by hand and never proved. The takeover keeps the schema and lets MLS own the policies. The <a href="https://github.com/neptunestation-org/more_ls/blob/main/docs/GUIDE.md#3-taking-over-the-schema-you-have">user guide</a> walks through it with every command with what it prints, and the test suite replays it.</p>
       </div>
       <div class="acts reveal">
         <div class="act">
@@ -664,16 +664,16 @@ teams: <span class="ok">proved</span> (P7)</pre>
         <h2 class="display">Clone it. Prove something.</h2>
         <p>A Python 3.12+ package managed with <code style="color:var(--lilac)">uv</code>. Checking and proving need no database; testing uses Docker or a server you provide.</p>
         <div class="codecopy">
-          <code id="install-cmd">git clone https://github.com/neptunestation-com/more_ls && cd more_ls && uv sync --all-extras && uv run mls prove examples/team_notes.mls</code>
+          <code id="install-cmd">git clone https://github.com/neptunestation-org/more_ls && cd more_ls && uv sync --all-extras && uv run mls prove examples/team_notes.mls</code>
           <button class="btn btn-ghost" id="copy-install" type="button">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="5" y="5" width="9" height="9" rx="1.5"/><path d="M5 11H3.5A1.5 1.5 0 012 9.5v-7A1.5 1.5 0 013.5 1h7A1.5 1.5 0 0112 2.5V5"/></svg>
             <span class="lbl">Copy</span>
           </button>
         </div>
-        <p class="cta-note">Already running Postgres in production? Start with <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md#3-taking-over-the-schema-you-have">taking over the schema you have</a>. New schema? The guide's ten-minute tour builds a spec one requirement at a time.</p>
+        <p class="cta-note">Already running Postgres in production? Start with <a href="https://github.com/neptunestation-org/more_ls/blob/main/docs/GUIDE.md#3-taking-over-the-schema-you-have">taking over the schema you have</a>. New schema? The guide's ten-minute tour builds a spec one requirement at a time.</p>
         <div class="cta-actions">
-          <a class="btn btn-primary" href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md" target="_blank" rel="noopener">Read the guide</a>
-          <a class="btn btn-ghost" href="https://github.com/neptunestation-com/more_ls/blob/main/docs/REFERENCE.md" target="_blank" rel="noopener">Reference</a>
+          <a class="btn btn-primary" href="https://github.com/neptunestation-org/more_ls/blob/main/docs/GUIDE.md" target="_blank" rel="noopener">Read the guide</a>
+          <a class="btn btn-ghost" href="https://github.com/neptunestation-org/more_ls/blob/main/docs/REFERENCE.md" target="_blank" rel="noopener">Reference</a>
         </div>
       </div>
     </div>
@@ -683,7 +683,7 @@ teams: <span class="ok">proved</span> (P7)</pre>
     <div class="wrap foot-inner">
       <div>
         <p class="foot-brand">MoreLS · RLS more-or-less</p>
-        <p>Row-level security, proved, then compiled.<br><a href="https://github.com/neptunestation-com/more_ls">GitHub</a> · <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/GUIDE.md">Guide</a> · <a href="https://github.com/neptunestation-com/more_ls/blob/main/docs/REFERENCE.md">Reference</a></p>
+        <p>Row-level security, proved, then compiled.<br><a href="https://github.com/neptunestation-org/more_ls">GitHub</a> · <a href="https://github.com/neptunestation-org/more_ls/blob/main/docs/GUIDE.md">Guide</a> · <a href="https://github.com/neptunestation-org/more_ls/blob/main/docs/REFERENCE.md">Reference</a></p>
       </div>
       <div class="foot-right">
         <p>Plain PostgreSQL: the current user comes from a session setting, a database role or an identity provider's auth function.</p>

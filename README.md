@@ -1,8 +1,8 @@
 # MoreLS (MLS): RLS more-or-less
 
-**[→ Explainer page](https://neptunestation-com.github.io/more_ls/)**
+**[→ Explainer page](https://neptunestation-org.github.io/more_ls/)**
 
-[![MLS: say who sees what, prove it holds, then compile it](docs/screenshot.png)](https://neptunestation-com.github.io/more_ls/)
+[![MLS: say who sees what, prove it holds, then compile it](docs/screenshot.png)](https://neptunestation-org.github.io/more_ls/)
 
 A specification language and verified compiler for PostgreSQL **row-level security** and
 data-integrity rules. You state who may see and change which rows, once. MLS **proves** the
@@ -73,7 +73,7 @@ measurements.
 A Python 3.12+ package managed with [`uv`](https://docs.astral.sh/uv/):
 
 ```bash
-git clone https://github.com/neptunestation-com/more_ls
+git clone https://github.com/neptunestation-org/more_ls
 cd more_ls
 uv sync --all-extras
 ```
@@ -161,7 +161,7 @@ findings; what does not converge is escalated to a human. With `claude-opus-5-5`
 cases ended proved and equivalent to their reference in the latest run, and all 229 mutated specs
 were repaired.
 The seed requirement texts were written by the author of the loop, so a corpus of real ones is the
-open question: [contributions welcome](https://github.com/neptunestation-com/more_ls/issues/1).
+open question: [contributions welcome](https://github.com/neptunestation-org/more_ls/issues/1).
 [GUIDE §12](docs/GUIDE.md#12-writing-specs-with-an-llm) explains how to use it;
 [`docs/design/LLM.md`](docs/design/LLM.md) its internals, the corpus and the grading.
 
@@ -174,7 +174,7 @@ open question: [contributions welcome](https://github.com/neptunestation-com/mor
   error.
 - **[Semantics](docs/SEMANTICS.md)**: the meaning of every construct, the source of truth for the
   prover, the evaluator and the compiler.
-- **[Explainer](https://neptunestation-com.github.io/more_ls/)**: the visual overview.
+- **[Explainer](https://neptunestation-org.github.io/more_ls/)**: the visual overview.
 
 For contributors, `docs/design/` holds why MLS is the way it is:
 

@@ -1,6 +1,6 @@
 # Background: what `pg_more_ls` established
 
-MLS grew out of [`pg_more_ls`](https://github.com/neptunestation-com/pg_more_ls) (February to
+MLS grew out of [`pg_more_ls`](https://github.com/neptunestation-org/pg_more_ls) (February to
 May 2026, Kotlin, archived in November 2026), a governance tool for PostgreSQL row-level
 security: a human-authored DSL, nine proofs, introspection of live policies, drift against them,
 and late-binding selectors. `docs/design/archive/ROADMAP.md` Milestone 5 says what MLS re-expresses from it and
@@ -8,9 +8,9 @@ D45 to D49 in `docs/design/DECISIONS.md` say how. This document carries over the
 project that are argument rather than code: the undecidability theorem that motivates a
 restricted language, and the survey of existing authorization languages that justified writing
 one. Both are cited, not rewritten. The paper is
-[`paper/policy-algebra.pdf`](https://github.com/neptunestation-com/pg_more_ls/blob/main/paper/policy-algebra.pdf)
+[`paper/policy-algebra.pdf`](https://github.com/neptunestation-org/pg_more_ls/blob/main/paper/policy-algebra.pdf)
 in that repository (source: `paper/policy-algebra.tex`; the same text as
-[`spec/policy-algebra.md`](https://github.com/neptunestation-com/pg_more_ls/blob/main/spec/policy-algebra.md),
+[`spec/policy-algebra.md`](https://github.com/neptunestation-org/pg_more_ls/blob/main/spec/policy-algebra.md),
 version 1.0, 2026-02-21, with the same section numbers). Section references below are to it.
 
 ## 1. Arbitrary RLS is undecidable (paper §1.1)
@@ -65,7 +65,7 @@ listed in every proof report that depends on it). Three things changed in the cr
 
 ## 2. The survey of authorization languages (`spec/dsl-survey.md`)
 
-[`spec/dsl-survey.md`](https://github.com/neptunestation-com/pg_more_ls/blob/main/spec/dsl-survey.md)
+[`spec/dsl-survey.md`](https://github.com/neptunestation-org/pg_more_ls/blob/main/spec/dsl-survey.md)
 (an architecture decision record, version 1.0, 2026-05-24, "Accepted") asked whether an existing
 authorization language could replace the custom DSL as the source language. It graded five
 candidates on eight dimensions traced to the algebra: Cedar (AWS), OPA/Rego (CNCF), the SpiceDB
@@ -126,7 +126,7 @@ not pay it in the same way.
 
 ## 3. The May 2026 performance notes (`spec/rls-exists/REPORT.md`)
 
-[`spec/rls-exists/REPORT.md`](https://github.com/neptunestation-com/pg_more_ls/blob/main/spec/rls-exists/REPORT.md)
+[`spec/rls-exists/REPORT.md`](https://github.com/neptunestation-org/pg_more_ls/blob/main/spec/rls-exists/REPORT.md)
 (PostgreSQL 17.7, 500k line items) asked whether an `EXISTS` chain inside a policy is planned
 like the same chain written in the query. It is not: the policy is wrapped in a security-barrier
 subquery that the pull-up pass refuses to flatten (`is_simple_subquery()` in
