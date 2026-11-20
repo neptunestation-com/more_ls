@@ -18,7 +18,7 @@ from psycopg import sql as psql
 from mls.compile.column import privileges
 from mls.compile.plan import Script
 from mls.identity import Adapter, get_adapter
-from mls.pg.model import Database, Oracle, Row, holds
+from mls.pg.model import Database, Oracle, Row, eval_pred, holds
 from mls.props.effective import simple_fks
 from mls.spec.chain import levels
 from mls.spec.model import CONTEXT_NOW, INT_RANGE, Spec
@@ -35,8 +35,12 @@ class Dataset:
 
     def database(self, spec: Spec) -> Database:
         rels = {}  # composed relations (D56) are read through Database.facts
+        bare = Database({})
         for name, rel in spec.base_relations().items():
-            rels[name] = {(r[rel.key], r[rel.value]) for r in self.tables.get(rel.table, [])}
+            rows = self.tables.get(rel.table, [])
+            if rel.where is not None:  # D61: the rows where the condition is TRUE
+                rows = [r for r in rows if eval_pred(rel.where, r, {}, bare) is True]
+            rels[name] = {(r[rel.key], r[rel.value]) for r in rows}
         return Database(rels, {t: list(rows) for t, rows in self.tables.items()}, spec=spec)
 
 
@@ -467,7 +471,7 @@ class Harness:
         self._begin_ctx(cur, role, ctx)
         try:
             cur.execute(psql.SQL("select {} from {}").format(psql.SQL(", ").join(map(_ident, cols)), _ident(table)))
-            pg = sorted(tuple(_norm(v) for v in r) for r in cur.fetchall())
+            pg = sorted((tuple(_norm(v) for v in r) for r in cur.fetchall()), key=_row_key)
             got = "ok"
         except psycopg.Error as e:
             got = classify_error(e)
@@ -482,8 +486,8 @@ class Harness:
             res.mismatches.append(Mismatch("select", table, role, ctx, {"cols": cols}, got, want))
             return
         if got == "ok":
-            model = sorted(tuple(_norm(r[c]) for c in cols) for r in ds.tables[table]
-                           if self.oracle.visible(role, r, ctx, db, table))
+            model = sorted((tuple(_norm(r[c]) for c in cols) for r in ds.tables[table]
+                            if self.oracle.visible(role, r, ctx, db, table)), key=_row_key)
             res.visible_rows += len(pg)
             if pg != model:
                 res.mismatches.append(Mismatch("select", table, role, ctx, {"cols": cols},
@@ -611,6 +615,12 @@ def _norm(v: Any) -> Any:
     if hasattr(v, "hex") and not isinstance(v, (bytes, str)):  # uuid.UUID
         return str(v)
     return v
+
+
+def _row_key(row: tuple) -> tuple:
+    """Sorts rows whatever their NULLs (a NULL first in its column), which a granted column list
+    that does not start with a key can meet (D61: a relation condition's nullable column)."""
+    return tuple((v is not None, v) for v in row)
 
 
 def _diff(a, b) -> list:

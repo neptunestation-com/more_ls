@@ -29,7 +29,7 @@ from mls.compile.transition import transition_ddl
 from mls.errors import CompileError, MlsError
 from mls.identity import get_adapter
 from mls.props.effective import all_policies, all_transitions
-from mls.spec.chain import levels
+from mls.spec.chain import levels, read_columns
 from mls.spec.model import Spec
 
 
@@ -77,15 +77,17 @@ def soundness_errors(spec: Spec) -> list[MlsError]:
         rels = relations_in(p.using, set())
         relations_in(p.check, rels)
         for rname in sorted(rels):
-            for rel in levels(spec, rname):
-                g = privs.get((p.role, rel.table), {}).get("select")
-                if isinstance(g, set) and not {rel.key, rel.value} <= g:
+            for table, cols in read_columns(spec, rname):
+                g = privs.get((p.role, table), {}).get("select")
+                if isinstance(g, set) and not cols <= g:
+                    need = sorted(cols)
                     errors.append(MlsError(
                         path=f"$.rules[{spec.rules.index(p)}]",
                         message=f"policy '{p.name}' uses relation '{rname}' but a column rule limits "
-                                f"role '{p.role}' to {sorted(g)} on '{rel.table}'; the membership "
-                                f"subquery needs SELECT on ({rel.key}, {rel.value})",
-                        fix=f"add '{rel.key}' and '{rel.value}' to the read column rule on '{rel.table}'",
+                                f"role '{p.role}' to {sorted(g)} on '{table}'; the membership "
+                                f"subquery needs SELECT on ({', '.join(need)})",
+                        fix=f"add {', '.join(repr(c) for c in sorted(cols - g))} to the read column rule on "
+                            f"'{table}'",
                         code="compile"))
     for ob in relation_visibility_obligations(spec):
         res = run_obligation(spec, ob)

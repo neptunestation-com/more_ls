@@ -15,7 +15,7 @@ from mls.logic.term import (
     FALSE, TRUE, Sort, Term, Var, and_, eq, forall, fun, iff, implies, int_var, le, not_, or_,
 )
 from mls.logic.tvl import Encoder, col_null_var, col_value_var, ctx_var, hop_exists_fun, hop_key_fun, rel_fun
-from mls.spec.chain import hop_prefix, levels
+from mls.spec.chain import condition, hop_prefix, levels
 from mls.props.effective import (
     effective, inclusion_pred, members_in, relations_of, row_constraints, transition_constraints,
 )
@@ -91,7 +91,9 @@ def enum_row_axioms(encs: list[Encoder], rows: dict[str, str]) -> list[Term]:
 
 def relation_row_axioms(enc: Encoder, rows: dict[str, str]) -> list[Term]:
     """A stored row of a relation's table is one of its facts: `rel(row.key, row.value)` (the
-    relation is the table's (key, value) projection; both columns are NOT NULL).  As for the hops,
+    relation is the table's (key, value) projection; both columns are NOT NULL).  With a condition
+    (D61) the row is a fact exactly when the condition is TRUE for it: `rel(row.key, row.value) ⇔
+    T(cond(row))`, exact because the table holds the pair at most once.  As for the hops,
     `new` is excluded (not yet stored), and so is a relation the obligation reads in a tagged
     state copy (the diff's `@new`, the invariant step's before/after), whose facts other axioms
     relate to the rows."""
@@ -102,7 +104,8 @@ def relation_row_axioms(enc: Encoder, rows: dict[str, str]) -> list[Term]:
             continue
         for row, rt in rows.items():
             if rt == rel.table and row != "new":
-                out.append(rel_fun(name)(col_value_var(row, rel.key), col_value_var(row, rel.value)))
+                fact = rel_fun(name)(col_value_var(row, rel.key), col_value_var(row, rel.value))
+                out.append(fact if rel.where is None else iff(fact, enc.T(rel.where, row, rel.table)))
     return out
 
 
@@ -488,7 +491,10 @@ def invariant_preserved(spec: Spec, p: InvariantPreserved) -> list[Obligation]:
             tables.add(spec.relations[r].table)
     # transitions: INSERT / UPDATE / DELETE on every table the invariants mention
     for t in sorted(tables):
-        backed = {name for name, rel in spec.base_relations().items() if rel.table == t}
+        # a relation with a condition (D61) is never read by an invariant (the checker refuses
+        # it), and the change axioms below would be wrong for it: an insert adds its pair only
+        # when the condition holds
+        backed = {name for name, rel in spec.base_relations().items() if rel.table == t and rel.where is None}
         for cmd in ("insert", "update", "delete"):
             out.extend(_induction_step(spec, p, invs, t, cmd, backed))
     return out
@@ -604,6 +610,10 @@ def relation_visibility_obligations(spec: Spec) -> list[Obligation]:
                         kv, _ = enc.term(m.key, "x", rel.table)
                         reach = eq(col_value_var("x", rel.key), kv)
                         which = f"rows with {rel.key} = the key"
+                        cond = condition(spec, m.relation)
+                        if cond is not None:  # D61: only the rows the condition keeps are read
+                            reach = and_(reach, enc.T(cond, "x", rel.table))
+                            which += " that meet the relation's condition"
                     else:
                         prev = hop_prefix(spec, m.relation, lvl)
                         reach = enc.T(Member(member=MemberBody(relation=prev, key=m.key, value=ColRef(col=rel.key))),

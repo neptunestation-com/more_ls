@@ -127,7 +127,9 @@ SPECS = st.fixed_dictionaries(
      "roles": st.lists(NAMES, min_size=1, max_size=2),
      "enums": st.dictionaries(NAMES, st.lists(TEXT, max_size=3), max_size=2),
      "tables": st.dictionaries(NAMES, TABLES, max_size=3),
-     "relations": st.dictionaries(NAMES, st.fixed_dictionaries({"table": NAMES, "key": NAMES, "value": NAMES}), max_size=2),
+     "relations": st.dictionaries(NAMES, st.fixed_dictionaries({"table": NAMES, "key": NAMES, "value": NAMES},
+                                                               optional={"where": preds()}),  # D61
+                                 max_size=2),
      "hierarchies": st.dictionaries(NAMES, st.fixed_dictionaries(
          {"table": NAMES, "id": NAMES, "parent": NAMES, "depth": NAMES, "max_depth": st.integers(1, 16),
           "members": NAMES}), max_size=1),

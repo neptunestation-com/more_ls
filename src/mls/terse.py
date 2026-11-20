@@ -16,7 +16,7 @@ approval artifact (D10, D33).  The grammar:
     column     := NAME TYPE ['not null']                          (a bare column is nullable; TYPE 'enum' NAME for an enum)
     option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
                 | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced' | 'bypass view v' | 'bypass function f(t)')
-    relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
+    relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')' ['where' pred]
                 | 'relation' NAME '=' RELATION ('.' TABLE '(' KEY ',' VALUE ')')+   (D56, ≤ 3 hops)
     hierarchy  := 'hierarchy' NAME '=' TABLE 'id' COL 'parent' COL 'depth' COL 'max_depth' INT 'members' REL
     opaque     := 'opaque' NAME 'on' TABLE '(' [input (',' input)*] ')' 'relations' '(' [names] ')' 'sql' DOLLAR
@@ -54,7 +54,7 @@ OR, AND, NOT, ATOM = 1, 2, 3, 4
 
 RESERVED = frozenset("""
 mls comment identity roles enum table relation hierarchy opaque rules properties
-on applies_to from requirement description using check for max on_delete restrict max_depth
+on applies_to from requirement description using check for max on_delete restrict max_depth where
 and or not is null true false in in_group now_between old new
 primary_key unique tags assume sql relations has_column named tagged all
 owned adopted observed select insert update delete permissive restrictive read write
@@ -73,7 +73,7 @@ RENDERED_FIELDS: dict[type, set[str]] = {
            "rules", "properties"},
     Identity: {"adapter", "context"}, ContextVar: {"source", "type"},
     Table: {"columns", "primary_key", "unique", "mode", "assume", "tags"}, Column: {"type", "nullable", "enum"},
-    Relation: {"table", "key", "value"}, ComposedRelation: {"of", "through"},
+    Relation: {"table", "key", "value", "where"}, ComposedRelation: {"of", "through"},
     Hop: {"table", "key", "value"},
     Hierarchy: {"table", "id", "parent", "depth", "max_depth", "members"},
     Opaque: {"table", "columns", "context", "relations", "sql"},
@@ -333,7 +333,8 @@ def relation(name: str, r: Relation | ComposedRelation) -> str:
     if isinstance(r, ComposedRelation):
         hops = " . ".join(f"{ident(h.table)}({ident(h.key)}, {ident(h.value)})" for h in r.through)
         return f"relation {ident(name)} = {ident(r.of)} . {hops}"
-    return f"relation {ident(name)} = {ident(r.table)}({ident(r.key)}, {ident(r.value)})"
+    out = f"relation {ident(name)} = {ident(r.table)}({ident(r.key)}, {ident(r.value)})"
+    return out + (f" where {pred(r.where)}" if r.where is not None else "")
 
 
 def hierarchy(name: str, h: Hierarchy) -> str:

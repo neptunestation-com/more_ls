@@ -46,11 +46,13 @@ class Sink:
         self.env.opaques[name] = dict(self.blocks[name])
         return name
 
-    def relation(self, table, key, value):
+    def relation(self, table, key, value, where=None):
         for n, trip in self.env.relations.items():
-            if trip == (table, key, value):
+            if trip == (table, key, value) and self.env.conditions.get(n) == where:
                 return n
-        name = f"{table}_{key}_{value}"
+        name = f"{table}_{key}_{value}" + ("_where" if where else "")
+        if where is not None:
+            self.env.conditions[name] = where
         self.env.relations[name] = (table, key, value)
         return name
 
@@ -232,7 +234,7 @@ def test_membership_needs_a_key_pair_and_a_governed_table():
     env = env_of()
     text = "(tenant_id IN ( SELECT docs.tenant_id\n   FROM docs\n  WHERE (docs.owner_id = auth.uid())))"
     r, _ = do(text, env=env, table="memberships")
-    assert r.kind == "opaque" and "not a primary key or unique constraint of docs" in r.reasons[0]
+    assert r.kind == "opaque" and "(owner_id, tenant_id) is not unique in docs" in r.reasons[0]
     env.governed.discard("memberships")
     r, _ = do(MEMBER, env=env)
     assert r.kind == "opaque" and "observed" in r.reasons[0]
@@ -340,6 +342,139 @@ def test_a_nested_membership_through_a_column_that_is_not_a_key_stays_opaque():
     env.tables["projects"]["team_id"] = ("bigint", True)
     r, _ = do(NESTED_ARRAY, env=env, table="tasks")
     assert r.kind == "opaque" and any("must be NOT NULL" in x for x in r.reasons), r.reasons
+
+
+OWNED_PROJECT = ("(EXISTS ( SELECT 1\n   FROM projects\n  WHERE ((projects.id = tasks.project_id) AND "
+                 "(projects.owner_id = ( SELECT auth.uid() AS uid)))))")
+JOINED_OWNER = ("(EXISTS ( SELECT 1\n   FROM (tasks\n     JOIN projects ON ((projects.id = tasks.project_id)))\n"
+                "  WHERE ((tasks.id = comments.task_id) AND (projects.owner_id = ( SELECT auth.uid() AS uid)))))")
+JOINED_TEAM = ("(EXISTS ( SELECT 1\n   FROM ((tasks t\n     JOIN projects p ON ((p.id = t.project_id)))\n"
+               "     JOIN team_members tm ON ((tm.team_id = p.team_id)))\n"
+               "  WHERE ((t.id = comments.task_id) AND (tm.user_id = ( SELECT auth.uid() AS uid)))))")
+
+
+def owner_env() -> Env:
+    env = composed_env()
+    env.tables["projects"]["owner_id"] = ("uuid", False)
+    env.invalidate()
+    return env
+
+
+def test_the_owner_of_the_parent_row_is_a_relation():
+    """D60: the correlated EXISTS on the parent row's owner reads (owner_id, id) of projects,
+    unique because id is the primary key."""
+    env = owner_env()
+    r, _ = do(OWNED_PROJECT, env=env, table="tasks")
+    assert r.kind == "lifted", r.reasons
+    name = r.pred["member"]["relation"]
+    assert env.relations[name] == ("projects", "owner_id", "id")
+    assert r.pred["member"]["key"] == {"ctx": "uid"} and r.pred["member"]["value"] == {"col": "project_id"}
+
+
+@pytest.mark.parametrize("text, base, hops", [
+    (JOINED_OWNER, ("projects", "owner_id", "id"), [("tasks", "project_id", "id")]),
+    (JOINED_TEAM, ("team_members", "user_id", "team_id"), [("projects", "team_id", "id"), ("tasks", "project_id", "id")]),
+])
+def test_an_exists_over_a_join_lifts_to_a_composed_relation(text, base, hops):
+    """D60: an EXISTS over inner joins that step from the key's table to the row's through keys is
+    the composed relation of that chain, whatever order the joins are written in."""
+    env = owner_env()
+    r, _ = do(text, env=env, table="comments")
+    assert r.kind == "lifted", r.reasons
+    name = r.pred["member"]["relation"]
+    of, chain = env.composed[name]
+    assert env.relations[of] == base and list(chain) == hops
+    assert r.pred["member"]["key"] == {"ctx": "uid"} and r.pred["member"]["value"] == {"col": "task_id"}
+
+
+@pytest.mark.parametrize("text, reason", [
+    (JOINED_OWNER.replace("(tasks.id = comments.task_id) AND ", ""), "without both a key filter and a correlation"),
+    (JOINED_OWNER.replace("(projects.owner_id = ( SELECT auth.uid() AS uid))",
+                          "(projects.owner_id = ( SELECT auth.uid() AS uid)) AND (tasks.title = 'x'::text)"),
+     "filters a table other than the key's"),
+    (JOINED_OWNER.replace("(projects.owner_id = ( SELECT auth.uid() AS uid))",
+                          "(projects.owner_id = ( SELECT auth.uid() AS uid)) AND (projects.name = comments.body)"),
+     "comments.body"),
+    (JOINED_OWNER.replace("JOIN projects", "LEFT JOIN projects"), "other than an inner join"),
+    (JOINED_TEAM.replace("(tm.team_id = p.team_id)", "(tm.team_id = t.project_id)"),
+     "not one chain from the key's table to the row's"),
+])
+def test_a_joined_exists_outside_the_chain_shape_stays_opaque(text, reason):
+    r, _ = do(text, env=owner_env(), table="comments")
+    assert r.kind == "opaque" and any(reason in x for x in r.reasons), r.reasons
+
+
+# ----------------------------------------------------------------------------- relation conditions (D61)
+ADMIN_EXISTS = ("(EXISTS ( SELECT 1\n   FROM team_members\n  WHERE ((team_members.team_id = projects.team_id) AND "
+                "(team_members.user_id = ( SELECT auth.uid() AS uid)) AND (team_members.role = ANY "
+                "(ARRAY['lead'::text, 'owner'::text])))))")
+ADMIN_ARRAY = ("(team_id = ANY (ARRAY( SELECT team_members.team_id\n   FROM team_members\n  WHERE "
+               "((team_members.user_id = ( SELECT auth.uid() AS uid)) AND (team_members.role = ANY "
+               "(ARRAY['lead'::text, 'owner'::text]))))))")
+ADMIN_JOIN = ("(EXISTS ( SELECT 1\n   FROM (projects p\n     JOIN team_members tm ON ((tm.team_id = p.team_id)))\n"
+              "  WHERE ((p.id = tasks.project_id) AND (tm.user_id = ( SELECT auth.uid() AS uid)) AND "
+              "(tm.role = ANY (ARRAY['lead'::text, 'owner'::text])))))")
+LEAD_OR_OWNER = {"in": [{"col": "role"}, [{"const": "lead"}, {"const": "owner"}]]}
+
+
+def role_env() -> Env:
+    env = owner_env()
+    env.tables["team_members"]["role"] = ("text", True)
+    env.invalidate()
+    return env
+
+
+@pytest.mark.parametrize("text, table", [(ADMIN_EXISTS, "projects"), (ADMIN_ARRAY, "projects")])
+def test_a_condition_on_the_relation_table_is_the_relations_condition(text, table):
+    """D61: what the subquery's WHERE says about the relation's own rows besides the key and the
+    correlation is the relation's condition; read twice, it is one relation, apart from the
+    relation without a condition on the same pair."""
+    env = role_env()
+    r, _ = do(text, env=env, table=table)
+    assert r.kind == "lifted", r.reasons
+    name = r.pred["member"]["relation"]
+    assert name != "member_of" and env.relations[name] == ("team_members", "user_id", "team_id")
+    assert env.conditions[name] == LEAD_OR_OWNER
+    r2, _ = do(ADMIN_ARRAY if text is ADMIN_EXISTS else ADMIN_EXISTS, env=env, table=table)
+    assert r2.pred["member"]["relation"] == name
+    r3, _ = do(MEMBER.replace("tenant_id", "team_id").replace("memberships", "team_members"), env=env, table=table)
+    assert r3.pred["member"]["relation"] == "member_of"
+
+
+def test_a_joined_exists_with_a_condition_is_composed_over_the_condition():
+    env = role_env()
+    r, _ = do(ADMIN_JOIN, env=env, table="tasks")
+    assert r.kind == "lifted", r.reasons
+    of, chain = env.composed[r.pred["member"]["relation"]]
+    assert env.relations[of] == ("team_members", "user_id", "team_id") and env.conditions[of] == LEAD_OR_OWNER
+    assert list(chain) == [("projects", "team_id", "id")]
+
+
+@pytest.mark.parametrize("cond, reason", [
+    ("(team_members.user_id <> ( SELECT auth.uid() AS uid))", "context values are not allowed"),
+    ("(team_members.role ~~ 'l%'::text)", "LIKE"),
+    ("(team_members.team_id IN ( SELECT projects.team_id FROM projects))", "not a relation lookup"),
+])
+def test_a_condition_outside_the_relation_fragment_keeps_the_whole_membership_opaque(cond, reason):
+    text = ADMIN_EXISTS.replace("(team_members.role = ANY (ARRAY['lead'::text, 'owner'::text]))", cond)
+    env = role_env()
+    r, sink = do(text, env=env, table="projects")
+    assert r.kind == "opaque" and any(reason in x for x in r.reasons), r.reasons
+    assert env.conditions == {}
+
+
+def test_a_constant_key_reads_the_rows_in_one_state():
+    """D60: with no context value in the subquery, its one constant comparison is the key; with
+    two, which one is the key is not determined, and the membership stays opaque."""
+    env = role_env()
+    text = ("(EXISTS ( SELECT 1\n   FROM tasks\n  WHERE ((tasks.id = comments.task_id) AND (tasks.done = true))))")
+    r, _ = do(text, env=env, table="comments")
+    assert r.kind == "lifted", r.reasons
+    assert env.relations[r.pred["member"]["relation"]] == ("tasks", "done", "id")
+    assert r.pred["member"]["key"] == {"const": True}
+    r, _ = do(text.replace("(tasks.done = true)", "(tasks.done = true) AND (tasks.title = 'x'::text)"), env=env,
+              table="comments")
+    assert r.kind == "opaque" and "which one is the key is not determined" in r.reasons[0]
 
 
 def test_quoted_names_keep_their_case_and_bare_names_fold():

@@ -29,8 +29,15 @@ how to write them, and `docs/design/DECISIONS.md` why each choice was made.
 | `is_null(col)` | two-valued | — |
 | `opaque(name)` | uninterpreted predicate over declared inputs | never (excluded from perf guarantees) |
 
+A relation is the `(key, value)` projection of one table whose pair is unique there: the pair, or
+one of its columns, is a primary key or unique constraint of the table (the owner of a parent row,
+`projects(owner_id, id)`, is the second case).  Its facts are the pairs of the stored rows; a
+relation with a condition (`where p`, over the table's own columns and constants) has the pairs
+of the stored rows for which `p` is TRUE.
+
 Restrictions checked by the fragment checker: right-hand sides of comparisons are context or
-constants; membership keys are context, not columns (no per-row correlated subqueries in policies);
+constants; membership keys are context or constants, not columns (no per-row correlated
+subqueries in policies), and a key read through an enum column is one of its labels;
 negated membership is rejected in policies (anti-join) unless inside an `opaque` block; membership
 value columns are NOT NULL.  `in_group` follows the membership rules (key is context, value is a
 column of the hierarchy's id type, no negation in policies) and is not allowed in checks and
@@ -196,7 +203,8 @@ All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered 
 - **Relation row axioms:** a stored row of a base relation's table is in the relation.  For
   every row an obligation reads of the table of a relation it uses (any image but `new`, which is
   not stored yet when the policies read the table), the encoding asserts `rel(row.key,
-  row.value)`.  Without it a property over the relation table itself (`team_id in
+  row.value)`; for a relation with a condition `p`, `rel(row.key, row.value) ⇔ T(p(row))`, exact
+  because the table holds each pair at most once.  Without it a property over the relation table itself (`team_id in
   team_members(@uid)` on `team_members`) is refuted by a row the relation does not contain, a
   state no database can be in.
 - **Enum domain axioms:** an enum column holds one of its type's labels (or NULL when it is

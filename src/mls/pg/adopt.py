@@ -33,6 +33,7 @@ assumes one (drift reports them as `hardening` until they are fixed or assumed).
 from __future__ import annotations
 
 import datetime as dt
+import json
 import re
 from dataclasses import dataclass, field
 from typing import Any
@@ -65,6 +66,30 @@ APP_SETTING = re.compile(r"current_setting\('app\.([a-z_][a-z0-9_]*)'(?:::text)?
 
 USER_TABLE = "auth.users"  # what a membership table's user column refers to on Supabase
 
+
+
+def _hop_base(env, table: str, using: str) -> tuple | None:
+    """The base relation (table, key, value, condition key) a hop visibility policy's chain starts
+    from, read in a copy of the environment so that nothing is declared."""
+    import copy
+
+    from mls.pg.lift import lift
+
+    seen: list[tuple] = []
+    sandbox = copy.deepcopy(env)
+    sandbox.invalidate()
+
+    def make_relation(t: str, k: str, v: str, where: dict | None = None) -> str:
+        seen.append((t, k, v, _cond_key(where)))
+        return f"base_{len(seen)}"
+
+    lift(using, table, sandbox, "policy", lambda *a: "_", make_relation)
+    return seen[0] if seen else None
+
+
+def _cond_key(where: dict | None) -> str | None:
+    """A relation condition (D61) as a key: two readings of one condition are one relation."""
+    return None if where is None else json.dumps(where, sort_keys=True)
 
 def _trusted_roles(adapter: str) -> tuple[str, ...]:
     from mls.identity.pg_roles import PgRolesAdapter
@@ -325,11 +350,11 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
 
     # --- relations: inclusion-shaped foreign keys, what the lifter reads as a membership, and (for
     # the opaque blocks) two-column keys their SQL reads.  The compiler's relation-visibility
-    # policy `mls_rel_<relation>_<role>_<n>` (`key = <ctx>` on the relation's table) gives the
-    # relation its original name back.
+    # policy `mls_rel_<relation>_<role>_<n>` (`key = <ctx>` on the relation's table, and the
+    # relation's condition, D61) gives the relation its original name back.
     relations: dict[str, dict] = {}
-    rel_by_pair: dict[tuple[str, str, str], str] = {}
-    rel_names: dict[tuple[str, str], str] = {}  # (table, key) -> the name the compiler's policy carries
+    rel_by_pair: dict[tuple[str, str, str, str | None], str] = {}
+    rel_names: dict[tuple[str, str, str | None], str] = {}  # (table, key, condition) -> the policy's name
     for name, t in tables.items():
         if name not in governed:
             continue
@@ -338,30 +363,46 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
                 h = re.fullmatch(r"mls_rel_(.+)_h(\d+)_" + re.escape(role) + r"_\d+", p["name"])
                 if h and p["cmd"] == "select":  # D56: a hop's visibility policy names its composed relation
                     env.composed_names.setdefault((name, int(h.group(2))), h.group(1))
+                    base = _hop_base(env, name, p["using"]) if p["using"] else None
+                    if base is not None:  # D61: and, with its base relation, tells two such chains apart
+                        env.composed_names.setdefault((name, int(h.group(2)), base), h.group(1))
                     break
                 m = re.fullmatch(r"mls_rel_(.+)_" + re.escape(role) + r"_\d+", p["name"])
                 if m and p["using"] and p["cmd"] == "select":
                     r = lift(p["using"], name, env, "policy", lambda *a: "_", lambda *a: None)
-                    if r.kind == "lifted" and "cmp" in r.pred and r.pred["cmp"][1] == "=" \
-                            and "col" in r.pred["cmp"][0]:
-                        rel_names.setdefault((name, r.pred["cmp"][0]["col"]), m.group(1))
+                    pr, cond = r.pred, None
+                    if r.kind == "lifted" and "and" in pr and len(pr["and"]) > 1 and "cmp" in pr["and"][0]:
+                        rest = pr["and"][1:]  # D61: `key = <ctx> and <condition>`
+                        pr, cond = pr["and"][0], rest[0] if len(rest) == 1 else {"and": rest}
+                    if r.kind == "lifted" and "cmp" in pr and pr["cmp"][1] == "=" and "col" in pr["cmp"][0]:
+                        rel_names.setdefault((name, pr["cmp"][0]["col"], _cond_key(cond)), m.group(1))
                     break
 
-    def propose(table: str, key: str, value: str, why: str) -> str | None:
+    def propose(table: str, key: str, value: str, why: str, where: dict | None = None) -> str | None:
         if table not in governed:
             notes.append(f"relation on {table} ({key}, {value}) not proposed: the table is observed ({why})")
             return None
-        pair = (table, key, value)
+        pair = (table, key, value, _cond_key(where))
         if pair in rel_by_pair:
             return rel_by_pair[pair]
-        name = rel_names.get((table, key))
+        name = rel_names.get((table, key, _cond_key(where)))
         if name is None or name in relations:
-            name = ident(table) if ident(table) not in relations else ident(f"{table}_{key}_{value}")
-        relations[name] = {"table": table, "key": key, "value": value}
+            if where is None:
+                name = ident(table) if ident(table) not in relations else ident(f"{table}_{key}_{value}")
+            else:  # D61: named after the columns its condition reads
+                cols = sorted(set(re.findall(r'"col": "([^"]+)"', json.dumps(where))))
+                base_n = name = ident(f"{table}_by_{'_'.join(cols)}")
+                i = 2
+                while name in relations:
+                    name, i = ident(f"{base_n}_{i}"), i + 1
+        relations[name] = {"table": table, "key": key, "value": value, **({"where": where} if where else {})}
         rel_by_pair[pair] = name
-        env.relations[name] = pair
+        env.relations[name] = (table, key, value)
+        if where is not None:
+            env.conditions[name] = where
         env.invalidate()
-        notes.append(f"relation {name} proposed: ({key}, {value}) of {table} ({why})")
+        notes.append(f"relation {name} proposed: ({key}, {value}) of {table}"
+                     + (" where its condition holds" if where else "") + f" ({why})")
         return name
 
     inclusions: list[dict] = []
@@ -437,8 +478,8 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
             env.invalidate()
             return oname
 
-        def make_relation(rtable: str, key: str, value: str) -> str | None:
-            return propose(rtable, key, value, f"{scope} expression on {table} reads it as a membership")
+        def make_relation(rtable: str, key: str, value: str, where: dict | None = None) -> str | None:
+            return propose(rtable, key, value, f"{scope} expression on {table} reads it as a membership", where)
 
         return lift(text, table, env, scope, make_opaque, make_relation, top_is_true=top_is_true)
 
@@ -644,14 +685,17 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
     from mls.compile.sql import SqlCompiler
     from mls.identity import get_adapter
 
-    sqlc = SqlCompiler(checked, get_adapter(checked))
+    from mls.spec.expand import expand_spec
+
+    expanded = expand_spec(checked)  # the SQL renderer never sees an `in` (a relation's condition may hold one)
+    sqlc = SqlCompiler(expanded, get_adapter(expanded))
     # compared as the SQL they compile to: a hop's policy names a prefix of its chain (D56), which
     # the lifter reads back as the composed relation with the same levels
     # and by name as the import spells rule names: `ident` lower-cases a mixed-case role in it
     implicit = {(ident(p.name), p.table, p.role, p.command, p.mode): sqlc.pred(p.using, p.table)
-                for p in implicit_policies(checked)}
+                for p in implicit_policies(expanded)}
     drop: set[str] = set()
-    for p in checked.policies():
+    for p in expanded.policies():
         key = (p.name, p.table, p.role, p.command, p.mode)
         if key in implicit and p.check is None and sqlc.pred(p.using, p.table) == implicit[key]:
             drop.add(p.id)

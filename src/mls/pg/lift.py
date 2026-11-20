@@ -23,13 +23,14 @@ of every version in the matrix, and the tests pin shapes, not strings.
 """
 from __future__ import annotations
 
+import json
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields, replace
 from typing import Any, Callable
 
 from pydantic import TypeAdapter
 
-from mls.spec.model import CONTEXT_NOW, INT_RANGE, MAX_HOPS, ColType, Pred, Spec
+from mls.spec.model import CONTEXT_NOW, INT_RANGE, MAX_HOPS, ColType, Pred, Spec, pair_unique
 
 PG_TO_MLS: dict[str, ColType] = {"integer": "int", "bigint": "bigint", "text": "text", "boolean": "bool",
                                  "timestamp with time zone": "timestamp", "uuid": "uuid"}
@@ -222,6 +223,7 @@ class Select(Node):
     table: str | None
     table_alias: str | None
     where: Node | None
+    joins: list[tuple[str, str | None, Node]] = field(default_factory=list)  # inner joins: (table, alias, on)
 
 
 @dataclass
@@ -504,26 +506,57 @@ class Parser:
             alias = self.name()
         table = table_alias = None
         where = None
+        joins: list[tuple[str, str | None, Node]] = []
         if self.is_kw("from"):
             self.take()
-            parts = [self.name()]
-            while self.is_op("."):
-                self.take()
-                parts.append(self.name())
-            table = parts[-1]
-            if self.is_kw("as"):
-                self.take()
-                table_alias = self.name()
-            elif self.peek().kind in ("ident", "qident") and not self.is_kw("where"):
-                table_alias = self.name()
-            if self.is_kw("join", "inner", "left", "right", "cross", "natural") or self.is_op(","):
-                raise Unreadable("a subquery over more than one table")
+            table, table_alias = self.from_item(joins)
+            if self.is_kw("join", "inner", "left", "right", "full", "cross", "natural") or self.is_op(","):
+                raise Unreadable("a subquery over more than one table, other than an inner join")
             if self.is_kw("where"):
                 self.take()
                 where = self.expr()
             if self.is_kw("group", "order", "limit", "having", "union", "intersect", "except"):
                 raise Unreadable(f"{self.peek().text.upper()} in a subquery")
-        return self.span(Select(target, alias, table, table_alias, where), start)
+        return self.span(Select(target, alias, table, table_alias, where, joins), start)
+
+    def table_ref(self) -> tuple[str, str | None]:
+        parts = [self.name()]
+        while self.is_op("."):
+            self.take()
+            parts.append(self.name())
+        alias = None
+        if self.is_kw("as"):
+            self.take()
+            alias = self.name()
+        elif self.peek().kind in ("ident", "qident") and not self.is_kw(
+                "where", "join", "inner", "on", "left", "right", "full", "cross", "natural", "group", "order",
+                "limit", "having", "union", "intersect", "except"):
+            alias = self.name()
+        return parts[-1], alias
+
+    def from_item(self, joins: list[tuple[str, str | None, Node]]) -> tuple[str, str | None]:
+        """`t [alias]`, `(from_item)`, then any `[inner] join t [alias] on cond` (the deparser
+        parenthesizes a join list): the first table, with each joined one appended to `joins`."""
+        if self.is_op("("):
+            self.take()
+            if self.is_kw("select"):
+                raise Unreadable("a subquery in FROM")
+            first = self.from_item(joins)
+            self.expect_op(")")
+        else:
+            first = self.table_ref()
+        while self.is_kw("join", "inner"):
+            if self.is_kw("inner"):
+                self.take()
+            self.expect_kw("join")
+            if self.is_op("("):
+                raise Unreadable("a parenthesized join on the right of JOIN")
+            t, a = self.table_ref()
+            self.expect_kw("on")
+            joins.append((t, a, self.expr()))
+        if self.is_kw("left", "right", "full", "cross", "natural") or self.is_op(","):
+            raise Unreadable("a subquery over more than one table, other than an inner join")
+        return first
 
 
 def parse(text: str) -> Node:
@@ -558,12 +591,16 @@ class Env:
     # D56: composed relations, name -> (base relation, ((table, key, value), ...)), and the name a
     # chain of n hops ending on a table should get (the compiler's hop policies carry it)
     composed: dict[str, tuple[str, tuple[tuple[str, str, str], ...]]] = field(default_factory=dict)
-    composed_names: dict[tuple[str, int], str] = field(default_factory=dict)  # (last hop table, hops) -> name
+    # (last hop table, hops) -> name, and (last hop table, hops, base) -> name with the base relation's
+    # (table, key, value, condition) read from the policy (D61: two chains may end alike)
+    composed_names: dict[tuple, str] = field(default_factory=dict)
     hierarchies: dict[str, dict] = field(default_factory=dict)
     opaques: dict[str, dict] = field(default_factory=dict)
     # D59: the enum types (name -> labels) and each enum column's type (table -> column -> name)
     enums: dict[str, list[str]] = field(default_factory=dict)
     enum_cols: dict[str, dict[str, str]] = field(default_factory=dict)
+    # D61: the condition of each relation that has one (name -> its JSON predicate)
+    conditions: dict[str, dict] = field(default_factory=dict)
     _spec: Spec | None = field(default=None, repr=False)
 
     @classmethod
@@ -582,7 +619,9 @@ class Env:
                    opaques={n: o.model_dump() for n, o in spec.opaques.items()},
                    enums={n: list(x) for n, x in spec.enums.items()},
                    enum_cols={t: {c: col.enum for c, col in tb.columns.items() if col.enum is not None}
-                              for t, tb in spec.tables.items()})
+                              for t, tb in spec.tables.items()},
+                   conditions={n: r.where.model_dump(mode="json", by_alias=True, exclude_none=True)
+                               for n, r in spec.base_relations().items() if r.where is not None})
 
     def ctx_by_source(self, source: str) -> str | None:
         for n, (s, _) in self.context.items():
@@ -605,7 +644,9 @@ class Env:
                                             for c, (ty, nu) in cols.items()},
                                 "mode": "adopted" if t in self.governed else "observed"}
                             for t, cols in self.tables.items()},
-                 "relations": {**{n: {"table": t, "key": k, "value": v} for n, (t, k, v) in self.relations.items()},
+                 "relations": {**{n: {"table": t, "key": k, "value": v,
+                                      **({"where": self.conditions[n]} if n in self.conditions else {})}
+                                  for n, (t, k, v) in self.relations.items()},
                                **{n: {"of": of, "through": [{"table": t, "key": k, "value": v} for t, k, v in hops]}
                                   for n, (of, hops) in self.composed.items()}},
                  "hierarchies": self.hierarchies,
@@ -615,10 +656,11 @@ class Env:
 
     def validate(self, pred: dict, table: str, scope: str, negated: bool) -> None:
         """Raise Unreadable with the checker's message when `pred` is outside the fragment."""
-        from mls.spec.check import Checker, check_scope, policy_scope, transition_scope
+        from mls.spec.check import Checker, check_scope, policy_scope, relation_scope, transition_scope
 
         ck = Checker(self.spec())
-        sc = {"policy": policy_scope, "check": check_scope, "transition": transition_scope}[scope](table)
+        sc = {"policy": policy_scope, "check": check_scope, "transition": transition_scope,
+              "relation": relation_scope}[scope](table)
         ck.pred(_PRED.validate_python(pred), sc, "$", negated)
         if ck.sink.errors:
             e = ck.sink.errors[0]
@@ -637,7 +679,8 @@ class LiftResult:
 
 
 MakeOpaque = Callable[[str, list[str], list[str], list[str]], str]  # (sql, columns, context, relations) -> name
-MakeRelation = Callable[[str, str, str], "str | None"]  # (table, key, value) -> name, None if refused
+# (table, key, value, condition or None) -> name, None if refused
+MakeRelation = Callable[[str, str, str, "dict | None"], "str | None"]
 
 
 class Lifter:
@@ -820,6 +863,10 @@ class Lifter:
         if sel.table is None:
             raise Unreadable("a membership subquery needs a FROM table")
         rel_table = sel.table
+        if correlated and sel.joins:
+            return self.exists_join(sel)
+        if sel.joins:
+            raise Unreadable("a membership subquery over a join (only an EXISTS may join)")
         if rel_table not in self.env.tables:
             raise Unreadable(f"subquery reads table {rel_table}, which is not in the spec")
         inner = InnerScope(self, rel_table, sel.table_alias)
@@ -827,12 +874,17 @@ class Lifter:
             if sel.where is None:
                 raise Unreadable("EXISTS without a WHERE clause")
             conds = sel.where.items if isinstance(sel.where, And) else [sel.where]
-            key_col = key_term = val_col = outer_col = None
+            val_col = outer_col = None
+            keys: list[tuple[str, dict, Node]] = []
+            rest: list[Node] = []
             for c in conds:
-                if not isinstance(c, Cmp) or c.op != "=":
-                    raise Unreadable(f"`{self.src(c)}`: EXISTS reads more than `rel.key = <ctx> and rel.value = col`")
-                sides = [inner.classify(c.l), inner.classify(c.r)]
-                kinds = sorted(k for k, _ in sides)
+                sides = None
+                if isinstance(c, Cmp) and c.op == "=":
+                    try:
+                        sides = [inner.classify(c.l), inner.classify(c.r)]
+                    except Unreadable:
+                        sides = None
+                kinds = sorted(k for k, _ in sides) if sides else None
                 if kinds == ["inner", "outer"]:
                     i = sides[0][1] if sides[0][0] == "inner" else sides[1][1]
                     o = sides[0][1] if sides[0][0] == "outer" else sides[1][1]
@@ -842,43 +894,204 @@ class Lifter:
                 elif kinds == ["inner", "key"]:
                     i = sides[0][1] if sides[0][0] == "inner" else sides[1][1]
                     k = sides[0][1] if sides[0][0] == "key" else sides[1][1]
-                    if key_col is not None:
-                        raise Unreadable("EXISTS filters the relation on two keys")
-                    key_col, key_term = i, k
+                    keys.append((i, k, c))
                 else:
-                    raise Unreadable(f"`{self.src(c)}`: EXISTS reads more than `rel.key = <ctx> and rel.value = col`")
+                    rest.append(c)  # D61: a condition on the relation's own rows, or unreadable
+            (key_col, key_term), more = self.pick_key(keys)
             if key_col is None or val_col is None:
                 raise Unreadable("EXISTS without both a key filter and a correlation on the row")
+            where = self.condition(more + rest, rel_table, sel.table_alias)
             value_json = {"col": outer_col}
         else:
-            (rel_table, key_col, val_col), key_term, hops = self.chain(sel)
+            (rel_table, key_col, val_col), key_term, hops, where = self.chain(sel)
             value_json, _ = self.term(value_node)
             if hops:
-                name = self.composed_relation((rel_table, key_col, val_col), hops)
+                name = self.composed_relation((rel_table, key_col, val_col), hops, where)
                 return {"member": {"relation": name, "key": key_term, "value": value_json}}
         if rel_table not in self.env.governed:
             raise Unreadable(f"the relation table {rel_table} is observed (not governed): no relation can be declared "
                              f"on it")
-        if frozenset((key_col, val_col)) not in self.env.keys.get(rel_table, []):
-            raise Unreadable(f"({key_col}, {val_col}) is not a primary key or unique constraint of {rel_table}; a "
-                             f"relation is a set of pairs (add a unique constraint on the pair to lift this)")
-        name = self.make_relation(rel_table, key_col, val_col)
-        if name is None:
-            raise Unreadable(f"no relation ({key_col}, {val_col}) of {rel_table} can be declared")
-        if name not in self.env.relations:
-            self.env.relations[name] = (rel_table, key_col, val_col)
-            self.env.invalidate()
+        if not pair_unique(self.env.keys.get(rel_table, []), key_col, val_col):
+            raise Unreadable(f"({key_col}, {val_col}) is not unique in {rel_table} (neither the pair nor one of its "
+                             f"columns is a key); a relation is a set of pairs (add a unique constraint on the pair "
+                             f"to lift this)")
+        name = self.declare(rel_table, key_col, val_col, where)
         return {"member": {"relation": name, "key": key_term, "value": value_json}}
+
+    def declare(self, table: str, key: str, value: str, where: dict | None) -> str:
+        """The relation (table, key, value) with this condition, proposed or reused."""
+        name = self.make_relation(table, key, value, where)
+        if name is None:
+            raise Unreadable(f"no relation ({key}, {value}) of {table} can be declared")
+        if self.env.relations.get(name) != (table, key, value) or self.env.conditions.get(name) != where:
+            self.env.relations[name] = (table, key, value)
+            if where is not None:
+                self.env.conditions[name] = where
+            else:
+                self.env.conditions.pop(name, None)
+        self.env.invalidate()
+        return name
+
+    def pick_key(self, keys: list[tuple[str, dict, Node]]) -> tuple[tuple[str | None, dict | None], list[Node]]:
+        """The relation's key among the `inner col = <ctx or constant>` comparisons: the one with
+        a context value, else the only constant one (D60: the sessions in a state); the others are
+        conditions on the relation's rows (D61)."""
+        ctx = [k for k in keys if "ctx" in k[1]]
+        if len(ctx) > 1:
+            raise Unreadable("the subquery filters the relation on two context values")
+        pick = ctx[0] if ctx else keys[0] if len(keys) == 1 else None
+        if pick is None and keys:
+            raise Unreadable("the subquery filters the relation on several constants and no context value: "
+                             "which one is the key is not determined")
+        if pick is None:
+            return (None, None), []
+        return (pick[0], pick[1]), [c for k in keys if k is not pick for c in [k[2]]]
+
+    def condition(self, nodes: list[Node], table: str, alias: str | None) -> dict | None:
+        """The rest of a membership subquery's WHERE as the relation's condition (D61): a
+        predicate on the relation's own columns and constants, read completely or not at all."""
+        if not nodes:
+            return None
+        sub = _ConditionLifter(self.env, table, "relation", self.make_opaque, self.make_relation)
+        sub._text = self._text
+        quals = {table} | ({alias} if alias else set())
+        parts = [sub.pred(_unqualify(n, quals), False) for n in nodes]
+        p = parts[0] if len(parts) == 1 else {"and": parts}
+        self.env.validate(p, table, "relation", False)
+        return p
 
     def exists(self, node: Exists) -> dict:
         return self.member(node, node.select, correlated=True)
 
-    def chain(self, sel: Select) -> tuple[tuple[str, str, str], dict, list[tuple[str, str, str]]]:
-        """`select V from R where K = <key>` is a base level; `select V from T where K = any (array(
-        <chain>))` or `... where K in (<chain>)` a hop over a chain (D56).  Returns the base level
-        (table, key, value), the key term, and the hops (table, key, value) in order."""
+    def join_table(self, node: Node, tables: list[tuple[str, str | None]]) -> int:
+        """The one joined table whose columns `node` reads (a condition on it), else Unreadable."""
+        seen: set[int] = set()
+
+        def walk(n) -> None:
+            if isinstance(n, Col):
+                hits = [i for i, (t, a) in enumerate(tables)
+                        if (n.qual in (t, a) if n.qual is not None else n.name in self.env.tables[t])]
+                if len(hits) != 1:
+                    raise Unreadable(f"`{self.src(node)}`: column {n.name} is not of exactly one joined table")
+                seen.add(hits[0])
+            elif isinstance(n, (Select, Exists, ArrayQuery)):
+                raise Unreadable(f"`{self.src(node)}`: a subquery in a joined EXISTS's condition")
+            elif isinstance(n, Node):
+                for f in fields(n):
+                    if f.name not in ("start", "end"):
+                        walk(getattr(n, f.name))
+            elif isinstance(n, (list, tuple)):
+                for x in n:
+                    walk(x)
+
+        walk(node)
+        if len(seen) != 1:
+            raise Unreadable(f"`{self.src(node)}`: a condition in a joined EXISTS must read one table")
+        return seen.pop()
+
+    def exists_join(self, sel: Select) -> dict:
+        """`exists (select 1 from A join B on A.v = B.k ... where A.k = <key> and Z.v = t.col)`: a
+        chain of key lookups from the table the key filters to the table the row correlates with,
+        read as a composed relation (D60): A is the base (k, v), every other table a hop whose key
+        is the column joined to the previous table and whose value the column joined to the next
+        (the last one's, the correlated column).  Every condition is one of those equalities."""
+        tables = [(sel.table, sel.table_alias)] + [(t, a) for t, a, _ in sel.joins]
+        names = [t for t, _ in tables]
+        if len(set(names)) != len(names):
+            raise Unreadable("EXISTS joins a table with itself")
+        for t in names:
+            if t not in self.env.tables:
+                raise Unreadable(f"subquery reads table {t}, which is not in the spec")
+        conds: list[Node] = []
+        for c in [on for _, _, on in sel.joins] + ([sel.where] if sel.where is not None else []):
+            conds.extend(c.items if isinstance(c, And) else [c])
+
+        def side(node: Node) -> tuple[str, Any]:
+            if isinstance(node, Col):
+                if node.qual is not None:
+                    for i, (t, a) in enumerate(tables):
+                        if node.qual in (t, a):
+                            if node.name not in self.env.tables[t]:
+                                raise Unreadable(f"column {t}.{node.name} is not modelled")
+                            return "inner", (i, node.name)
+                    if node.qual == self.table:
+                        return "outer", self.term(Col(None, node.name))[0]["col"]
+                    raise Unreadable(f"column {node.qual}.{node.name} is of none of the tables")
+                owners = [i for i, (t, _) in enumerate(tables) if node.name in self.env.tables[t]]
+                if len(owners) > 1:
+                    raise Unreadable(f"column {node.name} is ambiguous in the join")
+                if owners:
+                    return "inner", (owners[0], node.name)
+                return "outer", self.term(node)[0]["col"]
+            ctx = self.context(node)
+            if ctx is not None:
+                return "key", {"ctx": ctx[0]}
+            return "key", self.const(node)[0]
+
+        edges: dict[int, list[tuple[str, int, str]]] = {i: [] for i in range(len(tables))}
+        corr = None
+        keys: list[tuple[tuple[int, str], dict, Node]] = []
+        rest: list[tuple[int, Node]] = []  # D61: conditions on one table's own columns
+        for c in conds:
+            sides = None
+            if isinstance(c, Cmp) and c.op == "=":
+                try:
+                    sides = (side(c.l), side(c.r))
+                except Unreadable:
+                    sides = None
+            if sides is None:
+                rest.append((self.join_table(c, tables), c))
+                continue
+            (ka, a), (kb, b) = sides
+            kinds = sorted((ka, kb))
+            if kinds == ["inner", "inner"] and a[0] != b[0]:
+                edges[a[0]].append((a[1], b[0], b[1]))
+                edges[b[0]].append((b[1], a[0], a[1]))
+            elif kinds == ["inner", "outer"] and corr is None:
+                corr = (a, b) if ka == "inner" else (b, a)
+            elif kinds == ["inner", "key"]:
+                keys.append(((a, b, c) if ka == "inner" else (b, a, c)))
+            else:
+                raise Unreadable(f"`{self.src(c)}`: a joined EXISTS reads more than key lookups, `key = <ctx>`, "
+                                 f"a condition on the key's table and the correlation on the row")
+        (picked, key_term), more = self.pick_key(keys)
+        if picked is None or corr is None:
+            raise Unreadable("a joined EXISTS without both a key filter and a correlation on the row")
+        ki, kcol = picked
+        rest += [(next(k[0][0] for k in keys if k[2] is c), c) for c in more]
+        if any(i != ki for i, _ in rest):
+            raise Unreadable("a joined EXISTS filters a table other than the key's: only the base relation "
+                             "has a condition")
+        where = self.condition([c for _, c in rest], names[ki], tables[ki][1])
+        (ci, ccol), outer_col = corr
+        # walk the join from the key's table to the correlated one: a simple path through every table
+        path, ins, outs, prev = [ki], [kcol], [], None
+        while path[-1] != ci:
+            nxt = [e for e in edges[path[-1]] if e[1] != prev]
+            if len(nxt) != 1 or nxt[0][1] in path:
+                raise Unreadable("the joined tables are not one chain from the key's table to the row's")
+            out_col, j, in_col = nxt[0]
+            outs.append(out_col)
+            prev = path[-1]
+            path.append(j)
+            ins.append(in_col)
+        outs.append(ccol)
+        if len(path) != len(tables) or any(len(edges[i]) != (1 if i in (ki, ci) else 2) for i in path):
+            raise Unreadable("the joined tables are not one chain from the key's table to the row's")
+        base = (names[ki], ins[0], outs[0])
+        hops = [(names[i], ins[n], outs[n]) for n, i in enumerate(path) if n > 0]
+        name = self.composed_relation(base, hops, where)
+        return {"member": {"relation": name, "key": key_term, "value": {"col": outer_col}}}
+
+    def chain(self, sel: Select) -> tuple[tuple[str, str, str], dict, list[tuple[str, str, str]], dict | None]:
+        """`select V from R where K = <key> [and <condition>]` is a base level; `select V from T
+        where K = any (array(<chain>))` or `... where K in (<chain>)` a hop over a chain (D56).
+        Returns the base level (table, key, value), the key term, the hops (table, key, value) in
+        order, and the base level's condition (D61)."""
         if sel.table is None:
             raise Unreadable("a membership subquery needs a FROM table")
+        if sel.joins:
+            raise Unreadable("a membership subquery over a join (only an EXISTS may join)")
         if sel.table not in self.env.tables:
             raise Unreadable(f"subquery reads table {sel.table}, which is not in the spec")
         inner = InnerScope(self, sel.table, sel.table_alias)
@@ -899,28 +1112,40 @@ class Lifter:
             kind, key_col = inner.classify(nested[0])
             if kind != "inner":
                 raise Unreadable(f"`{self.src(w)}`: a nested membership must filter a column of {sel.table}")
-            base, key_term, hops = self.chain(nested[1])
-            return base, key_term, hops + [(sel.table, key_col, val_col)]
-        if not isinstance(w, Cmp) or w.op != "=":
+            base, key_term, hops, where = self.chain(nested[1])
+            return base, key_term, hops + [(sel.table, key_col, val_col)], where
+        keys: list[tuple[str, dict, Node]] = []
+        rest: list[Node] = []
+        for c in (w.items if isinstance(w, And) else [w]):
+            sides = None
+            if isinstance(c, Cmp) and c.op == "=":
+                try:
+                    sides = [inner.classify(c.l), inner.classify(c.r)]
+                except Unreadable:
+                    sides = None
+            if sides and sorted(k for k, _ in sides) == ["inner", "key"]:
+                keys.append((sides[0][1] if sides[0][0] == "inner" else sides[1][1],
+                             sides[0][1] if sides[0][0] == "key" else sides[1][1], c))
+            else:
+                rest.append(c)
+        (key_col, key_term), more = self.pick_key(keys)
+        if key_col is None:
             raise Unreadable(f"`{self.src(w)}`: the membership WHERE is not `key = <ctx>`")
-        sides = [inner.classify(w.l), inner.classify(w.r)]
-        kinds = sorted(k for k, _ in sides)
-        if kinds != ["inner", "key"]:
-            raise Unreadable(f"`{self.src(w)}`: the membership WHERE is not `key = <ctx>`")
-        key_col = sides[0][1] if sides[0][0] == "inner" else sides[1][1]
-        key_term = sides[0][1] if sides[0][0] == "key" else sides[1][1]
-        return (sel.table, key_col, val_col), key_term, []
+        where = self.condition(more + rest, sel.table, sel.table_alias)
+        return (sel.table, key_col, val_col), key_term, [], where
 
-    def composed_relation(self, base: tuple[str, str, str], hops: list[tuple[str, str, str]]) -> str:
+    def composed_relation(self, base: tuple[str, str, str], hops: list[tuple[str, str, str]],
+                          where: dict | None = None) -> str:
         """Declare (or reuse) the composed relation base . hops (D56); every hop must step through
         a key of its table, else the nesting is a join and stays opaque."""
         rel_table, key_col, val_col = base
         if rel_table not in self.env.governed:
             raise Unreadable(f"the relation table {rel_table} is observed (not governed): no relation can be declared "
                              f"on it")
-        if frozenset((key_col, val_col)) not in self.env.keys.get(rel_table, []):
-            raise Unreadable(f"({key_col}, {val_col}) is not a primary key or unique constraint of {rel_table}; a "
-                             f"relation is a set of pairs (add a unique constraint on the pair to lift this)")
+        if not pair_unique(self.env.keys.get(rel_table, []), key_col, val_col):
+            raise Unreadable(f"({key_col}, {val_col}) is not unique in {rel_table} (neither the pair nor one of its "
+                             f"columns is a key); a relation is a set of pairs (add a unique constraint on the pair "
+                             f"to lift this)")
         if len(hops) > MAX_HOPS:
             raise Unreadable(f"{len(hops)} nested levels; a composed relation has at most {MAX_HOPS} hops")
         for t, k, v in hops:
@@ -932,16 +1157,15 @@ class Lifter:
             if self.env.tables[t][k][1] or self.env.tables[t][v][1]:
                 raise Unreadable(f"the nested subquery steps through {t}({k}, {v}), and a hop's columns must be "
                                  f"NOT NULL")
-        of = self.make_relation(rel_table, key_col, val_col)
-        if of is None:
-            raise Unreadable(f"no relation ({key_col}, {val_col}) of {rel_table} can be declared")
-        if of not in self.env.relations:
-            self.env.relations[of] = (rel_table, key_col, val_col)
+        of = self.declare(rel_table, key_col, val_col, where)
         sig = (of, tuple(hops))
         for n, c in self.env.composed.items():
             if c == sig:
                 return n
-        name = self.env.composed_names.get((hops[-1][0], len(hops))) or f"{of}_{hops[-1][0]}".lower()[:63]  # an MLS name
+        base_sig = (rel_table, key_col, val_col, None if where is None else json.dumps(where, sort_keys=True))
+        name = (self.env.composed_names.get((hops[-1][0], len(hops), base_sig))
+                or self.env.composed_names.get((hops[-1][0], len(hops)))
+                or f"{of}_{hops[-1][0]}".lower()[:63])  # an MLS name
         taken = set(self.env.relations) | set(self.env.composed)
         base_n, i = name, 2
         while name in taken:
@@ -1109,6 +1333,29 @@ class Lifter:
 
     def src(self, node: Node) -> str:
         return self._text[node.start:node.end].strip()
+
+
+class _ConditionLifter(Lifter):
+    """Reads a relation's condition (D61): every part lifts, or the whole membership stays
+    opaque; no part becomes an opaque block of its own."""
+
+    def part(self, node: Node, negated: bool) -> dict:
+        return self.pred(node, negated)
+
+
+def _unqualify(node, quals: set[str]):
+    """`node` with the columns qualified by the relation table (or its alias) unqualified, so that
+    the condition reads as a predicate of that table's rows."""
+    if isinstance(node, Col):
+        return replace(node, qual=None) if node.qual in quals else node
+    if isinstance(node, Node):
+        return replace(node, **{f.name: _unqualify(getattr(node, f.name), quals)
+                                for f in fields(node) if f.name not in ("start", "end")})
+    if isinstance(node, list):
+        return [_unqualify(x, quals) for x in node]
+    if isinstance(node, tuple):
+        return tuple(_unqualify(x, quals) for x in node)
+    return node
 
 
 class InnerScope:

@@ -389,7 +389,11 @@ class Parser:
         self.eat(",")
         value = self.name("the value column")
         self.eat(")")
-        return name, {"table": first, "key": key, "value": value}
+        out = {"table": first, "key": key, "value": value}
+        if self.at_word("where"):  # D61: the rows of the table the relation keeps
+            self.advance()
+            out["where"] = self.pred(f"{self.path}.where")
+        return name, out
 
     def relations_section(self) -> dict[str, Any]:
         """`relations { relation ... }`: the relations pass's answer (#28), not a spec section."""

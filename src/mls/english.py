@@ -71,6 +71,8 @@ def pred(spec: Spec, p: Pred, row: str = "the row", top: bool = True) -> str:
         return f"{term(spec, l, row)} {OPS[op]} {term(spec, r, row)}"
     if isinstance(p, Member):
         m = p.member
+        if isinstance(m.key, Const):  # D60: a constant key, e.g. the sessions in one state
+            return f"{term(spec, m.value, row)} is among the {m.relation} for {term(spec, m.key, row)}"
         return f"{term(spec, m.value, row)} is among {term(spec, m.key, row)}'s {m.relation}"
     if isinstance(p, InGroup):
         g = p.in_group
@@ -272,8 +274,9 @@ def relation_line(spec: Spec, name: str) -> str:
     r = spec.relations[name]
     if isinstance(r, ComposedRelation):
         return composed_line(spec, name)
+    cond = "" if r.where is None else f", where {pred(spec, r.where, f'the {r.table} row')}"
     return (f"{r.table} ({r.key} → {r.value}): a user's {name} are the {r.value} of every {r.table} row "
-            f"whose {r.key} is that user.")
+            f"whose {r.key} is that user{cond}.")
 
 
 def spec_summary(spec: Spec) -> str:
@@ -294,6 +297,10 @@ def spec_summary(spec: Spec) -> str:
     if composed:
         lines += ["", "# Relations read through other tables", ""]
         lines += [f"- **{n}**: {composed_line(spec, n)}" for n in composed]
+    limited = [n for n, r in spec.base_relations().items() if r.where is not None]
+    if limited:
+        lines += ["", "# Relations limited to some rows", ""]
+        lines += [f"- **{n}**: {relation_line(spec, n)}" for n in limited]
     if spec.hierarchies:
         lines += ["", "# Group hierarchies", ""]
         for name, h in spec.hierarchies.items():

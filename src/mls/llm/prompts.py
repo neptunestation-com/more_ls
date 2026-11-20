@@ -36,7 +36,13 @@ triggers, grants).  You never write SQL.
 
 ## Relations (part of the schema: "relations": {name: relation})
 - {"table": t, "key": k, "value": v}   the (k, v) pairs of table t (the user, the group they belong to);
-  k and v are different NOT NULL columns and together the primary key or a unique constraint of t
+  k and v are different NOT NULL columns, and the pair, or one of them, is the primary key or a unique
+  constraint of t.  The owner of a row is one: {"table": "buildings", "key": "owner_id", "value": "id"}
+- {"table": t, "key": k, "value": v, "where": p}   only the rows of t where p is TRUE; p reads t's own
+  columns and constants only.  E.g. the managers: {"table": "building_staff", "key": "user_id",
+  "value": "building_id", "where": {"cmp": [{"col": "role"}, "=", {"const": "manager"}]}}.  Not in
+  inclusion rules, invariants or hierarchies.  A key column of an enum type takes a label as its key:
+  {"member": {"relation": "floor_in_state", "key": {"const": "open"}, "value": {"col": "floor_id"}}}
 - {"of": R, "through": [{"table": t1, "key": k1, "value": v1}, ...]}   composed: (u, x) when (u, y) is a
   pair of the base relation R, a t1 row has k1 = y and v1 = x (and so on through each hop); 1 to 3
   hops; each hop's key and value are different NOT NULL columns, the key has the type of the previous
@@ -105,7 +111,8 @@ doubt about the requirements in "notes".  Answer with JSON only, matching the ou
 ROLE_RELATIONS = """You complete the SCHEMA of a database access-control spec, before anyone writes its rules
 or properties: you write the RELATIONS the business requirements need that the schema does not
 already have.  A relation names who belongs to what: a base relation is the (key, value) projection
-of one table (the user column, the group column); a composed relation follows a base relation
+of one table (the user column, the group column), possibly only of its rows that meet a condition
+on that table's own columns (the managers among the staff); a composed relation follows a base relation
 through up to three tables, each by a key, to the rows a requirement reaches only indirectly (the
 rooms of the floors of the buildings a user works in).  Write a relation only where a requirement needs one and
 the schema has none that says the same; never restate, rename or change the schema's relations.

@@ -36,6 +36,8 @@ CASES = {
     "composed": (specs.composed_spec, Mutation.HOP_VISIBILITY_DROPPED, None),  # D56
     "mixed_case": (specs.mixed_case_spec, Mutation.IDENT_UNQUOTED, None),  # D58
     "enum": (specs.enum_spec, Mutation.IN_DROP_LAST, None),  # D59
+    "owner": (specs.owner_spec, Mutation.POLICY_ALL_RESTRICTIVE, None),  # D60
+    "condition": (specs.condition_spec, Mutation.RELATION_CONDITION_DROPPED, None),  # D61
 }
 
 

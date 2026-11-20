@@ -34,6 +34,9 @@ def _expand(obj):
     if isinstance(obj, tuple):
         items = tuple(_expand(x) for x in obj)
         return items if any(a is not b for a, b in zip(items, obj)) else obj
+    if isinstance(obj, dict):  # D61: a relation's condition lives in the spec's relations dict
+        new = {k: _expand(v) for k, v in obj.items()}
+        return new if any(new[k] is not v for k, v in obj.items()) else obj
     return obj
 
 

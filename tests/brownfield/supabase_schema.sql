@@ -68,6 +68,8 @@ create policy "assignee updates" on tasks for update to authenticated
 create policy "no deletes of done tasks" on tasks as restrictive for delete to authenticated using (not done);
 create policy "insert into own projects" on tasks for insert to authenticated
   with check (project_id in (select id from projects where owner = auth.uid()));
+create policy "only open projects" on tasks as restrictive for insert to authenticated
+  with check (project_id in (select id from projects where name like 'open%'));
 create function tasks_touch() returns trigger language plpgsql as $$ begin return new; end $$;
 create trigger tasks_touch before update on tasks for each row execute function tasks_touch();
 

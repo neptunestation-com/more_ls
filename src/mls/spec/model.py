@@ -42,6 +42,13 @@ def comparable(a: str, b: str) -> bool:
     if a == "enum" or b == "enum":
         return False
     return a == b or (a in INT_RANGE and b in INT_RANGE)
+
+
+def pair_unique(keys, key: str, value: str) -> bool:
+    """Whether a table with these key sets (primary key, unique constraints) holds each (key, value)
+    pair at most once: some key set lies within the pair (D60), e.g. `interviews(userId, id)` with
+    `id` the primary key."""
+    return any(frozenset(k) <= {key, value} for k in keys)
 Command = Literal["select", "insert", "update", "delete", "all"]
 CmpOp = Literal["=", "<>", "<", "<=", ">", ">="]
 
@@ -250,10 +257,12 @@ class Table(Strict):
 
 
 class Relation(Strict):
-    """A membership relation: the (key, value) projection of a table."""
+    """A membership relation: the (key, value) projection of a table, or of its rows where the
+    condition `where` is TRUE (D61)."""
     table: str
     key: str
     value: str
+    where: Pred | None = None
 
 
 MAX_HOPS = 3  # D56: a composed relation's chain is at most this long (invariant 6)

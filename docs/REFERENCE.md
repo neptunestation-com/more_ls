@@ -244,12 +244,33 @@ roles, so their privileges on a view or function are not a bypass path.
 
 A relation names the `(key, value)` projection of a table, for use in `member`, `inclusion`,
 `tenant_isolation` and `monotone_in`.  `key` and `value` must be different NOT NULL columns of
-the table, and together must be the primary key or a declared unique constraint (so a pair is
-stored at most once and a composite foreign key can target it).
+the table, and the table must hold each pair at most once: the pair, or one of its two columns,
+is the primary key or a declared unique constraint.  The second case is the owner of a parent
+row, `"owns": {"table": "projects", "key": "owner_id", "value": "id"}` with `id` the primary
+key: `member(owns, key=@uid, value=project_id)` on `tasks` reads "the user owns the task's
+project".  An inclusion rule into a relation is a composite foreign key, which references a key
+on exactly the pair, so the checker asks for that unique constraint when the pair is unique only
+through one column.  When the key column is of an enum type, the key is one of its labels:
+`"open": {"table": "sessions", "key": "status", "value": "id"}` read with key `'IN_PROGRESS'`
+is the sessions in that state.
+
+A base relation may keep only some of its table's rows: `"where": <predicate>` (terse: `relation
+org_admin = organization_members(userId, workspaceId) where role in ('OWNER', 'ADMIN')`).  The
+pair `(k, v)` is in it when a row with that key and value exists and the predicate is TRUE for
+it; a predicate that is UNKNOWN (a NULL column) leaves the row out, as a SQL `WHERE` does.  The
+predicate reads the relation table's own columns and constants (comparisons, `in`, `is null`,
+`and`, `or`, `not`); no context value, membership, group, `now_between` or opaque block, since a
+relation does not depend on who asks.  Such a relation may be the base of a composed relation and
+is used like any other in policies, goals, `must_allow`, `tenant_isolation` and `monotone_in`; it
+cannot be the target of an inclusion rule (a foreign key references every row), a hierarchy's
+members, or appear in an invariant (an update of the row's other columns changes it).  The
+membership subquery is `select value from t where key = k and (<predicate>)`.
 
 Reading a relation in a policy has an implicit cost: because RLS is forced on the
 relation's table too, the compiler emits a permissive SELECT policy `key = <context>` on it for
-every role whose policies use the relation with that key, plus `GRANT SELECT (key, value)`.  A
+every role whose policies use the relation with that key, plus `GRANT SELECT (key, value)`.  For a
+relation with a condition the policy is `key = <context> and (<condition>)`, a policy of its own,
+and the grant adds the condition's columns.  A
 restrictive policy the spec puts on the relation table must keep those rows visible; the
 compiler proves this (the relation-visibility obligation) and refuses otherwise.
 
@@ -662,7 +683,7 @@ grammar:
     column     := NAME TYPE ['not null']                          (a bare column is nullable; TYPE 'enum' NAME for an enum)
     option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
                 | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced' | 'bypass view v' | 'bypass function f(t)')
-    relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
+    relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')' ['where' pred]
                 | 'relation' NAME '=' BASE ('.' TABLE '(' KEY ',' VALUE ')')+   (composed)
     hierarchy  := 'hierarchy' NAME '=' TABLE 'id' COL 'parent' COL 'depth' COL 'max_depth' INT 'members' REL
     opaque     := 'opaque' NAME 'on' TABLE '(' [input (',' input)*] ')' 'relations' '(' [names] ')' 'sql' DOLLAR
@@ -1004,6 +1025,9 @@ reports each as `hardening` until it is fixed or the spec assumes it.
 | `col = any (array(select value from rel where key = <ctx>))` | `member` |
 | `col in (select value from rel where key = <ctx>)` | `member` (noted as lifted; the compiler writes the array shape) |
 | `exists (select 1 from rel where rel.key = <ctx> and rel.value = t.col)` | `member` (noted as the slow per-row shape of FINDINGS) |
+| `exists (select 1 from A join B on B.k = A.v ... where A.key = <ctx> and Z.v = t.col)`, inner joins in any order | `member` over a composed relation, when the joins form one chain of key lookups from the table the key filters to the table the row correlates with; otherwise opaque |
+| any of the membership shapes above with more conditions on the relation table (`... and rel.role = any (array[...])`) | `member` over a relation with that condition (one relation per table, pair and condition, named `<table>_by_<columns>` unless the compiler's visibility policy names it); a condition the relation fragment cannot hold keeps the whole membership opaque |
+| `rel.key = 'const'` in a membership subquery with no context value | the membership's key (`member(r, key='const', ...)`); with two such constants and no context value the membership stays opaque |
 | `col = any ((select mls_reach_<h>(<ctx>))::t[])` | `in_group`, when the spec declares hierarchy `h` |
 | `col = any (array(select v from T where k = any (array(select ... from rel where key = <ctx>))))`, or the same nesting of `in (select ...)`, up to three levels | `member` over a composed relation: an identical chain in the spec is reused, else one is proposed (named `<base>_<last table>`) with a note; when a hop's value is not a key or a hop column is nullable the policy stays opaque |
 | `col is [not] null`, `and`, `or`, `not`, `true`, `false` | the same |
@@ -1012,15 +1036,16 @@ reports each as `hardening` until it is fixed or the spec assumes it.
 | `(p) is true` at the top of a CHECK | `p` |
 | the adapter's identity expression, with or without the `(select ...)` wrapper | `ctx` (without the wrapper a `lint:` note names the index-friendly form) |
 
-A `(key, value)` membership proposes the relation when the pair is a primary key or unique
-constraint of a governed table, else the lookup stays opaque with the reason.  The lifter
+A `(key, value)` membership proposes the relation when the pair is unique in a governed table
+(the pair or one of its columns is a primary key or unique constraint), else the lookup stays
+opaque with the reason.  The lifter
 works at the boolean connectives: a conjunct, disjunct or negand it cannot read becomes an
 opaque block of its own text (an expression it cannot parse at all is one block), so a lifted
 spec always checks.  Never read: a call to any function that is not an identity source or a
 compiler helper (a one-line SQL wrapper included: user functions are never inlined),
 `like` (an opaque block over the column, which the leakproof lint reports), a negated
-membership (an anti-join), a membership subquery that joins tables (nested subqueries are
-composed relations), `IS TRUE` inside an expression (the fragment is three-valued), `CASE`,
+membership (an anti-join), a membership subquery that joins tables other than as a chain of
+key lookups inside an `exists` (nested subqueries are composed relations too), an outer join, `IS TRUE` inside an expression (the fragment is three-valued), `CASE`,
 arithmetic.  The notes say which part of which policy stayed opaque and why.
 
 ### `mls fmt SPEC [--to json|terse] [--out FILE]`
@@ -1139,8 +1164,7 @@ Classes of error, with the typical message:
   column op (context | constant)`; `old/new references are only allowed in transition
   predicates and in the ...`;
 - **structure**: `a select policy needs 'using'`; `an insert policy has no 'using' (no existing
-  row)`; `relation column 'c' must be NOT NULL`; `(key, value) must be a primary key or unique
-  ...`; `'parent' must be nullable (roots have no parent)`; `'parent' needs a single-column
+  row)`; `relation column 'c' must be NOT NULL`; `(key, value) is not unique in 't' ...`; `'parent' must be nullable (roots have no parent)`; `'parent' needs a single-column
   primary key that 'group' ...`; `a second read column rule for role 'r' on 't'`;
 - **compiler** (soundness obligations): a restrictive policy on a relation table that hides
   rows a membership atom needs, with the policy's path and a fix; for a composed

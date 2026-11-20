@@ -1058,3 +1058,74 @@ of `props/obligations.py` the Lean transcription does not state (lean/CLAUDE.md,
 Rejected: ordering (`<` by declaration order; nothing needs it yet, and it would tie the proofs
 to the label order); enums on owned tables (MLS would have to create, migrate and drop types);
 reading an enum as plain `text` without the axiom (spurious refutations, above).
+
+**D60. A relation's pair is unique when one of its columns is a key: the owner of a parent row
+(#31).**  The most common hand-written Supabase policy is "the user owns the parent row",
+`exists (select 1 from interviews where interviews.id = candidates."interviewId" and
+interviews."userId" = (select auth.uid()))`.  It is a membership in `interviews(userId, id)`,
+but the checker asked for a key on exactly the pair, so the import kept every such policy
+opaque: 12 of aural-oss's 21 blocks.  A base relation now needs only that the table holds each
+pair at most once, i.e. some key set (primary key or unique) lies within `{key, value}`
+(`model.pair_unique`, shared by the checker and the lifter).  Its meaning does not change (the
+pairs of the stored rows), nor does any template: the membership subquery, D21's visibility
+policy (`"userId" = uid` on `interviews`, a grant of `(userId, id)` to the owner) and the
+EXPLAIN requirement are the ones every relation has.  An inclusion rule into such a relation is
+refused with the fix (a unique constraint on exactly the pair), because a foreign key
+references nothing else.  An enum key column (D59) is read with a label as the key, so
+"the sessions in progress" is `sessions(status, id)` with key `'IN_PROGRESS'`.  The lifter
+also reads an `exists` over inner joins (`from sessions join interviews on interviews.id =
+sessions."interviewId" where sessions.id = messages."sessionId" and interviews."userId" =
+uid`) as the composed relation of the chain, when the join conditions, the key filter and the
+correlation are its only conditions and the tables form one chain of key lookups from the
+key's table to the row's (D56's hop rule); anything else stays opaque.  On aural-oss the
+import goes from 21 opaque blocks to 7; the rest need a condition on the relation's own table
+(#32) or call a function.  Implementation default: the encoding keeps `rel.<name>` an
+uninterpreted set of pairs and does not assert that the value determines the key (a quantified
+axiom, or a switch to D56's hop functions for such relations); proofs are sound without it, and
+the cost would be a counterexample with two owners of one row, which no case has produced.  The
+fixture `specs.owner_spec` (team_tasks plus `projects.owner_id`, a relation and a chain from it)
+runs the differential, `POLICY_ALL_RESTRICTIVE`, and the lift round trip.  Rejected: requiring
+the user to add a unique constraint on the pair (a schema change for a fact the key already
+states).
+
+**D61. A relation with a condition on its own table (#32).**  A relation was a table's whole
+`(key, value)` projection, so "an OWNER or ADMIN member of the organization" had no name, and
+aural-oss's project policies (`exists (select 1 from organization_members where ... and role =
+any (array['OWNER', 'ADMIN']))`) stayed opaque.  A base relation now takes `where`, a predicate
+over its own table's columns and constants (`spec/check.py:relation_scope`: comparisons, `in`,
+`is null`, connectives; no context value, membership, group, time or opaque block, since a
+relation does not depend on who asks).  Meaning: `(k, v) ∈ R` iff a stored row with that key and
+value exists and the condition is TRUE for it (UNKNOWN leaves it out, as `WHERE` does).
+Because the table holds each pair at most once, the stored-row axiom becomes exact,
+`rel(row.key, row.value) ⇔ T(cond(row))`, still quantifier-free, and the relation symbol stays
+uninterpreted elsewhere.  The membership subquery conjoins the condition (`where key = k and
+(cond)`, mutation `RELATION_CONDITION_DROPPED`), at the base of a composed relation too, so the
+hop visibility policies carry it.  D21's visibility policy for such a relation is its own,
+`key = k and (cond)`, named after it: the least grant (only the rows the subquery reads), the
+relation-visibility obligation asks only those rows to stay visible, and the import gets the
+relation's name and condition back from the policy (one policy per (table, key) would carry
+only the first relation's name).  The column grant adds the condition's columns.  Refused with
+the alternative: an inclusion target (a foreign key references every row), a hierarchy's
+members, and an invariant (an update of a non-key column would change the relation, which the
+induction step's change axioms do not model; those axioms also skip such relations, so the
+symbol is never constrained wrongly).  A relation with a condition is the `of` of a composed
+relation, and it appears in `monotone_in` and opaque signatures like any relation (both are
+about the set of pairs, however it arises).  The lifter reads, in each membership shape
+(correlated `exists`, the array subquery, an `exists` over joins at the key's table), what the
+WHERE says besides the key and the correlation as the condition (`Lifter.condition`, a lifter
+that makes no opaque part: the condition is read whole or the membership stays opaque).  The
+key is the comparison with a context value, else the only comparison with a constant (D60's
+constant key); two constants and no context value are ambiguous and stay opaque.  The import
+names a relation with a condition `<table>_by_<columns>` unless a compiler policy names it.
+The harness evaluates the condition three-valued on the rows it derives facts from, and sorts
+the rows it compares NULL-first (a granted column list on a relation table can now start with
+a nullable column).  Fixture `specs.condition_spec`: team_tasks with a nullable
+`team_members.role` and `lead_of ... where role in ('a', 'b')`, so a NULL role is not a lead
+(the `in` also caught that `spec/expand.py` did not walk dicts: a relation's condition is
+expanded like any predicate now).  With D60, aural-oss's import keeps 2 of its 21 opaque blocks:
+a call to `is_org_member()` and an `or` inside an `exists`.  Lean:
+the condition is a known gap (lean/CLAUDE.md).  Rejected: a role column on the policy instead
+(`member_of(@uid, team_id) and <the member row's role>` needs a column of another table, a
+correlated subquery outside the fragment); one relation per role value (no `in`, and the enum
+case needs the labels); a condition on a hop (the hop is a function of its value; a condition
+would make it partial, which no case needs yet).

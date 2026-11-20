@@ -4,7 +4,7 @@ from __future__ import annotations
 from mls.compile.mutations import Mutation
 from mls.compile.opaque import opaque_sql
 from mls.compile.time import now_between_sql
-from mls.spec.chain import levels
+from mls.spec.chain import condition, levels
 from mls.spec.expand import as_in_list
 from mls.identity.base import SQL_TYPE, Adapter
 from mls.sqltext import q  # noqa: F401  (re-exported: the templates import it from here)
@@ -87,6 +87,11 @@ class SqlCompiler:
             kt = self.spec.tables[lv[0].table].columns[lv[0].key].type
             inner = (f"select {q(lv[0].value)} from {q(lv[0].table)} "
                      f"where {q(lv[0].key)} = {self.term(m.key, table, kt)}")
+            cond = condition(self.spec, m.relation)
+            if cond is not None and Mutation.RELATION_CONDITION_DROPPED not in self.mutations:
+                # D61: the base relation's rows where its condition is TRUE (WHERE drops UNKNOWN);
+                # its unqualified columns resolve to the subquery's own table
+                inner += f" and {self.pred(cond, lv[0].table)}"
             for h in lv[1:]:  # D56: one uncorrelated InitPlan per level
                 inner = f"select {q(h.value)} from {q(h.table)} where {q(h.key)} = any (array({inner}))"
             return f"({self.term(m.value, table)} = any (array({inner})))"

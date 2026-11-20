@@ -69,3 +69,34 @@ def key_type(spec: Spec, name: str) -> str:
 def value_type(spec: Spec, name: str) -> str:
     lv = levels(spec, name)[-1]
     return spec.tables[lv.table].columns[lv.value].type
+
+
+def condition(spec: Spec, name: str):
+    """The condition of the base relation a relation (or prefix) starts from (D61), or None."""
+    rel = spec.relations[base_name(spec, name)]
+    return rel.where if isinstance(rel, Relation) else None
+
+
+def read_columns(spec: Spec, name: str) -> list[tuple[str, set[str]]]:
+    """(table, columns) a membership in `name` reads at each level: the level's key and value,
+    and at the base the columns of its condition (D61)."""
+    from pydantic import BaseModel
+
+    from mls.spec.model import ColRef
+
+    def cols(obj, out: set[str]) -> set[str]:
+        if isinstance(obj, ColRef):
+            out.add(obj.col)
+        elif isinstance(obj, BaseModel):
+            for f in type(obj).model_fields:
+                cols(getattr(obj, f), out)
+        elif isinstance(obj, (list, tuple)):
+            for x in obj:
+                cols(x, out)
+        return out
+
+    out = [(lv.table, {lv.key, lv.value}) for lv in levels(spec, name)]
+    cond = condition(spec, name)
+    if cond is not None:
+        out[0][1].update(cols(cond, set()))
+    return out

@@ -224,15 +224,19 @@ def test_import_of_the_brownfield_fixture(brownfield):
     two = [p for n, p in by_name.items() if n.startswith("members_see_memberships")]
     assert len(two) == 2 and {p.role for p in two} == {"anon", "authenticated"}
     assert pred(two[0].using) == pred(two[1].using) == {"cmp": [{"col": "user_id"}, "=", {"ctx": "uid"}]}
-    assert spec.relations["project_members"].model_dump() == {"table": "project_members", "key": "user_id",
+    assert spec.relations["project_members"].model_dump(exclude_none=True) == {"table": "project_members", "key": "user_id",
                                                                "value": "project_id"}
-    # what stays opaque: (owner, id) is not a key of projects, so the lookup is not a relation
+    # the owner of the parent row (D60): (owner, id) is unique in projects because id is its key
     assert by_name["insert_into_own_projects"].command == "insert" and by_name["insert_into_own_projects"].using is None
-    o = spec.opaques[by_name["insert_into_own_projects"].check.opaque]
-    assert o.columns == ["project_id"] and o.context == ["uid"] and "projects" in o.sql
-    assert list(spec.opaques) == [by_name["insert_into_own_projects"].check.opaque]
-    assert any("insert into own projects" in n and "not a primary key or unique constraint of projects" in n
-               for n in res.notes)
+    own = pred(by_name["insert_into_own_projects"].check)
+    rel = spec.relations[own["member"]["relation"]]
+    assert (rel.table, rel.key, rel.value, rel.where) == ("projects", "owner", "id", None)
+    assert own["member"]["key"] == {"ctx": "uid"} and own["member"]["value"] == {"col": "project_id"}
+    # what stays opaque: a lookup with no key, whose filter is a LIKE
+    o = spec.opaques[by_name["only_open_projects"].check.opaque]
+    assert o.columns == ["project_id"] and o.context == [] and "projects" in o.sql
+    assert list(spec.opaques) == [by_name["only_open_projects"].check.opaque]
+    assert any("only open projects" in n and "membership WHERE is not `key = <ctx>`" in n for n in res.notes)
     assert any(n.startswith("lint:") and "auth.uid()" in n and "index-friendly" in n for n in res.notes)
     assert any(n.startswith("lint:") and "correlated EXISTS" in n for n in res.notes)
     # the CHECKs over NOT NULL columns are check rules; the trigger is listed
@@ -272,17 +276,17 @@ def test_import_of_the_brownfield_fixture(brownfield):
         {"id": "P1", "template": "write_subset_read", "table": "profiles"},
         {"id": "P2", "template": "tenant_isolation", "table": "tasks", "column": "project_id",
          "relation": "project_members", "key": {"ctx": "uid"}, "commands": ["select"]},
-        # the insert policy is the opaque block: the written row is not shown readable
+        # the restrictive insert policy is the opaque block: the written row is not shown readable
         {"id": "P3", "template": "write_subset_read", "table": "tasks"},
         {"id": "P4", "template": "custom", "table": "tasks", "role": "authenticated", "command": "insert",
-         "goal": {"opaque": by_name["insert_into_own_projects"].check.opaque}},
+         "goal": {"opaque": by_name["only_open_projects"].check.opaque}},
     ]
     proved = check_spec(Spec.model_validate(d))
     results = {r.id: r for r in run_all(proved)}
     assert results["P1"].verdict == "PROVED" and results["P1"].conditional_on == []
     assert results["P2"].verdict == "PROVED" and results["P2"].conditional_on == []
     assert results["P3"].verdict == "REFUTED"
-    assert results["P4"].verdict == "PROVED" and results["P4"].conditional_on == ["insert_into_own_projects_check"]
+    assert results["P4"].verdict == "PROVED" and results["P4"].conditional_on == ["only_open_projects_check"]
     md = to_markdown(proved, list(results.values()))
     assert "3 proved (1 conditional on opaque blocks), 1 refuted" in md
     for r in results.values():
@@ -393,7 +397,7 @@ def test_discard_import_of_the_brownfield_fixture(brownfield):
     assert "audit_log" in spec.tables
     assert spec.policies() == [] and spec.column_rules() == [] and spec.opaques == {}
     discarded = [n for n in res.notes if " discarded (--policies discard" in n]
-    assert len(discarded) == 9 and any("restrictive for delete to authenticated using ((NOT done))" in n
+    assert len(discarded) == 10 and any("restrictive for delete to authenticated using ((NOT done))" in n
                                        for n in discarded), discarded
     assert spec.identity.adapter == "supabase"  # still read from the discarded policies' text
     assert import_schema(brownfield).spec["tables"]["audit_log"]["mode"] == "observed"

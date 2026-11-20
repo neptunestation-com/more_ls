@@ -32,7 +32,12 @@ triggers, grants).  You never write SQL.
 
 ## Relations: one `relation` line each, part of the schema
 - relation R = t(k, v)                the (k, v) pairs of table t (the user, the group they belong
-  to); k and v are different NOT NULL columns and together the primary key or a unique constraint
+  to); k and v are different NOT NULL columns, and the pair, or one of them, is the primary key or
+  a unique constraint of t.  The owner of a row is one: relation owns_building = buildings(owner_id, id)
+- relation R = t(k, v) where p        only the rows of t where p is TRUE; p reads t's own columns and
+  constants only.  E.g. relation manager_of = building_staff(user_id, building_id) where role = 'manager'.
+  Not in inclusion rules, invariants or hierarchies.  A key column of an enum type takes a label as
+  its key: relation floor_in_state = floors(status, id) read as floor_in_state('open', floor_id)
 - relation C = R . t1(k1, v1) . t2(k2, v2)   composed: (u, x) when (u, y) is a pair of the base
   relation R, a t1 row has k1 = y and v1 = x (and so on through each hop); 1 to 3 hops; each hop's
   key and value are different NOT NULL columns, the key has the type of the previous value, the
@@ -88,7 +93,7 @@ the key and value columns of R's table (the membership lookup runs as the user),
 GRAMMAR = """
 rules      := 'rules' '{' rule* '}'          properties := 'properties' '{' property* '}'
 relations  := 'relations' '{' relation* '}'
-relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
+relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')' ['where' pred]
             | 'relation' NAME '=' RELATION ('.' TABLE '(' KEY ',' VALUE ')')+      (composed, 1 to 3 hops)
 rule       := ID KIND [NAME] 'on' TABLE ':' body ['requirement' STRING]
 body       := ROLE COMMAND MODE ['using' pred] ['check' pred]      (policy)

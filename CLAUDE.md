@@ -128,6 +128,17 @@ union member the renderer does not cover.
   by `=`/`<>`/`in`; the proofs add `obligations.enum_row_axioms` (Lean: known gap); the harness and
   drift's shadow create the types (`compile/sql.py:enum_ddl`), `sql_type(col)` is a column's SQL
   type; fixture `specs.enum_spec`, mutation `IN_DROP_LAST`, lift shapes in `tests/pg/test_lift.py`.
+- D60: a base relation's pair need only be unique (`model.pair_unique`: some key lies within it),
+  so the owner of a parent row is `projects(owner_id, id)`; an inclusion into one still needs a
+  key on exactly the pair; an enum key column is read with a label key.  The lifter reads an
+  `exists` over inner joins as a composed relation (`Lifter.exists_join`); fixture
+  `specs.owner_spec`.
+- D61: a base relation may carry `where` (its own table's columns and constants,
+  `check.relation_scope`); facts are the rows where it is TRUE (`relation_row_axioms` is an
+  iff), the subquery conjoins it (`chain.condition`, mutation `RELATION_CONDITION_DROPPED`),
+  its visibility policy is its own (`key = k and cond`) and the grant adds its columns
+  (`chain.read_columns`); refused as an inclusion target, hierarchy members and in invariants.
+  The lifter reads the extra WHERE conditions (`Lifter.condition`); fixture `specs.condition_spec`.
 - D42: row-dependent column visibility is normalization
   (the column is its own table with its own policies); there is no masking construct.
 - M4 (the LLM loop and evals): `src/mls/llm/CLAUDE.md`. Tests never call the API (`MLS_LLM_SCRIPT=<json>`

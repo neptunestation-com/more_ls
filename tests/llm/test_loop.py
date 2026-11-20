@@ -262,7 +262,7 @@ def test_terse_prompt_examples_are_proved_canonical_specs():
         assert all(r.verdict == "PROVED" for r in run_all(spec, 20000)), text[:60]
         assert not (set(spec.tables) & corpus_tables), set(spec.tables) & corpus_tables
     # nor does the relations example of the language reference (the composed path is an answer)
-    assert not ({"buildings", "floors", "rooms"} & corpus_tables)
+    assert not ({"buildings", "floors", "rooms", "building_staff"} & corpus_tables)
     assert terse_output_reference().count("```mls") == 3
 
 

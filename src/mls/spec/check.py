@@ -27,7 +27,7 @@ from mls.spec.model import (
     INT_RANGE, In, Custom, InclusionRule, InGroup, InvariantPreserved, IsNull, Lit, Member, MonotoneIn, MustAllow, NewRef, Not,
     RoleSeparation,
     NowBetween, OldRef, OpaqueRef, Or, OwnerAssumed, PathAssumed, PolicyRule, RlsAssumed, Spec, TenantIsolation,
-    ColumnImmutable, WriteSubsetRead, LeastPrivilege, TransitionRule, comparable,
+    ColumnImmutable, WriteSubsetRead, LeastPrivilege, TransitionRule, comparable, pair_unique,
 )
 
 IDENT = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
@@ -99,6 +99,12 @@ def policy_scope(table: str) -> Scope:
 
 def check_scope(table: str) -> Scope:
     return Scope("check", table, cols=True, opaque=True)
+
+
+def relation_scope(table: str) -> Scope:
+    """A relation's condition (D61): the relation's own table's columns and constants, nothing
+    that depends on who asks or on other tables."""
+    return Scope("relation condition", table, cols=True)
 
 
 def transition_scope(table: str) -> Scope:
@@ -345,6 +351,8 @@ class Checker:
         if isinstance(p, Member):
             if not scope.member:
                 self.err(path, f"membership is not allowed in a {scope.name} predicate",
+                         "state it in the policy that reads the relation, next to the membership"
+                         if scope.name == "relation condition" else
                          "express the relationship as an inclusion rule (foreign key)")
                 return
             m = p.member
@@ -367,6 +375,12 @@ class Checker:
                              f"the table ('infinite recursion detected in policy')",
                              f"state the policy without the relation (the user's own rows: "
                              f"{self._own_rows_hint(m.relation)}), or use a relation backed by another table")
+            if isinstance(rel, Relation) and rel.where is not None and scope.name == "invariant":
+                self.err(f"{path}.member.relation", f"'{m.relation}' has a condition; an invariant cannot "
+                                                    f"read one (an update of the row's other columns would "
+                                                    f"change it, which the induction step does not model)",
+                         f"state the invariant over a relation without a condition and the columns of "
+                         f"'{rel.table}'")
             if isinstance(rel, ComposedRelation) and scope.name == "invariant":
                 self.err(f"{path}.member.relation", f"'{m.relation}' is a composed relation; an invariant "
                                                     f"cannot read one (a write to a hop table would change "
@@ -392,6 +406,18 @@ class Checker:
                 return
             (kt_, kc), (vt_, vc) = ends
             rkt, rvt = self.col_type(kt_, kc), self.col_type(vt_, vc)
+            if rkt == "enum":
+                # an enum key column (D59): the key is one of its labels, e.g. the open sessions,
+                # `sessions(status, id)` with key 'IN_PROGRESS' (D60)
+                labels = self.spec.enums.get(self.spec.tables[kt_].columns[kc].enum or "", [])
+                if not (isinstance(m.key, Const) and isinstance(m.key.const, str)):
+                    self.err(f"{path}.member.key", f"relation key {kt_}.{kc} is an enum column: the key "
+                                                   f"must be one of its labels",
+                             f"one of: {', '.join(repr(x) for x in labels)}")
+                elif m.key.const not in labels:
+                    self.err(f"{path}.member.key", f"'{m.key.const}' is not a label of {kt_}.{kc}'s enum type",
+                             f"one of: {', '.join(repr(x) for x in labels)}")
+                kt = None
             if kt is not None and rkt is not None and not comparable(kt, rkt):
                 self.err(f"{path}.member.key", f"key type {kt} does not match relation key "
                                                f"{kt_}.{kc}: {rkt}")
@@ -735,11 +761,14 @@ class Checker:
                 continue
             if rel.key == rel.value:
                 self.err(path, "key and value must be different columns")
-            if frozenset((rel.key, rel.value)) not in self.key_sets(rel.table):
-                self.err(path, f"({rel.key}, {rel.value}) must be a primary key or unique "
-                               f"constraint of '{rel.table}' (a relation is a set of pairs and "
-                               f"inclusion rules compile to foreign keys that reference it)",
-                         f"add [\"{rel.key}\", \"{rel.value}\"] to tables.{rel.table}.unique")
+            if not pair_unique(self.key_sets(rel.table), rel.key, rel.value):
+                self.err(path, f"({rel.key}, {rel.value}) is not unique in '{rel.table}': a relation is "
+                               f"a set of pairs, so the pair, or one of its columns, must be a primary key "
+                               f"or unique constraint of the table",
+                         f"add [\"{rel.key}\", \"{rel.value}\"] to tables.{rel.table}.unique, or make "
+                         f"'{rel.value}' the table's primary key")
+            if rel.where is not None:
+                self.pred(rel.where, relation_scope(rel.table), path + ".where")
 
     def check_hierarchies(self) -> None:
         for hname, h in self.spec.hierarchies.items():
@@ -781,6 +810,11 @@ class Checker:
                 self.err(f"{path}.members", f"'{h.members}' is a composed relation; a hierarchy's members "
                                             f"are one table's (key, value)",
                          f"use a base relation, e.g. '{rel.of}'")
+            elif rel.where is not None:
+                self.err(f"{path}.members", f"'{h.members}' has a condition; a hierarchy's members are "
+                                            f"one table's every (key, value)",
+                         f"use a relation without a condition, or keep the condition's rows in a "
+                         f"membership table of their own")
             elif rel.table in self.spec.tables and self.col_type(rel.table, rel.value) is not None \
                     and self.col_type(rel.table, rel.value) != t.columns[h.id].type:
                 self.err(f"{path}.members", f"the value of relation '{h.members}' ({rel.table}.{rel.value}: "
@@ -916,6 +950,12 @@ class Checker:
                                          f"foreign key, which references one table's (key, value)",
                      f"name a base relation, e.g. '{rel.of}'")
             return
+        if rel.where is not None:
+            self.err(path + ".relation", f"'{r.relation}' has a condition; an inclusion rule is a foreign "
+                                         f"key, which references every row of '{rel.table}'",
+                     f"name a relation without a condition on '{rel.table}', or state the condition as a "
+                     f"check rule")
+            return
         t = self.spec.tables[r.table]
         ok = True
         for j, c in enumerate(r.columns):
@@ -926,6 +966,15 @@ class Checker:
             return
         if r.columns[0] == r.columns[1]:
             self.err(path + ".columns", "the two columns must differ")
+        if rel.key in self.spec.tables[rel.table].columns and rel.value in self.spec.tables[rel.table].columns \
+                and frozenset((rel.key, rel.value)) not in self.key_sets(rel.table):
+            # D60: a relation whose pair is unique only through one of its columns is fine for
+            # policies, but a foreign key references exactly a declared key
+            self.err(path + ".relation", f"relation '{r.relation}' is ({rel.key}, {rel.value}) of "
+                                         f"'{rel.table}', and an inclusion rule is a foreign key, which "
+                                         f"references a primary key or unique constraint on exactly those "
+                                         f"two columns",
+                     f"add [\"{rel.key}\", \"{rel.value}\"] to tables.{rel.table}.unique")
         for j, (c, rc) in enumerate(zip(r.columns, (rel.key, rel.value))):
             ct, rt = self.col_type(r.table, c), self.col_type(rel.table, rc)
             if ct is not None and rt is not None and not comparable(ct, rt):

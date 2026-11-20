@@ -29,6 +29,12 @@ What a Python change left untranscribed.  Remove an entry when the transcription
   construction; the `Pred`-level environment the encoder's soundness is stated over takes the
   relations as given, so `Pred.tf_sound` neither uses nor states it.  Adding it is an extra
   hypothesis tying `Env.rel` to the rows the obligation reads, as `chainPy_eq` does for hops.
+- **Relation conditions (#32).**  A base relation's `where` (D61) is not transcribed: `Relational.lean`
+  derives a relation from all the stored rows, and the row axiom with a condition
+  (`rel(row.key, row.value) ⇔ T(cond(row))`, SEMANTICS §7) is the untranscribed row axiom above
+  with the condition's three-valued truth on the right.  The compiled subquery is the same
+  `= any(array(...))` with the condition conjoined, so the gap is the relation's definition, not
+  a new evaluation rule.
 - **The enum domain axiom (#30).**  `props/obligations.py:enum_row_axioms` (an enum column of a
   row an obligation reads is NULL or one of its type's labels, SEMANTICS §7) is not transcribed.
   Columns are `Int`-valued with interned text constants (`Term.const`), so the axiom is an extra

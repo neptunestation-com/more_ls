@@ -1128,6 +1128,37 @@ table's policies inside its own policy and refuses every query on it ("infinite 
 detected in policy"), so `mls check` refuses the rule.  Let a user see their own memberships
 (`user_id = @uid`), as the takeover of section 3 does.
 
+**A row belongs to the owner of its parent.**  `candidates.interview_id → interviews.user_id`:
+the owner of an interview manages its candidates.  The pair `(user_id, id)` of `interviews` is
+unique because `id` is its primary key, so it is a relation as it stands:
+
+    relation interview_owner = interviews(user_id, id)
+    R5 policy owner_manages_candidates on candidates: authenticated all permissive using interview_owner(@uid, interview_id)
+
+The compiled policy is `interview_id = any (array(select id from interviews where user_id =
+...))`, and the owner may read the `(user_id, id)` of their interviews (the compiler's policy
+`mls_rel_interview_owner_authenticated_1`).  A hand-written `exists (select 1 from interviews
+where interviews.id = candidates.interview_id and interviews.user_id = auth.uid())` is what
+`mls import` reads as this relation, and an `exists` that joins its way up (`from sessions join
+interviews on ...`) as a composed relation through the join.  An inclusion rule into such a
+relation still needs a unique constraint on exactly the pair, since a foreign key references
+nothing else.
+
+**Only some members count.**  `organization_members (user_id, org_id, role)`, and only owners
+and admins manage the projects.  Give the relation a condition on the table's own columns:
+
+    relation org_admin = organization_members(user_id, org_id) where role in ('OWNER', 'ADMIN')
+    R6 policy admin_manages_projects on projects: authenticated all permissive using org_admin(@uid, org_id)
+
+The pair is in `org_admin` when the row exists and the condition is true for it; a NULL role
+leaves the row out.  The condition reads only that table's columns and constants.  A relation
+with a condition is used like any other in policies and properties, and as the start of a
+composed relation (`org_admin . projects(org_id, id)`: the projects of the orgs a user
+administers); it cannot be the target of an inclusion rule, a hierarchy's members, or appear in
+an invariant.  When the key column is of an enum type the key is a label, with no user in it:
+`relation session_state = sessions(status, id)` read as `session_state('IN_PROGRESS',
+session_id)` is "the session is in progress".
+
 **Your policies call `is_admin()`.**  Read the function's body.  Usually it looks a row up in a
 table keyed by the user, such as `team_admins (team_id, user_id)`; that table is then a
 relation, and the prover can reason about it:
@@ -1441,7 +1472,9 @@ policy on it would mean nothing), the identity adapter is guessed from what the 
 relations are proposed from the foreign keys and the memberships the policies look up, and
 every existing policy becomes a rule.  The lifter reads the policy's SQL into the fragment when
 it is built from the shapes MLS itself emits or from the usual hand-written idioms (a bare
-`auth.uid()`, `col in (...)`, `col in (select ...)`, a correlated `exists`, a boolean column);
+`auth.uid()`, `col in (...)`, `col in (select ...)`, a correlated `exists`, also one that joins
+its way up to the owner of a parent row or that keeps only some rows of the membership table, a
+boolean column);
 what it cannot read, a call to a function of yours for instance, becomes an `opaque` block
 carrying the columns, context values and relations the SQL reads, and the notes say which part
 of which policy and why.  A CHECK it reads becomes a check rule.  The notes printed on stderr

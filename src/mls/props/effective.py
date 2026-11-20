@@ -57,7 +57,7 @@ def _implicit_policies(spec: Spec) -> list[PolicyRule]:
     on the relation's table for R: `key = k`.  This is the least grant that makes the membership
     atom mean "(k, col) ∈ relation" (D21).  Restrictive policies on the relation table still apply;
     the compiler proves they do not filter those rows (relation visibility obligation)."""
-    from mls.spec.chain import base_name, hop_prefix, levels
+    from mls.spec.chain import base_name, condition, hop_prefix, levels
 
     out: list[PolicyRule] = []
     seen: set[tuple[str, str, str]] = set()
@@ -69,16 +69,20 @@ def _implicit_policies(spec: Spec) -> list[PolicyRule]:
                 lv = levels(spec, m.relation)
                 base = base_name(spec, m.relation)
                 key_json = m.key.model_dump_json()
-                k = (lv[0].table, p.role, key_json)
+                cond = condition(spec, m.relation)
+                # D61: a relation with a condition reads only the rows it keeps, under a policy of
+                # its own (named after it, so that the import gets the relation back)
+                k = (lv[0].table, p.role, key_json, cond.model_dump_json(by_alias=True) if cond else None)
                 if k not in seen:
                     seen.add(k)
                     n = sum(1 for s_ in seen if s_[0] == lv[0].table and s_[1] == p.role)
+                    using = Cmp(cmp=(ColRef(col=lv[0].key), "=", m.key))
                     out.append(PolicyRule(
                         id=f"implicit:{base}:{p.role}:{n}",
                         name=f"mls_rel_{base}_{p.role}_{n}",
                         table=lv[0].table, kind="policy", role=p.role, command="select",
                         mode="permissive",
-                        using=Cmp(cmp=(ColRef(col=lv[0].key), "=", m.key))))
+                        using=using if cond is None else And(**{"and": [using, cond]})))
                 for i in range(1, len(lv)):
                     hk = (lv[i].table, p.role, hop_prefix(spec, m.relation, i), key_json)
                     hops.setdefault(hk, (m.key, lv[i].key, i))

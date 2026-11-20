@@ -274,6 +274,67 @@ def composed_spec() -> Spec:
     return make(d)
 
 
+def owner_spec() -> Spec:
+    """D60: the composed fixture plus the owner of each project.  `owns = projects(owner_id, id)`
+    is a relation because `id` is the primary key; the owner reads and edits the tasks of their
+    projects (R6, R7) and reads the comments on them through `owns . tasks(project_id, id)` (R8),
+    whether or not they are in the project's team.  The mutation makes every policy restrictive,
+    so an owner outside the team reads nothing."""
+    d = json.loads((EXAMPLE.parent / "team_tasks.mls.json").read_text())
+    d["rules"] = [r for r in d["rules"] if r["id"] != "R1"]
+    d["tables"]["projects"]["columns"]["owner_id"] = {"type": "uuid", "nullable": False}
+    d["relations"]["owns"] = {"table": "projects", "key": "owner_id", "value": "id"}
+    d["relations"]["owns_task"] = {"of": "owns", "through": [{"table": "tasks", "key": "project_id", "value": "id"}]}
+    owner = {"member": {"relation": "owns", "key": {"ctx": "uid"}, "value": {"col": "project_id"}}}
+    d["rules"] += [
+        {"id": "R6", "kind": "policy", "name": "owner_reads_tasks", "table": "tasks", "role": "authenticated",
+         "command": "select", "mode": "permissive", "using": owner},
+        {"id": "R7", "kind": "policy", "name": "owner_edits_tasks", "table": "tasks", "role": "authenticated",
+         "command": "update", "mode": "permissive", "using": owner, "check": owner},
+        {"id": "R8", "kind": "policy", "name": "owner_reads_comments", "table": "comments", "role": "authenticated",
+         "command": "select", "mode": "permissive",
+         "using": {"member": {"relation": "owns_task", "key": {"ctx": "uid"}, "value": {"col": "task_id"}}}},
+    ]
+    d["properties"] = [p for p in d["properties"] if p["template"] != "tenant_isolation"] + [
+        {"id": "P6", "template": "must_allow", "table": "tasks", "role": "authenticated", "command": "select",
+         "when": owner, "description": "the owner of a project reads its tasks"},
+        {"id": "P7", "template": "must_allow", "table": "comments", "role": "authenticated", "command": "select",
+         "when": {"member": {"relation": "owns_task", "key": {"ctx": "uid"}, "value": {"col": "task_id"}}},
+         "description": "the owner of a project reads the comments on its tasks"},
+    ]
+    return make(d)
+
+
+def condition_spec() -> Spec:
+    """D61: the composed fixture with a nullable `team_members.role`.  `lead_of` keeps the rows
+    whose role is 'a' or 'b' (an `in`, expanded inside the relations; a NULL role is UNKNOWN, so
+    not a lead): a lead edits their
+    teams' projects (R6, R7) and deletes the tasks of those projects through `lead_of .
+    projects(team_id, id)` (R8).  The mutation drops the condition from the subquery, so every
+    member, NULL role included, edits and deletes."""
+    d = json.loads((EXAMPLE.parent / "team_tasks.mls.json").read_text())
+    d["tables"]["team_members"]["columns"]["role"] = {"type": "text", "nullable": True}
+    d["relations"]["lead_of"] = {"table": "team_members", "key": "user_id", "value": "team_id",
+                                 "where": {"in": [{"col": "role"}, [{"const": "a"}, {"const": "b"}]]}}
+    d["relations"]["leads_project"] = {"of": "lead_of",
+                                       "through": [{"table": "projects", "key": "team_id", "value": "id"}]}
+    lead = {"member": {"relation": "lead_of", "key": {"ctx": "uid"}, "value": {"col": "team_id"}}}
+    leads = {"member": {"relation": "leads_project", "key": {"ctx": "uid"}, "value": {"col": "project_id"}}}
+    d["rules"] += [
+        {"id": "R6", "kind": "policy", "name": "lead_updates_projects", "table": "projects", "role": "authenticated",
+         "command": "update", "mode": "permissive", "using": lead, "check": lead},
+        {"id": "R7", "kind": "policy", "name": "lead_deletes_projects", "table": "projects", "role": "authenticated",
+         "command": "delete", "mode": "permissive", "using": lead},
+        {"id": "R8", "kind": "policy", "name": "lead_deletes_tasks", "table": "tasks", "role": "authenticated",
+         "command": "delete", "mode": "permissive", "using": leads},
+    ]
+    d["properties"] += [
+        {"id": "P6", "template": "must_allow", "table": "tasks", "role": "authenticated", "command": "delete",
+         "when": leads, "description": "a lead deletes every task of their teams' projects"},
+    ]
+    return make(d)
+
+
 # ----------------------------------------------------------------------------- case-sensitive names (D58)
 MIXED_CASE = {"memberships": "Membership", "admins": "Admin", "docs": "Doc", "user_id": "userId",
               "tenant_id": "tenantId", "owner_id": "ownerId", "archived": "isArchived",

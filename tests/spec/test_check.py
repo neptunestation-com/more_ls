@@ -436,3 +436,66 @@ def test_enum_declarations_and_columns_are_checked():
     d = enum_dict()
     d["identity"]["context"]["clearance"]["type"] = "enum"
     assert has(errors(d), "$.identity.context.clearance.type", "a context value cannot be an enum")
+
+
+def test_a_relation_is_unique_through_a_key_column():
+    """D60: `docs(tenant_id, id)` holds each pair once because `id` is the primary key, so it is a
+    relation (the owner-of-parent shape); a foreign key still needs a key on exactly the pair, so
+    an inclusion rule into it is refused with that fix."""
+    d = base()
+    d["relations"]["doc_tenant"] = {"table": "docs", "key": "tenant_id", "value": "id"}
+    assert errors(d) == []
+    d["tables"]["admins"]["columns"]["doc_id"] = {"type": "int", "nullable": False}
+    d["rules"].append({"id": "R10", "kind": "inclusion", "name": "admin_doc", "table": "admins",
+                       "columns": ["tenant_id", "doc_id"], "relation": "doc_tenant", "on_delete": "restrict"})
+    errs = errors(d)
+    e = next(e for e in errs if e.path == "$.rules[9].relation")
+    assert "references a primary key or unique constraint on exactly those two columns" in e.message
+    assert e.fix == 'add ["tenant_id", "id"] to tables.docs.unique'
+    d["tables"]["docs"]["unique"] = [["tenant_id", "id"]]
+    assert errors(d) == []
+    d = base()
+    d["relations"]["doc_owner"] = {"table": "docs", "key": "level", "value": "tenant_id"}
+    assert has(errors(d), "$.relations.doc_owner", "(level, tenant_id) is not unique in 'docs'")
+
+
+def test_an_enum_relation_key_is_one_of_its_labels():
+    """D60: `docs(status, id)` with an enum key column is read with a label as its key (the
+    documents in a state)."""
+    from tests.templates.specs import enum_dict
+
+    def with_key(key: dict) -> dict:
+        d = enum_dict()
+        d["tables"]["docs"]["columns"]["status"]["nullable"] = False
+        d["relations"]["doc_state"] = {"table": "docs", "key": "status", "value": "id"}
+        d["rules"].append({"id": "R12", "kind": "policy", "name": "drafts", "table": "admins",
+                           "role": "authenticated", "command": "select", "mode": "permissive",
+                           "using": {"member": {"relation": "doc_state", "key": key, "value": {"col": "tenant_id"}}}})
+        return d
+
+    assert errors(with_key({"const": "In review"})) == []
+    path = f"$.rules[{len(with_key({'const': 'x'})['rules']) - 1}].using.member.key"
+    assert has(errors(with_key({"const": "Archived"})), path, "'Archived' is not a label of docs.status's enum type")
+    assert has(errors(with_key({"ctx": "uid"})), path, "relation key docs.status is an enum column")
+
+
+def test_a_relation_condition_is_checked_and_its_in_expanded():
+    """D61: a relation's condition reads its own table's columns and constants; an `in` in it is
+    expanded like any other (nothing downstream of the checker sees one)."""
+    from mls.spec.model import Or
+    from tests.templates.specs import condition_spec
+
+    d = json.loads(condition_spec().model_dump_json(by_alias=True, exclude_none=True))
+    d["relations"]["lead_of"]["where"] = {"in": [{"col": "role"}, [{"const": "a"}, {"const": "b"}]]}
+    assert errors(d) == []
+    assert isinstance(check_spec(Spec.model_validate(d)).relations["lead_of"].where, Or)
+    for where, text in [({"cmp": [{"col": "role"}, "=", {"ctx": "uid"}]}, "context values are not allowed"),
+                        ({"member": {"relation": "member_of", "key": {"ctx": "uid"}, "value": {"col": "team_id"}}},
+                         "membership is not allowed in a relation condition"),
+                        ({"cmp": [{"col": "title"}, "=", {"const": "x"}]}, "unknown column 'title'")]:
+        d["relations"]["lead_of"]["where"] = where
+        assert any(e.path.startswith("$.relations.lead_of.where") and text in e.message for e in errors(d)), where
+    d["relations"]["lead_of"]["where"] = {"cmp": [{"col": "role"}, "=", {"const": "a"}]}
+    d["rules"].append({"id": "R9", "kind": "inclusion", "name": "lead_task", "table": "tasks",
+                       "columns": ["title", "project_id"], "relation": "lead_of", "on_delete": "restrict"})
+    assert has(errors(d), f"$.rules[{len(d['rules']) - 1}].relation", "'lead_of' has a condition")
