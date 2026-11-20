@@ -1,7 +1,7 @@
 """Development artefacts never reach users: no decision number (D45), issue number (#27) or
 milestone in what the tool prints (every string literal of `src/mls` that is not a docstring:
 output, errors, CLI help, generated SQL, the LLM's prompts) or in the user documentation (`docs/`
-outside `docs/design/`, README, the explainer page).  Comments and docstrings may cite them, and
+outside `docs/design/`, README, the explainer page, the Claude Code skills, which are prompts too).  Comments and docstrings may cite them, and
 so may `docs/design/`, which is for contributors."""
 from __future__ import annotations
 
@@ -12,7 +12,8 @@ from pathlib import Path
 from tests.conftest import ROOT
 
 PATTERN = re.compile(r"\bD\d{1,2}\b|(?<![\w&])#\d{1,3}(?![\w-])|\bMilestones?\b|\b[Aa]mended\b")
-USER_DOCS = sorted((ROOT / "docs").glob("*.md")) + [ROOT / "README.md", ROOT / "index.html"]
+USER_DOCS = sorted((ROOT / "docs").glob("*.md")) + [ROOT / "README.md", ROOT / "index.html"] \
+    + sorted((ROOT / ".claude" / "skills").glob("*/SKILL.md"))
 
 
 def _docstrings(tree: ast.AST) -> set[int]:

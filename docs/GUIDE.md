@@ -1652,6 +1652,14 @@ text.  `--syntax json` gives it the JSON Schema instead.  Both were measured on 
 and scored the same or better in terse, at a third fewer tokens, which is why terse is the
 default.
 
+**From Claude Code.**  The checkout carries a skill, `mls-spec`, that runs this section and
+section 3's steps 3 to 8 as a conversation: it imports the skeleton, interviews you for the
+requirements (one sentence per grant, every table covered), runs `mls generate`, and puts the
+relations and properties in front of you verbatim.  It never edits what the loop wrote: a wrong
+sentence sends it back to the requirements, and an escalation becomes a question for you.  It
+never changes the database; the fixes and the deploy stay yours to run.  Open Claude Code in the
+checkout and ask it to write a spec, or type `/mls-spec`.
+
 The default model is `claude-opus-5-5` with effort `high` (`--model`, `--effort`).  Setting
 `MLS_LLM_SCRIPT` to a JSON file of answers replays them instead of calling the API; the tests work
 that way.

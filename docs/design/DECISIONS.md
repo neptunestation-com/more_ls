@@ -990,3 +990,21 @@ or on `session_setting` the policies' one membership key), not by a list of sour
 `session_setting` specs saying "the user's uid's member_of".  The explainer's green is its own,
 no longer a provider's brand colour.  Rejected: keeping the tour on `supabase` and removing only
 the prose mentions (the quoted code would still name the provider).
+
+## After Milestone 6 (2026-11-20)
+
+**D57. The Claude Code skill is a front end to `mls generate`, not a replacement for it.**
+`.claude/skills/mls-spec/SKILL.md` runs the import, the requirements interview, the loop and the
+approval as a conversation, and stops before anything changes the database.  The loop stays in
+code because what makes it trustworthy is enforced there: the properties and rules passes never
+see each other (D37), properties are never repaired after a refutation, repair is bounded with a
+defined outcome, and `mls eval --llm` measures exactly that loop.  An agent in one context sees
+both answers and can be talked into making a property fit the rules; a skill can only ask it not
+to.  What an agent adds is what the loop lacks: it asks about an ambiguous requirement before the
+run instead of escalating after it (ambiguous sentences cause as many failed cases as the model,
+docs/design/LLM.md), and it reads the import's notes and today's policies with the user.  So the
+skill never edits what the loop wrote, never writes rules or properties itself, and turns an
+escalation into the question of GUIDE §8 for the user.  It is a prompt, so
+`tests/test_no_dev_artefacts.py` scans it.  Rejected: a skill that runs the two passes as separate
+subagents (independent, but neither bounded nor measurable by `mls eval`); calling the skill from
+`mls generate` (the CLI must run in CI and without Claude Code).
