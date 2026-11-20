@@ -307,3 +307,21 @@ def test_a_proof_is_conditional_only_on_the_blocks_it_needs():
     results = {r.id: r for r in run_all(check_spec(parse(RECIPE)))}
     assert {k: (r.verdict, r.conditional_on) for k, r in results.items()} == {
         "P2": ("PROVED", []), "P3": ("PROVED", []), "P4": ("PROVED", ["is_admin"])}
+
+
+def test_both_state_copies_intern_text_constants_alike():
+    """The induction step encodes the old row with one encoder and the new row with another; they
+    must number text constants alike, or 'x' before and 'z' after can become the same value.  An
+    update that keeps the status or sets it to 'z' preserves `status <> 'x'`."""
+    d = base()
+    d["tables"]["docs"]["columns"]["status"] = {"type": "text", "nullable": False}
+    d["rules"].append({"id": "T1", "kind": "transition", "name": "status_kept_or_z", "table": "docs",
+                       "predicate": {"or": [{"cmp": [{"new": "status"}, "=", {"old": "status"}]},
+                                            {"cmp": [{"new": "status"}, "=", {"const": "z"}]}]}})
+    d["properties"] = [{"id": "P1", "template": "invariant_preserved",
+                        "invariants": [{"table": "docs", "predicate": {"cmp": [{"col": "status"}, "<>",
+                                                                               {"const": "x"}]}}]}]
+    spec = make(d)
+    r = run_property(spec, spec.properties[0])
+    update = [o for o in r.obligations if o.name.startswith("update on docs preserves")]
+    assert update and all(o.verdict == "PROVED" for o in update), [(o.name, o.verdict) for o in update]

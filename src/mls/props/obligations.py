@@ -518,8 +518,9 @@ def _restrict_guard(spec: Spec, table: str, cmd: str, backed: set[str], row: str
 def _induction_step(spec: Spec, p: InvariantPreserved, invs: list[Invariant], table: str, cmd: str,
                     backed: set[str]) -> list[Obligation]:
     out = []
-    before = Encoder(spec, {r: "before" for r in backed})
-    after = Encoder(spec, {r: "after" for r in backed})
+    consts: dict[str, int] = {}  # one interning for both state copies: 'a' before is 'a' after
+    before = Encoder(spec, {r: "before" for r in backed}, consts=consts)
+    after = Encoder(spec, {r: "after" for r in backed}, consts=consts)
     change = _relation_change(spec, table, cmd, backed) + relation_axioms(spec, before)
     mod_rows = _rows_for(cmd, table)
     all_rels = [(r, "before") for r in sorted(backed)] + [(r, "after") for r in sorted(backed)]
