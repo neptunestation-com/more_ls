@@ -124,6 +124,10 @@ union member the renderer does not cover.
   it could close `$mls$`); every name MLS emits goes through `sqltext.q` (the identity adapters'
   `set local role` too), never spliced bare.  MLS's own names stay lower-case.  Fixture
   `specs.mixed_case_spec` (with lower-case twins of its mixed-case columns), mutation `IDENT_UNQUOTED`.
+- D59: enum columns (`Spec.enums`, `Column.enum`; adopted tables only) compare with their labels
+  by `=`/`<>`/`in`; the proofs add `obligations.enum_row_axioms` (Lean: known gap); the harness and
+  drift's shadow create the types (`compile/sql.py:enum_ddl`), `sql_type(col)` is a column's SQL
+  type; fixture `specs.enum_spec`, mutation `IN_DROP_LAST`, lift shapes in `tests/pg/test_lift.py`.
 - D42: row-dependent column visibility is normalization
   (the column is its own table with its own policies); there is no masking construct.
 - M4 (the LLM loop and evals): `src/mls/llm/CLAUDE.md`. Tests never call the API (`MLS_LLM_SCRIPT=<json>`

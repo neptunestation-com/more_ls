@@ -385,3 +385,54 @@ def test_mls_names_stay_lower_case():
     d = base()
     d["relations"]["MemberOf"] = d["relations"].pop("member_of")
     assert has(errors(d), "$.relations.MemberOf", "is not a valid relation identifier")
+
+
+def test_enum_columns_compare_with_their_labels():
+    """D59: an enum column (an adopted table's, of a declared type) compares by =, <> and `in`
+    with labels of its type; anything else is an error listing the labels."""
+    from tests.templates.specs import enum_dict
+
+    assert errors(enum_dict()) == []
+    st = {"col": "status"}
+    for cmp, path, text in [
+        ([st, "=", {"const": "Archived"}], "cmp[2]", "'Archived' is not a label of the column's enum type"),
+        ([st, "<", {"const": "Draft"}], "cmp", "operator < is not allowed on enum values"),
+        ([st, "=", {"col": "level"}], "cmp", "type mismatch: enum = int"),
+        ([st, "=", {"ctx": "uid"}], "cmp", "type mismatch: enum = uuid"),
+        ([st, "=", {"const": 1}], "cmp", "type mismatch: enum = int"),
+    ]:
+        d = enum_dict()
+        d["rules"][-2]["using"] = {"cmp": cmp}  # R11, a policy (context values allowed)
+        errs = errors(d)
+        assert has(errs, f"$.rules[{len(d['rules']) - 2}].using.{path}", text), [e.message for e in errs]
+    d = enum_dict()
+    d["rules"][-3]["using"]["and"][1]["in"][1][0] = {"const": "draft"}  # labels are case-sensitive
+    errs = errors(d)
+    assert has(errs, f"$.rules[{len(d['rules']) - 3}].using.and[1].in[1][0]", "'draft' is not a label")
+    assert any("'Draft', 'In review'" in e.fix for e in errs)
+
+
+def test_enum_declarations_and_columns_are_checked():
+    from tests.templates.specs import enum_dict
+
+    d = enum_dict()
+    d["enums"]["DocStatus"] = ["Draft", "Draft"]
+    d["enums"]["Bad Name"] = []
+    errs = errors(d)
+    assert has(errs, "$.enums.DocStatus[1]", "duplicate label 'Draft'")
+    assert has(errs, "$.enums.Bad Name", "is not a valid enum type identifier")
+    assert has(errs, "$.enums.Bad Name", "an enum needs at least one label")
+    d = enum_dict()
+    d["tables"]["docs"]["columns"]["status"]["enum"] = "Status"
+    assert has(errors(d), "$.tables.docs.columns.status.enum", "('Status' is not declared)")
+    d = enum_dict()
+    d["tables"]["docs"]["mode"] = "owned"
+    errs = errors(d)
+    assert has(errs, "$.tables.docs.columns.status.type", "table 'docs' is owned")
+    assert any("status in ('A', 'B', ...)" in e.fix for e in errs)
+    d = enum_dict()
+    d["tables"]["docs"]["columns"]["level"]["enum"] = "DocStatus"
+    assert has(errors(d), "$.tables.docs.columns.level.enum", "column 'level' is int, not enum")
+    d = enum_dict()
+    d["identity"]["context"]["clearance"]["type"] = "enum"
+    assert has(errors(d), "$.identity.context.clearance.type", "a context value cannot be an enum")

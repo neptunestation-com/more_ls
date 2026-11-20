@@ -17,8 +17,10 @@ STATIC_NON_LEAKPROOF = {
     "bigint": [],
     "bool": [],
     "uuid": [],
+    "enum": ["=", "<>", "<", "<=", ">", ">="],  # anyenum's operators are not leakproof
 }
-PG_TYPE = {"int": "integer", "bigint": "bigint", "text": "text", "bool": "boolean", "timestamp": "timestamptz", "uuid": "uuid"}
+PG_TYPE = {"int": "integer", "bigint": "bigint", "text": "text", "bool": "boolean", "timestamp": "timestamptz", "uuid": "uuid",
+           "enum": "anyenum"}
 
 
 @dataclass

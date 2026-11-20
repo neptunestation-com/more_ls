@@ -30,14 +30,17 @@ from typing import Annotated, Any, Literal, Union
 
 from pydantic import BaseModel, ConfigDict, Discriminator, Field, Tag, model_validator
 
-ColType = Literal["int", "bigint", "text", "bool", "timestamp", "uuid"]
+ColType = Literal["int", "bigint", "text", "bool", "timestamp", "uuid", "enum"]
 # D53: the integer types differ only in range (the fragment has no arithmetic), so they compare
 # with each other and share the SMT sort; the range bounds constants
 INT_RANGE: dict[str, tuple[int, int]] = {"int": (-2**31, 2**31 - 1), "bigint": (-2**63, 2**63 - 1)}
 
 
 def comparable(a: str, b: str) -> bool:
-    """Whether values of the two column types compare (equal types, or both integer types)."""
+    """Whether values of the two column types compare (equal types, or both integer types).  An
+    enum compares only with its own labels (D59), never with another column or context value."""
+    if a == "enum" or b == "enum":
+        return False
     return a == b or (a in INT_RANGE and b in INT_RANGE)
 Command = Literal["select", "insert", "update", "delete", "all"]
 CmpOp = Literal["=", "<>", "<", "<=", ">", ">="]
@@ -190,6 +193,7 @@ Not.model_rebuild()
 class Column(Strict):
     type: ColType
     nullable: bool
+    enum: str | None = None  # the declared enum type of an `enum` column (D59)
 
 
 TableMode = Literal["owned", "adopted", "observed"]
@@ -536,6 +540,7 @@ class Spec(Strict):
     mls_version: Literal["0.1"]
     identity: Identity
     roles: list[str] = Field(min_length=1)
+    enums: dict[str, list[str]] = Field(default_factory=dict)  # Postgres enum type -> labels, in order (D59)
     tables: dict[str, Table]
     relations: dict[str, AnyRelation] = Field(default_factory=dict)
     hierarchies: dict[str, Hierarchy] = Field(default_factory=dict)

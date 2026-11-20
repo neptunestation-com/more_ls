@@ -561,6 +561,9 @@ class Env:
     composed_names: dict[tuple[str, int], str] = field(default_factory=dict)  # (last hop table, hops) -> name
     hierarchies: dict[str, dict] = field(default_factory=dict)
     opaques: dict[str, dict] = field(default_factory=dict)
+    # D59: the enum types (name -> labels) and each enum column's type (table -> column -> name)
+    enums: dict[str, list[str]] = field(default_factory=dict)
+    enum_cols: dict[str, dict[str, str]] = field(default_factory=dict)
     _spec: Spec | None = field(default=None, repr=False)
 
     @classmethod
@@ -576,7 +579,10 @@ class Env:
                    composed={n: (r.of, tuple((h.table, h.key, h.value) for h in r.through))
                              for n, r in spec.relations.items() if n not in spec.base_relations()},
                    hierarchies={n: h.model_dump() for n, h in spec.hierarchies.items()},
-                   opaques={n: o.model_dump() for n, o in spec.opaques.items()})
+                   opaques={n: o.model_dump() for n, o in spec.opaques.items()},
+                   enums={n: list(x) for n, x in spec.enums.items()},
+                   enum_cols={t: {c: col.enum for c, col in tb.columns.items() if col.enum is not None}
+                              for t, tb in spec.tables.items()})
 
     def ctx_by_source(self, source: str) -> str | None:
         for n, (s, _) in self.context.items():
@@ -593,8 +599,10 @@ class Env:
             d = {"mls_version": "0.1", "identity": {"adapter": self.adapter,
                                                     "context": {n: {"source": s, "type": t}
                                                                 for n, (s, t) in self.context.items()}},
-                 "roles": self.roles or ["r"],
-                 "tables": {t: {"columns": {c: {"type": ty, "nullable": nu} for c, (ty, nu) in cols.items()},
+                 "roles": self.roles or ["r"], "enums": self.enums,
+                 "tables": {t: {"columns": {c: {"type": ty, "nullable": nu,
+                                                **({"enum": self.enum_cols[t][c]} if ty == "enum" else {})}
+                                            for c, (ty, nu) in cols.items()},
                                 "mode": "adopted" if t in self.governed else "observed"}
                             for t, cols in self.tables.items()},
                  "relations": {**{n: {"table": t, "key": k, "value": v} for n, (t, k, v) in self.relations.items()},
@@ -978,6 +986,11 @@ class Lifter:
     def const(self, node: Node) -> tuple[dict, ColType | None]:
         if isinstance(node, Cast):
             ty = CAST_TO_MLS.get(node.type)
+            if ty is None and node.type in self.env.enums:  # 'OWNER'::"MemberRole", a label (D59)
+                inner, _ = self.const(node.x)
+                if not isinstance(inner["const"], str):
+                    raise Unreadable(f"`{self.src(node)}` is not a label of {node.type}")
+                return inner, "enum"
             if ty is None:
                 raise Unreadable(f"a cast to {node.type}, not an MLS type")
             inner, _ = self.const(node.x)

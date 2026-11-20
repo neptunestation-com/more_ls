@@ -354,3 +354,22 @@ def test_quoted_names_keep_their_case_and_bare_names_fold():
     assert r.pred == {"is_null": {"col": "ownerId"}}
     r, _ = do("(isArchived = 1)", env=env, table="Doc")
     assert r.pred == {"cmp": [{"col": "isarchived"}, "=", {"const": 1}]}
+
+
+def test_enum_label_shapes():
+    """D59: Postgres deparses a label compared with an enum column as a cast to the type, quoted
+    when its name is mixed-case; an IN list as = ANY over an array of such casts, NOT IN as <> ALL.
+    A cast to a type the spec does not declare, or a label of none, stays opaque."""
+    from tests.templates.specs import enum_spec
+
+    env = env_of(enum_spec())
+    r, _ = do("""(status = 'Draft'::"DocStatus")""", env=env)
+    assert r.pred == {"cmp": [{"col": "status"}, "=", {"const": "Draft"}]}
+    r, _ = do("""(status = ANY (ARRAY['Draft'::"DocStatus", 'it''s'::"DocStatus"]))""", env=env)
+    assert r.pred == {"in": [{"col": "status"}, [{"const": "Draft"}, {"const": "it's"}]]}
+    r, _ = do("""(status <> ALL (ARRAY['Draft'::"DocStatus", 'In review'::"DocStatus"]))""", env=env)
+    assert r.pred == {"not": {"in": [{"col": "status"}, [{"const": "Draft"}, {"const": "In review"}]]}}
+    r, _ = do("""(status = 'draft'::"DocStatus")""", env=env)
+    assert r.kind == "opaque"
+    r, _ = do("""(status = 'Draft'::docstatus)""", env=env)
+    assert r.kind == "opaque"

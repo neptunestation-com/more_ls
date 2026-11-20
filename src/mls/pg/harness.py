@@ -106,7 +106,7 @@ class ValueGen:
         self.user_ctx = adapter.user_context_name()
         self.chained = chained_columns(spec)
 
-    def value(self, type_: str, nullable: bool, null_p: float | None = None) -> Any:
+    def value(self, type_: str, nullable: bool, null_p: float | None = None, enum: str | None = None) -> Any:
         if nullable and self.rnd.random() < (self.null_p if null_p is None else null_p):
             return None
         if type_ == "int":
@@ -121,12 +121,14 @@ class ValueGen:
             return self.rnd.random() < 0.5
         if type_ == "timestamp":
             return self.now + dt.timedelta(days=self.rnd.choice([-3, -2, -1, 1, 2, 3]))
+        if type_ == "enum":  # D59: the type's labels, every one of them
+            return self.rnd.choice(self.spec.enums[enum])
         raise ValueError(type_)
 
     def row(self, table: str) -> Row:
         t = self.spec.tables[table]
         r = {c: (self.value("uuid", col.nullable) if (table, c) in self.user_cols
-                 else self.value(col.type, col.nullable)) for c, col in t.columns.items()}
+                 else self.value(col.type, col.nullable, enum=col.enum)) for c, col in t.columns.items()}
         if t.primary_key and len(t.primary_key) == 1 and t.columns[t.primary_key[0]].type in INT_RANGE:
             pk = t.primary_key[0]
             r[pk] = self.rnd.choice(self.ids if t.columns[pk].type == "int" else self.bigids)
@@ -372,11 +374,11 @@ class Harness:
         insert; and one under the name of a policy the spec declares.  Each check rule on the
         table finds a weaker constraint under its name (`check (true)`, D52).  The compiled script
         never creates the tables and must replace the policies and the constraints."""
-        from mls.compile.sql import q
+        from mls.compile.sql import enum_ddl, q
         from mls.compile.table import table_ddl
         from mls.props.effective import all_policies
 
-        out = []
+        out = [enum_ddl(name, labels) for name, labels in self.spec.enums.items()]  # D59: the database has them
         for name, t in self.spec.tables.items():
             if t.mode != "adopted":
                 continue
@@ -599,7 +601,7 @@ def _mutate(rnd: Chooser, gen: ValueGen, table: str, row: Row) -> Row:
     t = gen.spec.tables[table]
     for c, col in t.columns.items():
         if rnd.random() < 0.4:
-            new[c] = gen.value(col.type, col.nullable)
+            new[c] = gen.value(col.type, col.nullable, enum=col.enum)
     return new
 
 

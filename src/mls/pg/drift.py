@@ -29,7 +29,7 @@ from psycopg import sql as psql
 
 from mls.compile.internal import INTERNAL_ROLE, needs_internal_role
 from mls.compile.plan import Script
-from mls.compile.sql import q
+from mls.compile.sql import enum_ddl, q
 from mls.compile.table import table_ddl
 from mls.identity import get_adapter
 from mls.pg.catalog import Snapshot, bypass_paths, snapshot
@@ -77,6 +77,8 @@ def shadow_snapshot(conn: psycopg.Connection, spec: Spec, script: Script,
     with conn.cursor() as cur:
         cur.execute(psql.SQL("create schema {}").format(psql.Identifier(shadow)))
         cur.execute(psql.SQL("set local search_path to {}, pg_catalog").format(psql.Identifier(shadow)))
+        for name, labels in spec.enums.items():  # the stand-ins' types, named as the live ones print
+            cur.execute(enum_ddl(name, labels))
         for name, t in spec.tables.items():
             if t.mode == "adopted":  # the script does not create it: stand in for the existing table
                 for s in table_ddl(name, t):
@@ -165,6 +167,12 @@ def compare(spec: Spec, expected: Snapshot, actual: Snapshot) -> tuple[list[Drif
     items: list[DriftItem] = []
     notes: list[str] = []
     trusted = get_adapter(spec).trusted_roles
+    for name, labels in spec.enums.items():  # D59: the database owns the type; the spec states its labels
+        live = actual.get("enums", {}).get(name)
+        if live is None:
+            items.append(DriftItem("missing", f"enum type {name}"))
+        elif live != labels:
+            items.append(DriftItem("differs", f"enum type {name}", ", ".join(labels), ", ".join(live)))
     for t, exp in expected["tables"].items():
         mode = spec.tables[t].mode
         extra = "unexpected" if mode == "owned" else "foreign"

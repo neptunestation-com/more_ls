@@ -7,8 +7,9 @@ how to write them, and `docs/design/DECISIONS.md` why each choice was made.
 ## 1. Values and logic
 
 - Column values are integers (`int` or `bigint`: one sort, the type only bounds constants),
-  text (compared for equality only in v1), booleans, timestamps (modeled as integers), or NULL
-  if the column is nullable. Context values are never NULL.
+  text (compared for equality only in v1), enum labels (text from a fixed list, compared for
+  equality only), booleans, timestamps (modeled as integers), or NULL if the column is nullable.
+  Context values are never NULL.
 - Predicates evaluate to TRUE, FALSE or UNKNOWN with SQL semantics:
   - comparison with a NULL operand → UNKNOWN; `IS NULL` is two-valued;
   - AND: FALSE dominates, then UNKNOWN; OR: TRUE dominates, then UNKNOWN; NOT swaps TRUE/FALSE.
@@ -198,6 +199,11 @@ All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered 
   row.value)`.  Without it a property over the relation table itself (`team_id in
   team_members(@uid)` on `team_members`) is refuted by a row the relation does not contain, a
   state no database can be in.
+- **Enum domain axioms:** an enum column holds one of its type's labels (or NULL when it is
+  nullable): Postgres refuses any other value.  For every row an obligation reads, every enum
+  column of its table is asserted equal to one of the labels, interned as distinct constants like
+  any text constant.  When two versions of a spec are compared, the domain is the union of their
+  labels, and a column that one version does not declare enum is not constrained.
 - **role_separation:** `constraints ∧ effective_a ∧ effective_b` is UNSAT over the command's
   images (for update: `using` on `old`, `check` on `new`, plus the transition constraints), with one
   set of context values for both roles; a model is a row both roles may touch.

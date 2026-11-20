@@ -213,6 +213,14 @@ class Checker:
         self.err(path, "unknown term")
         return None
 
+    def enum_labels(self, term, scope: Scope) -> list[str] | None:
+        """The labels of the enum column `term` names (D59), or None when it names no enum column."""
+        col = term.col if isinstance(term, ColRef) else term.old if isinstance(term, OldRef) else \
+            term.new if isinstance(term, NewRef) else None
+        t = self.spec.tables.get(scope.table) if col is not None and scope.table else None
+        c = t.columns.get(col) if t else None
+        return self.spec.enums.get(c.enum) if c is not None and c.type == "enum" and c.enum else None
+
     def const_ok_for(self, term, ty: ColType, path: str) -> bool:
         """Constants: int<->int|bigint (within the type's range), bool<->bool, str<->text|uuid
         (uuid-shaped). No timestamp constants."""
@@ -260,6 +268,19 @@ class Checker:
             if isinstance(l, Const) and isinstance(r, Const):
                 self.err(path, "comparing two constants is meaningless", "")
         if lt is None or rt is None:
+            return
+        if "enum" in (lt, rt):  # an enum column compares with its own labels only (D59)
+            col, const, cpath = (l, r, rpath) if lt == "enum" else (r, l, lpath)
+            labels = self.enum_labels(col, scope) or []
+            if not isinstance(const, Const) or not isinstance(const.const, str) or isinstance(const.const, bool):
+                self.err(path, f"type mismatch: {lt} {op} {rt}",
+                         f"compare an enum column with one of its labels: {', '.join(map(repr, labels))}")
+            elif const.const not in labels:
+                self.err(cpath, f"'{const.const}' is not a label of the column's enum type",
+                         f"one of: {', '.join(map(repr, labels))}")
+            elif op not in ("=", "<>"):
+                self.err(path, f"operator {op} is not allowed on enum values (v1 compares enum for "
+                               f"equality only)", "use = or <>, or in for several labels")
             return
         if isinstance(r, Const) and not isinstance(l, Const):
             if not self.const_ok_for(r, lt, rpath):
@@ -459,6 +480,7 @@ class Checker:
                 self.err(f"$.roles[{i}]", f"'{r}' is not a valid role identifier", CATALOG_IDENT_FIX)
         if len(set(s.roles)) != len(s.roles):
             self.err("$.roles", "duplicate role names")
+        self.check_enums()
         self.check_tables()
         self.check_relations()
         self.check_hierarchies()
@@ -471,6 +493,9 @@ class Checker:
         ident = self.spec.identity
         for name, cv in ident.context.items():
             path = f"$.identity.context.{name}"
+            if cv.type == "enum":
+                self.err(path + ".type", "a context value cannot be an enum",
+                         "declare it text and compare an enum column with constant labels")
             if name == CONTEXT_NOW:
                 self.err(path, "'now' is a built-in context value", "remove it")
             if not IDENT.match(name):
@@ -506,10 +531,11 @@ class Checker:
                 self.err(path, f"'{tname}' is not a valid table identifier", CATALOG_IDENT_FIX)
             if not t.columns:
                 self.err(path + ".columns", "a table needs at least one column")
-            for cname in t.columns:
+            for cname, col in t.columns.items():
                 if not CATALOG_IDENT.match(cname):
                     self.err(f"{path}.columns.{cname}", f"'{cname}' is not a valid column identifier",
                              CATALOG_IDENT_FIX)
+                self.check_enum_column(tname, t, cname, col, f"{path}.columns.{cname}")
             if t.primary_key is not None:
                 for i, c in enumerate(t.primary_key):
                     if c not in t.columns:
@@ -525,6 +551,35 @@ class Checker:
                 if not tag.strip():
                     self.err(f"{path}.tags[{i}]", "empty tag")
             self.check_assumptions(tname, t, path)
+
+    def check_enums(self) -> None:
+        """An enum is a Postgres enum type the database already has (D59): its name is a catalog
+        name, its labels non-empty and distinct, in the type's order."""
+        for name, labels in self.spec.enums.items():
+            path = f"$.enums.{name}"
+            if not CATALOG_IDENT.match(name):
+                self.err(path, f"'{name}' is not a valid enum type identifier", CATALOG_IDENT_FIX)
+            if not labels:
+                self.err(path, "an enum needs at least one label", "list the type's labels in order")
+            for i, label in enumerate(labels):
+                if not label:
+                    self.err(f"{path}[{i}]", "empty label", "list the type's labels as the database has them")
+                elif labels.index(label) != i:
+                    self.err(f"{path}[{i}]", f"duplicate label '{label}'", "list each label once")
+
+    def check_enum_column(self, tname: str, t, cname: str, col, path: str) -> None:
+        if col.type != "enum":
+            if col.enum is not None:
+                self.err(path + ".enum", f"column '{cname}' is {col.type}, not enum", "remove 'enum'")
+            return
+        if col.enum is None or col.enum not in self.spec.enums:
+            self.err(path + ".enum", f"column '{cname}' needs a declared enum type"
+                     + (f" ('{col.enum}' is not declared)" if col.enum else ""),
+                     f"declare it under enums, or use one of: {', '.join(self.spec.enums) or '(none declared)'}")
+        if t.mode == "owned":
+            self.err(path + ".type", f"table '{tname}' is owned, and MLS creates its tables without enum types",
+                     f"declare '{cname}' text with a check rule  {cname} in ('A', 'B', ...);  "
+                     f"or adopt the table if the database already has it")
 
     def check_assumptions(self, tname: str, t, path: str) -> None:
         """`assume` (D45) states the hardening the compiler cannot establish on an adopted table.

@@ -29,6 +29,11 @@ What a Python change left untranscribed.  Remove an entry when the transcription
   construction; the `Pred`-level environment the encoder's soundness is stated over takes the
   relations as given, so `Pred.tf_sound` neither uses nor states it.  Adding it is an extra
   hypothesis tying `Env.rel` to the rows the obligation reads, as `chainPy_eq` does for hops.
+- **The enum domain axiom (#30).**  `props/obligations.py:enum_row_axioms` (an enum column of a
+  row an obligation reads is NULL or one of its type's labels, SEMANTICS §7) is not transcribed.
+  Columns are `Int`-valued with interned text constants (`Term.const`), so the axiom is an extra
+  hypothesis on the valuation, like the relation row axiom: `Pred.tf_sound` neither uses nor
+  states it, and the encoder (`logic/tvl.py`) is unchanged.
 
 What each step states rather than proves (sets rather than bags outside `Cardinality.lean`,
 self-referencing FKs, the `SECURITY DEFINER` helper seeing every row, `FOR UPDATE` serializing

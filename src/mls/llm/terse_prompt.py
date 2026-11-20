@@ -15,7 +15,9 @@ triggers, grants).  You never write SQL.
 ## Terms
 - name                       a column of the row (in transitions: old.name / new.name)
 - @name                      a context value of the current user (declared in identity)
-- 3 | -1 | 'x' | true        a constant (no timestamp constants; a '' inside a string doubles the quote)
+- 3 | -1 | 'x' | true        a constant (no timestamp constants; a '' inside a string doubles the quote;
+                             an enum column's constant is one of the labels of its type's enum line,
+                             compared by = <> or in)
 
 ## Predicates
 - a op b                     op in = <> < <= > >=; the right-hand side is a context value or a constant

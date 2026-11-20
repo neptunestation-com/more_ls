@@ -325,3 +325,17 @@ def test_both_state_copies_intern_text_constants_alike():
     r = run_property(spec, spec.properties[0])
     update = [o for o in r.obligations if o.name.startswith("update on docs preserves")]
     assert update and all(o.verdict == "PROVED" for o in update), [(o.name, o.verdict) for o in update]
+
+
+def test_an_enum_column_holds_only_its_labels():
+    """D59: Postgres refuses any other value, and the proofs assume it.  `status <> 'In review'`
+    leaves exactly the three states the policy lists, so P11 holds; with a fourth label the
+    policy does not list, the counterexample is a document in that state."""
+    from tests.templates.specs import ENUM_LABELS, enum_spec
+
+    spec = enum_spec()
+    assert run_property(spec, next(p for p in spec.properties if p.id == "P11")).verdict == "PROVED"
+    spec = enum_spec(ENUM_LABELS + ["Extra"])
+    r = run_property(spec, next(p for p in spec.properties if p.id == "P11"))
+    assert r.verdict == "REFUTED"
+    assert {o.scenario.rows["r"]["values"]["status"] for o in r.obligations if o.verdict == "REFUTED"} == {"'Extra'"}

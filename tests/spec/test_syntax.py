@@ -19,7 +19,7 @@ from tests.conftest import EXAMPLE
 # ----------------------------------------------------------------------------- a generator
 NAMES = st.sampled_from(["id", "tenant_id", "level", "owner_id", "archived", "check", "from", "select", "two words",
                          'say "hi"', "parent", "depth", "members", "max", "all", "Ünïcode"])
-TYPES = st.sampled_from(["int", "text", "bool", "timestamp", "uuid"])
+TYPES = st.sampled_from(["int", "bigint", "text", "bool", "timestamp", "uuid", "enum"])
 CMDS = st.sampled_from(["select", "insert", "update", "delete"])
 TEXT = st.text(alphabet=st.characters(blacklist_categories=("Cs",)), max_size=12)
 
@@ -108,7 +108,8 @@ def properties():
 
 
 TABLES = st.fixed_dictionaries(
-    {"columns": st.dictionaries(NAMES, st.fixed_dictionaries({"type": TYPES, "nullable": st.booleans()}), max_size=4),
+    {"columns": st.dictionaries(NAMES, st.fixed_dictionaries({"type": TYPES, "nullable": st.booleans()},
+                                                             optional={"enum": NAMES}), max_size=4),
      "mode": st.sampled_from(["owned", "adopted", "observed"])},
     optional={"primary_key": st.lists(NAMES, min_size=1, max_size=2), "unique": st.lists(st.lists(NAMES, min_size=1, max_size=2), max_size=2),
               "tags": st.lists(NAMES, max_size=2),
@@ -124,6 +125,7 @@ SPECS = st.fixed_dictionaries(
                                             {"source": st.sampled_from(["auth.uid", "jwt.claims.org_id", "current_user", "app.t"]),
                                              "type": TYPES}), max_size=2)}),
      "roles": st.lists(NAMES, min_size=1, max_size=2),
+     "enums": st.dictionaries(NAMES, st.lists(TEXT, max_size=3), max_size=2),
      "tables": st.dictionaries(NAMES, TABLES, max_size=3),
      "relations": st.dictionaries(NAMES, st.fixed_dictionaries({"table": NAMES, "key": NAMES, "value": NAMES}), max_size=2),
      "hierarchies": st.dictionaries(NAMES, st.fixed_dictionaries(
@@ -287,7 +289,7 @@ def test_the_schema_is_untouched():
     assert schema == Spec.model_json_schema()
     text = json.dumps(schema).lower()
     assert "span" not in text and '"line"' not in text and "syntax" not in text and "tok" not in schema["$defs"]
-    assert set(schema["properties"]) == {"$comment", "mls_version", "identity", "roles", "tables", "relations",
+    assert set(schema["properties"]) == {"$comment", "mls_version", "identity", "roles", "enums", "tables", "relations",
                                          "hierarchies", "opaques", "rules", "properties"}
 
 

@@ -58,7 +58,35 @@ class Obligation:
         for e in self.encoders:
             self.assumptions = (self.assumptions + e.side_conditions + hop_row_axioms(e, self.rows)
                                 + relation_row_axioms(e, self.rows))
+        self.assumptions = self.assumptions + enum_row_axioms(self.encoders, self.rows)
         return self
+
+
+def enum_row_axioms(encs: list[Encoder], rows: dict[str, str]) -> list[Term]:
+    """An enum column (D59) holds NULL or one of its type's labels: Postgres refuses any other
+    value.  The labels are interned like any text constant, so they are distinct from each other
+    and from every other constant.  Under several encoders (the diff's old and new spec) the
+    domain is the union of their labels, and a column is only constrained when every encoder's
+    spec declares it enum: the axiom never hides a row one of the specs can meet."""
+    if not encs:
+        return []
+    out: list[Term] = []
+    for row, table in rows.items():
+        cols = [enc.spec.tables.get(table) for enc in encs]
+        if any(t is None for t in cols):
+            continue
+        for c in cols[0].columns:
+            decl = [t.columns.get(c) for t in cols]
+            if not all(d is not None and d.type == "enum" for d in decl):
+                continue
+            labels = sorted({x for enc, d in zip(encs, decl) for x in enc.spec.enums[d.enum]})
+            ids = [encs[0].const_id(x) for x in labels]
+            assert all(enc.const_id(x) == i for enc in encs for x, i in zip(labels, ids)), \
+                "encoders of one obligation must share their constants"
+            v, null = col_value_var(row, c), col_null_var(row, c)
+            dom = or_(*[eq(v, IntVal(i)) for i in ids])
+            out.append(or_(null, dom) if any(d.nullable for d in decl) else dom)
+    return out
 
 
 def relation_row_axioms(enc: Encoder, rows: dict[str, str]) -> list[Term]:

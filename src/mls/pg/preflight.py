@@ -18,9 +18,8 @@ from psycopg import sql as psql
 from mls.compile.check import check_def
 from mls.compile.fk import fk_def
 from mls.compile.objects import objects
-from mls.compile.sql import SqlCompiler, q
+from mls.compile.sql import SqlCompiler, q, sql_type
 from mls.identity import get_adapter
-from mls.identity.base import SQL_TYPE
 from mls.spec.model import Spec
 
 
@@ -60,7 +59,7 @@ def _live_columns(cur, schema: str, table: str) -> dict[str, str] | None:
 
 def _source(spec: Spec, schema: str, table: str, live: dict[str, str]) -> str:
     """`table` as it will look after ADD COLUMN: live columns plus NULL for the new ones."""
-    extra = [f"null::{SQL_TYPE[col.type]} as {q(c)}" for c, col in spec.tables[table].columns.items()
+    extra = [f"null::{sql_type(col)} as {q(c)}" for c, col in spec.tables[table].columns.items()
              if c not in live]
     sel = "t.*" + ("".join(", " + e for e in extra))
     return f"(select {sel} from {q(schema)}.{q(table)} t)"

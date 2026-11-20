@@ -300,6 +300,12 @@ def spec_summary(spec: Spec) -> str:
             lines.append(f"- **{name}**: rows of {h.table} form a tree ({h.parent} points to the parent "
                          f"{h.id}) at most {h.max_depth} levels deep; a parent never changes; a user "
                          f"belongs to the groups listed in {h.members} and to everything below them.")
+    if spec.enums:
+        lines += ["", "# Fixed sets of values", ""]
+        for name, labels in spec.enums.items():
+            cols = [f"{t}.{c}" for t, tb in spec.tables.items() for c, col in tb.columns.items() if col.enum == name]
+            lines.append(f"- **{name}**: {', '.join(repr(x) for x in labels)}"
+                         + (f" (the values of {', '.join(cols)})" if cols else ""))
     if spec.opaques:
         lines += ["", "# Unverified SQL blocks", ""]
         for name, o in spec.opaques.items():

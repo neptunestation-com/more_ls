@@ -1029,3 +1029,32 @@ containing `$mls$` would close the compiler's dollar quoting, and Prisma never g
 non-ASCII letters, spaces and dots (they would need escaping in literals, `raise` messages,
 JSON paths and SMT symbols, for names no schema we have seen uses); lower-casing names on import
 (the spec would name columns the database does not have).
+
+**D59. Enum columns: a Postgres enum type of an adopted table, compared with its labels (#30).**
+The import left every enum column out, and on aural-oss that dropped `organization_members.role`
+(`"MemberRole"`), the column its most important requirement ("only an org's owners manage its
+members") is about.  A spec now declares `enums` (type name, a catalog name, and its labels in
+the type's order) and a column `{"type": "enum", "enum": T}`.  An enum column compares with
+constants that are labels of its type, by `=`, `<>` and `in` (the checker's label check is
+load-bearing: Postgres raises on a string that is not a label); never with a column or a context
+value, never by order, never as a membership, inclusion, cardinality or hierarchy column, and
+a context value is never an enum.  Enum columns exist only on adopted tables: MLS creates no
+types, and a fixed set of values on an owned table is a `text` column with a check rule, which
+MLS creates and proves alike.  The constants compile as bare literals (`role = 'OWNER'`,
+`role in (...)`), which Postgres resolves to the enum, so no compiler template changed; the
+lifter reads the deparsed `'OWNER'::"MemberRole"` casts and arrays of them.  The encoding is
+text's (interned constants) plus a domain axiom per row an obligation reads
+(`obligations.enum_row_axioms`, also in the lint's base): the column is NULL or one of the labels.
+Without it `role <> 'VIEWER'` and `role in ('OWNER', 'ADMIN', 'MEMBER')` differ to the solver,
+and the two independent passes of the loop write exactly such pairs; with it the counterexample
+of a refuted property is a state the database can be in.  The diff takes the union of the two
+versions' labels, so a changed type never hides a row.  The harness creates the types before
+the adopted stand-ins and draws values from the labels; drift's shadow creates its own copy of
+each type (a type in `public` is not on the shadow's search path, and a qualified one would print
+qualified) and compares labels with the catalog's, as `check --dsn` does.  The fixture
+`specs.enum_spec` (`"DocStatus"`, labels with a space and a quote) runs the differential, the
+mutation `IN_DROP_LAST` over an enum `in`, and the lift round trip.  The axiom is an assumption
+of `props/obligations.py` the Lean transcription does not state (lean/CLAUDE.md, Known gaps).
+Rejected: ordering (`<` by declaration order; nothing needs it yet, and it would tie the proofs
+to the label order); enums on owned tables (MLS would have to create, migrate and drop types);
+reading an enum as plain `text` without the axiom (spurious refutations, above).

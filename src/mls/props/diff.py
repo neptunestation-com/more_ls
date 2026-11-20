@@ -362,6 +362,10 @@ def diff(old: Spec, new: Spec, timeout_ms: int = 20000) -> DiffResult:
     for r in sorted(changed_relations(old, new)):
         notes.append(f"relation '{r}' is defined differently in the two versions and is treated as "
                      f"a different relation")
+    for n in sorted(set(old.enums) & set(new.enums)):
+        if old.enums[n] != new.enums[n]:
+            notes.append(f"enum type '{n}' has different labels in the two versions ({', '.join(old.enums[n])} → "
+                         f"{', '.join(new.enums[n])}); a column of the type may hold any label of either")
     for o in sorted(changed_opaques(old, new)):
         notes.append(f"opaque block '{o}' has different SQL in the two versions and is treated as a "
                      f"different, unverified predicate")

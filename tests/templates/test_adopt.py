@@ -397,3 +397,32 @@ def test_discard_import_of_the_brownfield_fixture(brownfield):
                                        for n in discarded), discarded
     assert spec.identity.adapter == "supabase"  # still read from the discarded policies' text
     assert import_schema(brownfield).spec["tables"]["audit_log"]["mode"] == "observed"
+
+
+def test_enum_labels_are_the_catalogs(pg_dsn):
+    """D59: drift's shadow creates its own copy of each enum type, so a deployed enum spec drifts
+    clean; a label added to the live type (or a column the spec calls text) is drift and a
+    `check --dsn` error naming the catalog's labels."""
+    spec = specs.enum_spec()
+    h = Harness(spec, compile_spec(spec), pg_dsn, "mls_enum")
+    h.deploy()
+    try:
+        h.conn.execute('alter table "docs" force row level security')  # the owner's step (the compiler never forces it)
+        script = compile_spec(spec)
+        res = drift(h.conn, spec, script)
+        assert res.ok and res.items == [], [str(i) for i in res.items]
+        assert verify_adopted(h.conn, spec) == []
+        with h.conn.transaction(force_rollback=True):
+            h.conn.execute("""alter type "DocStatus" add value 'Gone'""")
+            res = drift(h.conn, spec, script)
+            assert [(i.kind, i.object) for i in res.items] == [("differs", "enum type DocStatus")]
+            errs = verify_adopted(h.conn, spec)
+            assert [e.path for e in errs] == ["$.enums.DocStatus"]
+            assert "'Draft', 'In review', \"it's\", 'Published', 'Gone' in the catalog" in errs[0].message
+        d = json.loads(spec.model_dump_json(by_alias=True, exclude_none=True))
+        d["tables"]["docs"]["columns"]["status"] = {"type": "text", "nullable": True}
+        d["enums"] = {}
+        errs = verify_adopted(h.conn, Spec.model_validate(d))
+        assert [(e.path, e.fix) for e in errs] == [("$.tables.docs.columns.status", "declare it as enum DocStatus")]
+    finally:
+        h.close()

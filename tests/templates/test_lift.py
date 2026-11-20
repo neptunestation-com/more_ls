@@ -24,6 +24,7 @@ pytestmark = pytest.mark.pg
 ROUND_TRIP = {
     "policy": specs.policy_spec,
     "in": specs.in_spec,
+    "enum": specs.enum_spec,  # D59
     "time": specs.time_spec,
     "check": specs.check_nullable_spec,
     "transition": specs.transition_nullable_spec,
@@ -61,6 +62,9 @@ def test_round_trip_per_template(name, pg_dsn):
     source = ROUND_TRIP[name]()
     h = deploy(source, pg_dsn, f"mls_lift_{name}")
     try:
+        for t, tb in source.tables.items():  # the compiler never forces an adopted table: its owner does
+            if tb.mode == "adopted":
+                h.conn.execute(f'alter table "{t}" force row level security')
         res = import_schema(h.conn)
         assert res.spec["opaques"] == {}, res.notes
         imported = renamed_like(source, res.spec)

@@ -22,7 +22,7 @@ from mls.logic.solve import solve
 from mls.logic.term import FALSE, Term, and_, implies
 from mls.logic.tvl import Encoder, free_opaques
 from mls.props.effective import all_policies, effective, policy_expr, relations_of, row_constraints
-from mls.props.obligations import relation_axioms
+from mls.props.obligations import enum_row_axioms, relation_axioms
 from mls.spec.model import PolicyRule, Pred, Spec, TenantIsolation
 from mls.spec.selectors import phrase, selected
 
@@ -75,7 +75,8 @@ class _Prover:
 
     def base(self, enc: Encoder, table: str, rows: list[str]) -> list[Term]:
         return [*relation_axioms(self.spec, enc),
-                *[enc.T(row_constraints(self.spec, table), r, table) for r in rows]]
+                *[enc.T(row_constraints(self.spec, table), r, table) for r in rows],
+                *enum_row_axioms([enc], {r: table for r in rows})]
 
     def unsat(self, enc: Encoder, assumptions: list[Term]) -> bool | None:
         res = solve(assumptions + enc.side_conditions, FALSE, self.timeout_ms)

@@ -31,6 +31,12 @@ def snapshot(conn: psycopg.Connection, schema: str, tables: list[str], roles: li
         present = [r[0] for r in cur.fetchall()]
         out["other_tables"] = sorted(set(present) - set(tables) - set(observed))
         out["observed"] = {t: t in present for t in observed}
+        # enum types (D59): the labels, in the type's order
+        cur.execute("""select t.typname, array(select e.enumlabel from pg_enum e where e.enumtypid = t.oid
+                                               order by e.enumsortorder)
+                       from pg_type t join pg_namespace n on n.oid = t.typnamespace
+                       where n.nspname = %s and t.typtype = 'e' order by 1""", (schema,))
+        out["enums"] = {r[0]: list(r[1]) for r in cur.fetchall()}
         for t in tables:
             if t not in present:
                 out["tables"][t] = None

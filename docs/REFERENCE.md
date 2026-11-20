@@ -37,6 +37,7 @@ and the JSON Schema is `mls schema`.
 | `mls_version` | yes | the string `"0.1"` |
 | `identity` | yes | §3 |
 | `roles` | yes | non-empty list of role names, §4 |
+| `enums` | no | map of Postgres enum type name to its labels, in order (below) |
 | `tables` | yes | map of table name to table, §5 |
 | `relations` | no | map of relation name to relation, §6 |
 | `hierarchies` | no | map of hierarchy name to hierarchy, §7 |
@@ -69,12 +70,31 @@ table out of the spec.  MLS's own names (relation, hierarchy, opaque and context
 | `bool` | `boolean` | `= <>` | |
 | `timestamp` | `timestamptz` | via `now_between` only | no timestamp constants in v1 |
 | `uuid` | `uuid` | `= <>` | constants are canonical UUID strings |
+| `enum` | the declared enum type | `= <>`, `in` | adopted tables only; constants are the type's labels |
 
 `int` and `bigint` compare with each other, in a comparison, a membership, an inclusion and a
 cardinality group: the fragment has no arithmetic, so they differ only in range.  A
 context value may be declared `bigint` too (`org_id: jwt.claims.org_id bigint`).  On an
 adopted table a `character varying(n)` column is declared `text`: Postgres compares it as text,
 `mls import` reads it so, `check --dsn` and `drift` accept it; MLS creates owned tables `text`.
+
+**Enum columns.**  A Postgres enum type the database already has is declared under `enums`,
+with its labels in the type's order, and a column of an adopted table names it:
+
+    "enums": {"MemberRole": ["OWNER", "ADMIN", "MEMBER", "VIEWER"]},
+    "columns": {"role": {"type": "enum", "enum": "MemberRole", "nullable": false}}
+
+In the terse syntax, `enum MemberRole ('OWNER', 'ADMIN', 'MEMBER', 'VIEWER')` and
+`role enum MemberRole not null`.  The type name is a catalog name (case-sensitive).  An enum
+column compares with constants that are labels of its type, by `=`, `<>` and `in`, and is
+tested with `is_null`; a string that is not a label is an error listing them, and so is a
+comparison with another column, a context value or an ordering operator.  The proofs know that
+the column holds nothing but its labels (or NULL), as Postgres guarantees: `role <> 'VIEWER'`
+and `role in ('OWNER', 'ADMIN', 'MEMBER')` are the same predicate.  An enum column cannot be a
+membership, inclusion, cardinality or hierarchy column, and a context value cannot be an enum.
+MLS creates no types, so an owned table has no enum column: declare it `text` with a check rule
+`col in ('A', 'B', ...)`.  `mls import` reads the schema's enum types and their columns;
+`check --dsn` and `drift` compare the labels with the catalog's.
 
 **Constants** (`{"const": v}`): a JSON integer, string or boolean.  An integer constant must be
 within the range of the type it is compared with (`constant 2147483648 is out of range for int`,
@@ -632,13 +652,14 @@ with a source span per node (the JSON stays the canonical serialization).  The r
 one-element `and`/`or` is the one shape it cannot keep (it reads back as its element).  The
 grammar:
 
-    spec       := 'mls' VERSION [comment] identity roles table* relation* hierarchy* opaque*
+    spec       := 'mls' VERSION [comment] identity roles enum* table* relation* hierarchy* opaque*
                   'rules' '{' rule* '}' 'properties' '{' property* '}'
     comment    := 'comment' STRING                               (the spec's $comment)
     identity   := 'identity' ADAPTER '{' [ctx (';' ctx)*] '}'    ctx := NAME ':' SOURCE TYPE
     roles      := 'roles' NAME (',' NAME)*
     table      := 'table' NAME MODE '{' [column (',' column)* [';']] [option (';' option)*] '}'
-    column     := NAME TYPE ['not null']                          (a bare column is nullable)
+    enum       := 'enum' NAME '(' STRING (',' STRING)* ')'        (a Postgres enum type and its labels, in order)
+    column     := NAME TYPE ['not null']                          (a bare column is nullable; TYPE 'enum' NAME for an enum)
     option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
                 | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced' | 'bypass view v' | 'bypass function f(t)')
     relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
@@ -923,8 +944,9 @@ has an unassumed path.  `--json` prints `{"ok", "tables": [{"table", "status", "
 
 Writes a spec from a live schema: a starting point the human or the loop edits; from then
 on the spec is the source of truth and `mls drift` says whether the database still agrees.
-Every table with row-level security enabled is `adopted` (columns of MLS types, primary key and
-unique constraints read from the catalog; other columns are left out and noted), every other
+Every table with row-level security enabled is `adopted` (columns of MLS types, columns of the
+schema's enum types with the types' labels, primary key and unique constraints read from the
+catalog; other columns are left out and noted), every other
 table `observed`.  The hardening state is recorded as assumptions (an app-role owner, RLS not
 forced, an app role with `BYPASSRLS`).  The app roles are the roles the policies and grants
 name, minus owners, superusers and `mls_internal` (`--role` overrides).  The identity adapter

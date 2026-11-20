@@ -35,6 +35,7 @@ CASES = {
     "cardinality": (specs.cardinality_spec, Mutation.CARDINALITY_OFF_BY_ONE, None),
     "composed": (specs.composed_spec, Mutation.HOP_VISIBILITY_DROPPED, None),  # D56
     "mixed_case": (specs.mixed_case_spec, Mutation.IDENT_UNQUOTED, None),  # D58
+    "enum": (specs.enum_spec, Mutation.IN_DROP_LAST, None),  # D59
 }
 
 

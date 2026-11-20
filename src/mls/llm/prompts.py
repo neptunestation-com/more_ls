@@ -21,7 +21,8 @@ triggers, grants).  You never write SQL.
 ## Terms
 - {"col": "name"}            a column of the row (in transitions use {"old": "name"} / {"new": "name"})
 - {"ctx": "name"}            a context value of the current user (declared in identity.context)
-- {"const": 3 | "x" | true}  a constant (no timestamp constants)
+- {"const": 3 | "x" | true}  a constant (no timestamp constants; an enum column's constant is one of the
+                             labels its type lists under "enums", compared by = <> or "in")
 
 ## Predicates
 - {"cmp": [term, op, term]}  op in = <> < <= > >=; the right-hand side is a context value or a constant

@@ -50,6 +50,7 @@ from mls.pg.lift import (
 from mls.pg.lift import IsTrue as _IsTrue
 from mls.spec.chain import levels
 from mls.spec.model import Spec
+from mls.spec.check import CATALOG_IDENT
 
 CMD = {"*": "all", "r": "select", "a": "insert", "w": "update", "d": "delete"}
 MARKERS = {"supabase": re.compile(r"\bauth\.(uid|jwt)\(\)"),
@@ -93,6 +94,11 @@ def _read(conn: psycopg.Connection, schema: str) -> dict[str, Any]:
     cat: dict[str, Any] = {"tables": {}, "superusers": set(), "roles": {}}
     with conn.cursor() as cur:
         cur.execute(psql.SQL("set local search_path to {}, pg_catalog").format(psql.Identifier(schema)))
+        cur.execute("""select t.typname, array(select e.enumlabel from pg_enum e where e.enumtypid = t.oid
+                                               order by e.enumsortorder)
+                       from pg_type t join pg_namespace n on n.oid = t.typnamespace
+                       where n.nspname = %s and t.typtype = 'e' order by 1""", (schema,))
+        cat["enums"] = {r[0]: list(r[1]) for r in cur.fetchall()}  # D59: the schema's enum types
         cur.execute("select rolname, rolsuper, rolcanlogin, rolbypassrls from pg_roles")
         for name, sup, login, bypass in cur.fetchall():
             cat["roles"][name] = {"super": sup, "login": login, "bypassrls": bypass}
@@ -104,10 +110,14 @@ def _read(conn: psycopg.Connection, schema: str) -> dict[str, Any]:
         tables = cur.fetchall()
         for oid, name, rls, force, owner in tables:
             t: dict[str, Any] = {"oid": oid, "rls": rls, "force": force, "owner": owner}
-            cur.execute("""select a.attnum, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull
-                           from pg_attribute a where a.attrelid = %s and a.attnum > 0 and not a.attisdropped
-                           order by a.attnum""", (oid,))
-            t["columns"] = [{"num": r[0], "name": r[1], "type": r[2], "notnull": r[3]} for r in cur.fetchall()]
+            cur.execute("""select a.attnum, a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull,
+                                  case when ty.typtype = 'e' and tn.nspname = %s then ty.typname end
+                           from pg_attribute a join pg_type ty on ty.oid = a.atttypid
+                                join pg_namespace tn on tn.oid = ty.typnamespace
+                           where a.attrelid = %s and a.attnum > 0 and not a.attisdropped
+                           order by a.attnum""", (schema, oid))
+            t["columns"] = [{"num": r[0], "name": r[1], "type": r[2], "notnull": r[3], "enum": r[4]}
+                            for r in cur.fetchall()]
             cur.execute("""select conname, contype, pg_get_constraintdef(oid), conkey, confrelid, confkey,
                                   confupdtype, confdeltype, confmatchtype, convalidated,
                                   case when confrelid <> 0 then confrelid::regclass::text end
@@ -241,9 +251,14 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
     # --- tables
     spec_tables: dict[str, dict] = {}
     modelled: dict[str, set[str]] = {}
+    enums: dict[str, list[str]] = {}
     for name, t in tables.items():
         cols: dict[str, dict] = {}
         for c in t["columns"]:
+            if c["enum"] is not None and CATALOG_IDENT.match(c["enum"]):  # an enum type of the schema (D59)
+                enums[c["enum"]] = cat["enums"][c["enum"]]
+                cols[c["name"]] = {"type": "enum", "enum": c["enum"], "nullable": not c["notnull"]}
+                continue
             ty = mls_type(c["type"])
             if ty is None:
                 notes.append(f"column {name}.{c['name']} has type {c['type']}, not an MLS type: left out of the "
@@ -303,6 +318,8 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
     env = Env(adapter=adapter, context={n: (cv["source"], cv["type"]) for n, cv in context.items()},
               tables={t: {c: (col["type"], col["nullable"]) for c, col in tb["columns"].items()}
                       for t, tb in spec_tables.items()},
+              enums=enums, enum_cols={t: {c: col["enum"] for c, col in tb["columns"].items() if "enum" in col}
+                                      for t, tb in spec_tables.items()},
               governed=set(governed), roles=list(roles),
               keys={t: [frozenset(k) for k in key_sets(t)] for t in spec_tables})
 
@@ -606,7 +623,7 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
             r.pop("id", None)
             rules[i - 1] = {"id": f"R{i}", **r}
         spec = {"mls_version": "0.1", "identity": {"adapter": adapter, "context": context},
-                "roles": roles, "tables": spec_tables, "relations": relations, "opaques": opaques, "rules": rules,
+                "roles": roles, "enums": enums, "tables": spec_tables, "relations": relations, "opaques": opaques, "rules": rules,
                 "properties": []}
         from mls.spec.check import check_spec
 
@@ -658,7 +675,7 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
         rules = [r for r in rules if r["id"] not in drop]
         checked = finish(rules)
     spec = {"mls_version": "0.1", "identity": {"adapter": adapter, "context": context}, "roles": roles,
-            "tables": spec_tables, "relations": relations, "opaques": opaques, "rules": rules, "properties": []}
+            "enums": enums, "tables": spec_tables, "relations": relations, "opaques": opaques, "rules": rules, "properties": []}
 
     # --- bypass paths (D54): listed with their fix, never assumed by the import
     from mls.pg.drift import bypass_report
@@ -684,6 +701,16 @@ def verify_adopted(conn: psycopg.Connection, spec: Spec, schema: str = "public")
     errors: list[MlsError] = []
     with conn.transaction():
         cat = _read(conn, schema)
+    for name, labels in spec.enums.items():
+        live_labels = cat["enums"].get(name)
+        if live_labels is None:
+            errors.append(MlsError(f"$.enums.{name}", f"enum type '{name}' does not exist in schema '{schema}'",
+                                   "remove it and its columns from the spec, or create the type outside MLS", "check"))
+        elif live_labels != labels:
+            errors.append(MlsError(f"$.enums.{name}", f"enum type '{name}' has the labels "
+                                                      f"{', '.join(map(repr, live_labels))} in the catalog, declared "
+                                                      f"{', '.join(map(repr, labels))}",
+                                   "declare the catalog's labels, in its order", "check"))
     for name, t in spec.tables.items():
         path = f"$.tables.{name}"
         live = cat["tables"].get(name)
@@ -709,6 +736,13 @@ def verify_adopted(conn: psycopg.Connection, spec: Spec, schema: str = "public")
                 errors.append(MlsError(f"{path}.columns.{c}", f"adopted table '{name}' has no column '{c}'",
                                        f"remove it from the spec, or add it outside MLS; the table has: "
                                        f"{', '.join(live_cols)}", "check"))
+            elif col.type == "enum" or lc["enum"] is not None:
+                if lc["enum"] != col.enum:
+                    errors.append(MlsError(f"{path}.columns.{c}", f"column '{name}.{c}' is {lc['type']} in the "
+                                                                  f"catalog, declared {col.type} {col.enum or ''}".rstrip(),
+                                           f"declare it as enum {lc['enum']}" if lc["enum"] is not None
+                                           else f"declare it as {mls_type(lc['type']) or 'a type MLS does not model'}",
+                                           "check"))
             elif mls_type(lc["type"]) != col.type:
                 errors.append(MlsError(f"{path}.columns.{c}.type", f"column '{name}.{c}' is {lc['type']} in the "
                                                                    f"catalog, declared {col.type}",

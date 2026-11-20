@@ -12,6 +12,7 @@ import psycopg
 from psycopg import sql as psql
 
 from mls.compile.column import privileges
+from mls.sqltext import q
 from mls.identity import Adapter
 from mls.props.effective import effective, members_in
 from mls.spec.chain import levels
@@ -138,6 +139,12 @@ def scale_load_sql(spec: Spec, adapter: Adapter, n_rows: int, n_users: int = 100
             return f"('t' || ({i} % 50))"
         if col.type == "bool":
             return f"(({i} % 2) = 0)"
+        if col.type == "enum":
+            labels = spec.enums[col.enum]
+            arr = ", ".join("'" + x.replace("'", "''") + "'" for x in labels)
+            return f"((array[{arr}])[({i} % {len(labels)}) + 1]::{q(col.enum)})"
+        if col.type != "timestamp":
+            raise ValueError(f"no scale values for type {col.type}")
         return f"(now() + (({i} % 100) - 50) * interval '1 day')"
 
     for table, t in spec.governed().items():

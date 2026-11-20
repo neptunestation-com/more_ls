@@ -298,3 +298,47 @@ def mixed_case_spec() -> Spec:
     text = text.replace("  userId text not null,\n", "  userId text not null,\n  userid text,\n")  # Membership, Admin
     assert "tenantid int," in text and "isarchived int;" in text and text.count("userid text,") == 2
     return check_spec(parse(text))
+
+
+ENUM_LABELS = ["Draft", "In review", "it's", "Published"]
+
+
+def enum_spec(labels: list[str] | None = None) -> Spec:
+    return make(enum_dict(labels))
+
+
+def enum_dict(labels: list[str] | None = None) -> dict:
+    """D59: `docs` adopted with a column of a mixed-case enum type whose labels need quoting.
+    Members read the documents in the listed states whatever their clearance (an `in` the
+    mutation shortens, hiding 'Published' ones), nobody reads one in review, and a draft stays at
+    level 0 or 1 (a check rule).  P11 holds only because the column holds nothing but its labels:
+    `status <> 'In review'` leaves exactly the states R10 lists.  R2 and P8 go as in `in_spec`; P5
+    and P7 go because R11 hides documents in review from their writers and their members."""
+    d = base()
+    d["enums"] = {"DocStatus": labels or ENUM_LABELS}
+    d["tables"]["docs"]["mode"] = "adopted"
+    d["tables"]["docs"]["columns"]["status"] = {"type": "enum", "enum": "DocStatus", "nullable": True}
+    d["rules"] = [r for r in d["rules"] if r["id"] != "R2"]
+    d["properties"] = [p for p in d["properties"] if p["id"] not in ("P5", "P7", "P8")]
+    st = {"col": "status"}
+    d["rules"] += [
+        {"id": "R10", "kind": "policy", "name": "member_read_states", "table": "docs", "role": "authenticated",
+         "command": "select", "mode": "permissive",
+         "using": {"and": [{"member": {"relation": "member_of", "key": {"ctx": "uid"}, "value": {"col": "tenant_id"}}},
+                           {"in": [st, [{"const": "Draft"}, {"const": "it's"}, {"const": "Published"}]]}]}},
+        {"id": "R11", "kind": "policy", "name": "hide_in_review", "table": "docs", "role": "authenticated",
+         "command": "select", "mode": "restrictive",
+         "using": {"or": [{"is_null": st}, {"cmp": [st, "<>", {"const": "In review"}]}]}},
+        {"id": "C1", "kind": "check", "name": "drafts_low", "table": "docs",
+         "predicate": {"or": [{"is_null": st}, {"cmp": [st, "<>", {"const": "Draft"}]},
+                              {"cmp": [{"col": "level"}, "<=", {"const": 1}]}]}},
+    ]
+    d["properties"].append(
+        {"id": "P11", "template": "must_allow", "table": "docs", "role": "authenticated", "command": "select",
+         "when": {"and": [{"member": {"relation": "member_of", "key": {"ctx": "uid"},
+                                           "value": {"col": "tenant_id"}}},
+                               {"not": {"is_null": st}}, {"cmp": [st, "<>", {"const": "In review"}]},
+                               {"not": {"is_null": {"col": "archived"}}},
+                               {"cmp": [{"col": "archived"}, "<>", {"const": 1}]}]},
+         "description": "a member reads every unarchived document of their tenant that is not in review"})
+    return d

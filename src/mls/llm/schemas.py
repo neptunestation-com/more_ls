@@ -8,7 +8,7 @@ from pydantic import TypeAdapter
 
 from mls.spec.model import AnyRelation, Property, Rule, Spec
 
-SKELETON_KEYS = ("$comment", "mls_version", "identity", "roles", "tables", "relations", "hierarchies", "opaques")
+SKELETON_KEYS = ("$comment", "mls_version", "identity", "roles", "enums", "tables", "relations", "hierarchies", "opaques")
 
 
 def _wrap(items_schema: dict, key: str, extra: dict[str, Any]) -> dict:

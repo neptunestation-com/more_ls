@@ -46,7 +46,7 @@ def _render(spec: Spec, type_: str, v: int | None, consts: dict[int, str], now: 
         return None
     if type_ == "bool":
         return v != 0
-    if type_ in ("text", "uuid"):
+    if type_ in ("text", "uuid", "enum"):
         if v in consts:
             return consts[v]
         return f"{type_}#{v}"

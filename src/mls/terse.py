@@ -6,13 +6,14 @@ function of the pydantic model; `mls explain --terse` prints it, the `before`/`a
 parser (D50, `.mls` files, `mls fmt`) reads it back.  The English of `mls/english.py` stays the
 approval artifact (D10, D33).  The grammar:
 
-    spec       := 'mls' VERSION comment? identity roles table* relation* hierarchy* opaque*
+    spec       := 'mls' VERSION comment? identity roles enum* table* relation* hierarchy* opaque*
                   'rules' '{' rule* '}' 'properties' '{' property* '}'
     comment    := 'comment' STRING                               ($comment, an author's note)
     identity   := 'identity' ADAPTER '{' [ctx (';' ctx)*] '}'    ctx := NAME ':' SOURCE TYPE
     roles      := 'roles' NAME (',' NAME)*
     table      := 'table' NAME MODE '{' [column (',' column)* [';']] [option (';' option)*] '}'
-    column     := NAME TYPE ['not null']                          (a bare column is nullable)
+    enum       := 'enum' NAME '(' STRING (',' STRING)* ')'        (a Postgres enum type and its labels, in order)
+    column     := NAME TYPE ['not null']                          (a bare column is nullable; TYPE 'enum' NAME for an enum)
     option     := 'primary_key' '(' names ')' | 'unique' '(' names ')' | 'tags' '(' names ')'
                 | 'assume' '(' STRING (',' STRING)* ')'           ('owner r' | 'bypassrls r' | 'rls not_forced' | 'bypass view v' | 'bypass function f(t)')
     relation   := 'relation' NAME '=' TABLE '(' KEY ',' VALUE ')'
@@ -52,7 +53,7 @@ from mls.spec.model import (
 OR, AND, NOT, ATOM = 1, 2, 3, 4
 
 RESERVED = frozenset("""
-mls comment identity roles table relation hierarchy opaque rules properties
+mls comment identity roles enum table relation hierarchy opaque rules properties
 on applies_to from requirement description using check for max on_delete restrict max_depth
 and or not is null true false in in_group now_between old new
 primary_key unique tags assume sql relations has_column named tagged all
@@ -68,10 +69,10 @@ _DOTTED = re.compile(r"^[A-Za-z_][A-Za-z0-9_.]*$")
 # what the renderer covers; tests/test_terse.py compares these with the model so that a construct
 # added without a terse form fails the fast suite (D50)
 RENDERED_FIELDS: dict[type, set[str]] = {
-    Spec: {"comment", "mls_version", "identity", "roles", "tables", "relations", "hierarchies", "opaques",
+    Spec: {"comment", "mls_version", "identity", "roles", "enums", "tables", "relations", "hierarchies", "opaques",
            "rules", "properties"},
     Identity: {"adapter", "context"}, ContextVar: {"source", "type"},
-    Table: {"columns", "primary_key", "unique", "mode", "assume", "tags"}, Column: {"type", "nullable"},
+    Table: {"columns", "primary_key", "unique", "mode", "assume", "tags"}, Column: {"type", "nullable", "enum"},
     Relation: {"table", "key", "value"}, ComposedRelation: {"of", "through"},
     Hop: {"table", "key", "value"},
     Hierarchy: {"table", "id", "parent", "depth", "max_depth", "members"},
@@ -308,7 +309,8 @@ def assumption(a) -> str:
 
 
 def table(name: str, t: Table) -> list[str]:
-    cols = [f"{ident(c)} {col.type}" + ("" if col.nullable else " not null") for c, col in t.columns.items()]
+    cols = [f"{ident(c)} {col.type}" + (f" {ident(col.enum)}" if col.enum is not None else "")
+            + ("" if col.nullable else " not null") for c, col in t.columns.items()]
     options = []
     if t.primary_key is not None:
         options.append(f"primary_key ({', '.join(ident(c) for c in t.primary_key)})")
@@ -321,6 +323,10 @@ def table(name: str, t: Table) -> list[str]:
     items = [c + "," for c in cols[:-1]] + ([cols[-1] + (";" if options else "")] if cols else [])
     items += [o + ";" for o in options[:-1]] + options[-1:]
     return [f"table {ident(name)} {t.mode} {{"] + [f"  {x}" for x in items] + ["}"]
+
+
+def enum(name: str, labels: list[str]) -> str:
+    return f"enum {ident(name)} ({', '.join(string(x) for x in labels)})"
 
 
 def relation(name: str, r: Relation | ComposedRelation) -> str:
@@ -347,6 +353,8 @@ def render(spec: Spec) -> str:
     if spec.comment is not None:
         out.append(f"comment {string(spec.comment)}")
     out += ["", identity(spec.identity), f"roles {', '.join(ident(r) for r in spec.roles)}"]
+    if spec.enums:
+        out += [""] + [enum(n, labels) for n, labels in spec.enums.items()]
     for name, t in spec.tables.items():
         out += [""] + table(name, t)
     for section, fn in ((spec.relations, relation), (spec.hierarchies, hierarchy), (spec.opaques, opaque)):

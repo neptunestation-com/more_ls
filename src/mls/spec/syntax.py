@@ -23,7 +23,7 @@ TEMPLATES = ("tenant_isolation", "column_immutable", "monotone_in", "write_subse
              "invariant_preserved", "custom", "must_allow", "role_separation")
 COMMANDS = ("select", "insert", "update", "delete", "all")
 MODES = ("permissive", "restrictive")
-TYPES = ("int", "bigint", "text", "bool", "timestamp", "uuid")
+TYPES = ("int", "bigint", "text", "bool", "timestamp", "uuid", "enum")
 TABLE_MODES = ("owned", "adopted", "observed")
 CMP_OPS = ("=", "<>", "<", "<=", ">", ">=")
 
@@ -214,10 +214,11 @@ class Parser:
         relations: dict[str, Any] = {}
         hierarchies: dict[str, Any] = {}
         opaques: dict[str, Any] = {}
+        enums: dict[str, Any] = {}
         seen: set[str] = set()
         while self.tok.kind != "eof":
             if self.tok.kind != "ident":
-                raise self.fail("a section (mls, comment, identity, roles, table, relation, hierarchy, opaque, "
+                raise self.fail("a section (mls, comment, identity, roles, enum, table, relation, hierarchy, opaque, "
                                 "rules, properties)")
             w = self.tok.text
             if w in ("mls", "comment", "identity", "roles", "rules", "properties") and w in seen:
@@ -246,6 +247,9 @@ class Parser:
                     self.advance()
                     roles.append(self.name("a role"))
                 d["roles"] = roles
+            elif w == "enum":
+                name, labels = self.enum()
+                enums[name] = labels
             elif w == "table":
                 name, t = self.table()
                 tables[name] = t
@@ -263,9 +267,11 @@ class Parser:
             elif w == "properties":
                 d["properties"] = self.properties()
             else:
-                raise self.fail("a section (mls, comment, identity, roles, table, relation, hierarchy, opaque, "
+                raise self.fail("a section (mls, comment, identity, roles, enum, table, relation, hierarchy, opaque, "
                                 "rules, properties)")
         self.path = "$"
+        if enums:
+            d["enums"] = enums
         d["tables"] = tables
         if relations:
             d["relations"] = relations
@@ -293,6 +299,19 @@ class Parser:
         self.eat("}")
         return {"adapter": adapter, "context": ctx}
 
+    def enum(self) -> tuple[str, list[str]]:
+        self.advance()
+        name = self.name("an enum type name")
+        self.path = f"$.enums.{name}"
+        self.mark(self.path)
+        self.eat("(")
+        labels = [] if self.at(")") else [self.string()]  # none is the checker's error, with its path
+        while self.at(","):
+            self.advance()
+            labels.append(self.string())
+        self.eat(")")
+        return name, labels
+
     def table(self) -> tuple[str, dict[str, Any]]:
         self.advance()
         name = self.name("a table name")
@@ -305,6 +324,10 @@ class Parser:
             c = self.name("a column name")
             self.mark(f"{self.path}.columns.{c}")
             col = {"type": self.word(*TYPES), "nullable": True}
+            # an enum column's type name (missing, or on another type: the checker's error at its path)
+            if self.tok.kind in ("ident", "qident") and not self.at_word("not"):
+                self.mark(f"{self.path}.columns.{c}.enum")
+                col["enum"] = self.name("the enum type's name")
             if self.at_word("not"):
                 self.advance()
                 self.word("null")

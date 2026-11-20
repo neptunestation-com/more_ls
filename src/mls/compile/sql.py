@@ -114,5 +114,16 @@ class SqlCompiler:
         raise TypeError(p)
 
 
+def sql_type(col) -> str:
+    """A column's SQL type: an enum column's is its Postgres type, quoted (D59)."""
+    return q(col.enum) if col.type == "enum" else SQL_TYPE[col.type]
+
+
 def column_ddl(name: str, col) -> str:
-    return f"{q(name)} {SQL_TYPE[col.type]}" + ("" if col.nullable else " not null")
+    return f"{q(name)} {sql_type(col)}" + ("" if col.nullable else " not null")
+
+
+def enum_ddl(name: str, labels: list[str]) -> str:
+    """The type an adopted enum column has: the harness and drift's shadow create it (MLS never
+    creates one in a deployed database)."""
+    return f"create type {q(name)} as enum ({', '.join(const_sql(x, None) for x in labels)})"

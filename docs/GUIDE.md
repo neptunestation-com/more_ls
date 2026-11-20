@@ -1446,7 +1446,8 @@ what it cannot read, a call to a function of yours for instance, becomes an `opa
 carrying the columns, context values and relations the SQL reads, and the notes say which part
 of which policy and why.  A CHECK it reads becomes a check rule.  The notes printed on stderr
 list what was left out: a column whose type MLS does not model (`bigint` keys, Supabase's
-default, are modelled; a `varchar` column is read as `text`), a trigger (listed, not
+default, are modelled; a `varchar` column is read as `text`; a column of one of the schema's
+enum types is read with the type's labels), a trigger (listed, not
 imported), a grant with no policy behind it, a policy whose name is not an identifier; the ones
 prefixed `lint:` name shapes a deploy improves on.  The hardening state is recorded as
 assumptions:
@@ -1733,6 +1734,9 @@ These are decisions, not gaps; `docs/design/DECISIONS.md` has the reasoning.
 - **Names** of tables, columns and roles are case-sensitive and may mix case (`"userId"`), but
   only ASCII letters, digits and underscores: a name with `$`, a space, a dot or a non-ASCII
   letter is refused (rename it, or leave the table out of the spec).
+- **Enum columns** exist only on adopted tables (MLS creates no types; on a table it owns, a
+  fixed set of values is a `text` column with a check rule `col in (...)`), and compare with
+  their labels by equality and `in` only, not by the type's order.
 - **Timestamp constants** are not supported in v1; compare timestamp columns with `now_between`
   or with a context value.
 - **Column rules are per role, not per row.**  A column some users may see only on some rows
