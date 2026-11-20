@@ -60,6 +60,8 @@ def test_reserved_words_and_odd_names_are_quoted():
     assert pred({"cmp": [{"col": "two words"}, "=", {"ctx": "and"}]}) == '"two words" = @"and"'
     assert pred({"cmp": [{"col": 'say "hi"'}, "=", {"const": 1}]}) == '"say ""hi""" = 1'
     assert pred({"cmp": [{"col": "id"}, "=", {"const": 1}]}) == "id = 1"  # positional words stay bare
+    # a mixed-case name is a name as it stands: bare, and case-sensitive (D58)
+    assert pred({"cmp": [{"col": "ownerId"}, "=", {"new": "ownerid"}]}) == "ownerId = new.ownerid"
     assert terse.ident("R2.docs", dotted=True) == "R2.docs" and terse.ident("R2.docs") == '"R2.docs"'
     assert terse.dollar("a = 1") == "$$ a = 1 $$"
     assert terse.dollar("x like '$$'") == "$mls$ x like '$$' $mls$"

@@ -340,3 +340,17 @@ def test_a_nested_membership_through_a_column_that_is_not_a_key_stays_opaque():
     env.tables["projects"]["team_id"] = ("bigint", True)
     r, _ = do(NESTED_ARRAY, env=env, table="tasks")
     assert r.kind == "opaque" and any("must be NOT NULL" in x for x in r.reasons), r.reasons
+
+
+def test_quoted_names_keep_their_case_and_bare_names_fold():
+    """Postgres deparses a mixed-case name quoted and folds a bare one (D58): `"isArchived"` is the
+    column isArchived, a bare `isArchived` is `isarchived`, another column of the fixture."""
+    from tests.templates.specs import mixed_case_spec
+
+    env = Env.of_spec(mixed_case_spec())
+    r, _ = do('(NOT ("isArchived" = 1))', env=env, table="Doc")
+    assert (r.kind, r.pred) == ("lifted", {"not": {"cmp": [{"col": "isArchived"}, "=", {"const": 1}]}})
+    r, _ = do('("ownerId" IS NULL)', env=env, table="Doc")
+    assert r.pred == {"is_null": {"col": "ownerId"}}
+    r, _ = do("(isArchived = 1)", env=env, table="Doc")
+    assert r.pred == {"cmp": [{"col": "isarchived"}, "=", {"const": 1}]}

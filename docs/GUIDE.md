@@ -1730,6 +1730,9 @@ These are decisions, not gaps; `docs/design/DECISIONS.md` has the reasoning.
   membership is rejected in policies (it is an anti-join the planner cannot drive from an
   index); `in_group` is not allowed in checks and transitions (it reads other tables).  Anything
   else is an `opaque` block, and its proofs are conditional.
+- **Names** of tables, columns and roles are case-sensitive and may mix case (`"userId"`), but
+  only ASCII letters, digits and underscores: a name with `$`, a space, a dot or a non-ASCII
+  letter is refused (rename it, or leave the table out of the spec).
 - **Timestamp constants** are not supported in v1; compare timestamp columns with `now_between`
   or with a context value.
 - **Column rules are per role, not per row.**  A column some users may see only on some rows

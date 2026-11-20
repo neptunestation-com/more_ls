@@ -128,3 +128,17 @@ def test_status_fails_on_an_unassumed_path_and_import_lists_them(bypassed, tmp_p
     notes = import_schema(h.conn).notes
     assert {n.split(" reaches")[0] for n in notes if n.startswith("bypass path: ")} == {
         f"bypass path: {p}" for p in FOUND}
+
+
+def test_a_mixed_case_path_is_named_as_sql_spells_it(bypassed):
+    """A view named "DocTitles" is reported quoted (D58), so the fix runs as printed and an
+    assumption written the same way matches it."""
+    spec, h, _ = bypassed
+    with h.conn.transaction(force_rollback=True):
+        h.conn.execute('create view "DocTitles" as select id from docs; grant select on "DocTitles" to authenticated')
+        assert _found(h.conn)['view "DocTitles"'] == "view"
+        hard = [i.object for i in drift(h.conn, spec, compile_spec(spec)).by_kind("hardening")]
+        fix = 'alter view "DocTitles" set (security_invoker = true)'
+        assert any(fix in o for o in hard), hard
+        h.conn.execute(fix)
+        assert 'view "DocTitles"' not in _found(h.conn)

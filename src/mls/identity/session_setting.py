@@ -14,6 +14,7 @@ import uuid
 from typing import Any
 
 from mls.identity.base import SQL_TYPE, Adapter
+from mls.sqltext import q
 from mls.spec.model import ColType, Spec
 
 NAMESPACE = "app"
@@ -64,7 +65,7 @@ class SessionSettingAdapter(Adapter):
             if cv.type == "bool":
                 v = "true" if ctx[n] else "false"
             out.append(f"select set_config('{cv.source}', '{v}', true)")
-        out.append(f"set local role {role}")
+        out.append(f"set local role {q(role)}")
         return out
 
     def harness_user_values(self, n: int) -> list[Any]:

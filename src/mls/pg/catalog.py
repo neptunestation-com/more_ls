@@ -162,8 +162,11 @@ def bypass_paths(conn: psycopg.Connection, schema: str, tables: list[str], roles
     out: dict[str, list[dict]] = {t: [] for t in tables}
     args = {"schema": schema, "tables": list(tables), "roles": list(roles)}
 
+    def part(n: str) -> str:  # as SQL spells it, so the fix in the drift report runs as printed
+        return n if re.fullmatch(r"[a-z_][a-z0-9_$]*", n) else '"' + n.replace('"', '""') + '"'
+
     def name(nsp: str, rel: str) -> str:
-        return rel if nsp == schema else f"{nsp}.{rel}"
+        return part(rel) if nsp == schema else f"{part(nsp)}.{part(rel)}"
 
     with conn.cursor() as cur:
         cur.execute(_BYPASS_VIEWS, args)

@@ -51,8 +51,13 @@ its `using`, as in Postgres) and the optional lists.
 
 ## 2. Identifiers, types and values
 
-**Identifiers** (table, column, relation, hierarchy, opaque, rule and role names, rule `name`)
-match `[a-z_][a-z0-9_]*`.  They are emitted double-quoted, so Postgres keywords are fine.
+**Identifiers.**  Table, column and role names are the catalog's names, exactly: they match
+`[A-Za-z_][A-Za-z0-9_]*`, at most 63 characters, and are case-sensitive, so `userId` and
+`userid` are two columns.  MLS emits every one double-quoted, so a mixed-case name such as
+Prisma's `"userId"` or `"TeamMember"`, or a Postgres keyword, means exactly that name.  A name
+outside the rule (a `$`, a space, a dot, a non-ASCII letter) is refused; rename it, or leave the
+table out of the spec.  MLS's own names (relation, hierarchy, opaque and context names, rule
+`name`) match `[a-z_][a-z0-9_]*`: they become parts of the names of generated objects.
 
 **Column types**
 

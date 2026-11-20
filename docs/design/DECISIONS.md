@@ -1008,3 +1008,24 @@ escalation into the question of GUIDE §8 for the user.  It is a prompt, so
 `tests/test_no_dev_artefacts.py` scans it.  Rejected: a skill that runs the two passes as separate
 subagents (independent, but neither bounded nor measurable by `mls eval`); calling the skill from
 `mls generate` (the CLI must run in CI and without Claude Code).
+
+**D58. Table, column and role names are case-sensitive, as the catalog keeps them (#29).**  MLS
+accepted only `[a-z_][a-z0-9_]*`, and the first real schema it was pointed at (aural-oss, quoted
+camelCase columns, the shape Prisma generates by default) could not be imported at all.  A
+catalog name (table, column, role) now matches `[A-Za-z_][A-Za-z0-9_]*`, at most 63 bytes, and
+is the catalog's name exactly: every identifier MLS emits is double-quoted (`sqltext.q`, which
+the identity adapters now use for `set local role` and `grant ... to`), so `userId` and `userid`
+are two columns and neither is folded.  The terse syntax already kept a bare name's case and
+quoted the rest, so it needs no change.  MLS's own names (relations, hierarchies, opaque
+blocks, context values, rule names) stay lower-case: they become parts of generated object
+names and SMT symbols, and the import derives them with `adopt.ident`, which is also how it now
+matches the compiler's `mls_rel_*` policies for a mixed-case role.  Bypass paths are spelled as
+SQL spells them (`view "DocTitles"`), so the drift fix runs as printed.  The fixture
+`specs.mixed_case_spec` (PascalCase tables, camelCase columns, the role `DocReader`, and a
+lower-case twin of every mixed-case column a predicate reads) runs the differential and lift
+round trip; mutation `IDENT_UNQUOTED` emits a predicate's columns bare, which Postgres folds onto
+the twins.  Rejected: `$` in names (Postgres allows it after the first character, but a name
+containing `$mls$` would close the compiler's dollar quoting, and Prisma never generates it);
+non-ASCII letters, spaces and dots (they would need escaping in literals, `raise` messages,
+JSON paths and SMT symbols, for names no schema we have seen uses); lower-casing names on import
+(the spec would name columns the database does not have).

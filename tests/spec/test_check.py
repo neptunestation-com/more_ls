@@ -351,3 +351,37 @@ def test_mode_shape_errors_name_the_path():
     assert e.path == "$.tables.docs.assume[0]" and "{owner}, {bypassrls}, {rls}, {bypass}" in e.message
     schema = spec_json_schema()
     assert "mode" in schema["$defs"]["Table"]["properties"]
+
+
+def test_catalog_names_are_case_sensitive():
+    """Tables, columns and roles are named as the catalog names them (D58): mixed case is kept and
+    quoted wherever MLS emits it, so `userId` and `userid` are two columns."""
+    d = base()
+    d["roles"] = ["DocReader"]
+    for r in d["rules"]:
+        if r.get("role") == "authenticated":
+            r["role"] = "DocReader"
+    d["properties"] = []
+    d["tables"]["docs"]["columns"]["ownerId"] = d["tables"]["docs"]["columns"]["owner_id"]
+    d["tables"]["docs"]["columns"]["ownerid"] = {"type": "int", "nullable": True}
+    d["tables"]["Audit_Log2"] = {"columns": {"eventAt": {"type": "timestamp", "nullable": False}}}
+    assert errors(d) == []
+
+
+@pytest.mark.parametrize("name", ["owner.id", "owner id", "owner$id", "naïve", "1st", "x" * 64, 'say"hi'])
+def test_a_catalog_name_outside_the_rule_is_refused_with_the_rule(name):
+    d = base()
+    d["tables"]["docs"]["columns"][name] = {"type": "int", "nullable": True}
+    d["tables"][name] = {"columns": {"id": {"type": "int", "nullable": False}}}
+    errs = errors(d)
+    assert has(errs, f"$.tables.docs.columns.{name}", "is not a valid column identifier")
+    assert has(errs, f"$.tables.{name}", "is not a valid table identifier")
+    assert all("letters of either case, digits and underscores" in e.fix for e in errs
+               if "valid" in e.message)
+
+
+def test_mls_names_stay_lower_case():
+    """A relation is MLS's own name (it becomes part of generated object names), not the catalog's."""
+    d = base()
+    d["relations"]["MemberOf"] = d["relations"].pop("member_of")
+    assert has(errors(d), "$.relations.MemberOf", "is not a valid relation identifier")

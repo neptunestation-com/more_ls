@@ -31,6 +31,13 @@ from mls.spec.model import (
 )
 
 IDENT = re.compile(r"^[a-z_][a-z0-9_]{0,62}$")
+# a name of the catalog (table, column, role): case-sensitive, as Postgres keeps a quoted name, and
+# quoted wherever MLS emits it (`compile/sql.py:q`).  ASCII letters, digits and underscores, at most
+# 63 bytes: no `$` (it could close the compiler's `$mls$` quoting), so no name needs escaping inside
+# a literal, a `raise` message or a quoted identifier (D58)
+CATALOG_IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
+CATALOG_IDENT_FIX = ("letters of either case, digits and underscores, starting with a letter or an underscore, "
+                     "at most 63 characters (rename it, or leave the table out of the spec)")
 ORDERED_TYPES = {"int", "bigint", "timestamp"}
 # D54: a bypass path as drift spells it (`pg/catalog.py:bypass_paths`)
 BYPASS_PATH = re.compile(r'view\s+[\w."$]+|function\s+[\w."$]+\s*\([^()]*\)')
@@ -448,9 +455,8 @@ class Checker:
         s = self.spec
         self.check_identity()
         for i, r in enumerate(s.roles):
-            if not IDENT.match(r):
-                self.err(f"$.roles[{i}]", f"'{r}' is not a valid role identifier",
-                         "lower-case letters, digits and underscores")
+            if not CATALOG_IDENT.match(r):
+                self.err(f"$.roles[{i}]", f"'{r}' is not a valid role identifier", CATALOG_IDENT_FIX)
         if len(set(s.roles)) != len(s.roles):
             self.err("$.roles", "duplicate role names")
         self.check_tables()
@@ -496,13 +502,14 @@ class Checker:
     def check_tables(self) -> None:
         for tname, t in self.spec.tables.items():
             path = f"$.tables.{tname}"
-            if not IDENT.match(tname):
-                self.err(path, f"'{tname}' is not a valid table identifier")
+            if not CATALOG_IDENT.match(tname):
+                self.err(path, f"'{tname}' is not a valid table identifier", CATALOG_IDENT_FIX)
             if not t.columns:
                 self.err(path + ".columns", "a table needs at least one column")
             for cname in t.columns:
-                if not IDENT.match(cname):
-                    self.err(f"{path}.columns.{cname}", f"'{cname}' is not a valid column identifier")
+                if not CATALOG_IDENT.match(cname):
+                    self.err(f"{path}.columns.{cname}", f"'{cname}' is not a valid column identifier",
+                             CATALOG_IDENT_FIX)
             if t.primary_key is not None:
                 for i, c in enumerate(t.primary_key):
                     if c not in t.columns:

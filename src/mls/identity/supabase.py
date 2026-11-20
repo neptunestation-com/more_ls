@@ -6,6 +6,7 @@ import uuid
 from typing import Any
 
 from mls.identity.base import SQL_TYPE, Adapter
+from mls.sqltext import q
 from mls.spec.model import ColType, Spec
 
 
@@ -45,7 +46,7 @@ class SupabaseAdapter(Adapter):
                    nullif(current_setting('request.jwt.claim.sub', true), ''),
                    (nullif(current_setting('request.jwt.claims', true), '')::jsonb ->> 'sub')
                  )::uuid $$""",
-            *[f"grant usage on schema auth to {r}; grant execute on function auth.jwt(), auth.uid() to {r}"
+            *[f"grant usage on schema auth to {q(r)}; grant execute on function auth.jwt(), auth.uid() to {q(r)}"
               for r in spec.roles],
         ]
 
@@ -59,7 +60,7 @@ class SupabaseAdapter(Adapter):
             else:
                 claims[cv.source[len("jwt.claims."):]] = ctx[n]
         j = json.dumps(claims).replace("'", "''")
-        return [f"select set_config('request.jwt.claims', '{j}', true)", f"set local role {role}"]
+        return [f"select set_config('request.jwt.claims', '{j}', true)", f"set local role {q(role)}"]
 
     def harness_user_values(self, n: int) -> list[Any]:
         return [str(uuid.UUID(int=i + 1)) for i in range(n)]

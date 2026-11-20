@@ -25,3 +25,4 @@ class Mutation(str, Enum):
     REPLACE_KEEPS_FOREIGN = "replace_keeps_foreign"  # drop only the declared names on an adopted table
     ADOPTED_KEEPS_CONSTRAINT = "adopted_keeps_constraint"  # keep an adopted table's same-named constraint unseen
     HOP_VISIBILITY_DROPPED = "hop_visibility_dropped"  # omit a composed relation's hop visibility policies
+    IDENT_UNQUOTED = "ident_unquoted"                # a predicate's column unquoted, so a mixed-case name folds

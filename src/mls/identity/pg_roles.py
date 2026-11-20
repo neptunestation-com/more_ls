@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from mls.identity.base import Adapter
+from mls.sqltext import q
 from mls.spec.model import ColType, Spec
 
 
@@ -28,14 +29,14 @@ class PgRolesAdapter(Adapter):
             out.append(f"do $$ begin if not exists (select 1 from pg_roles where rolname = '{u}') "
                        f"then create role {u} nologin; end if; end $$")
             for r in spec.roles:
-                out.append(f"grant {r} to {u}")
+                out.append(f"grant {q(r)} to {u}")
         return out
 
     def harness_context_sql(self, role: str, ctx: dict[str, Any]) -> list[str]:
         user = self.user_context_name()
         if user is None:
-            return [f"set local role {role}"]
-        return [f"set local role {ctx[user]}"]
+            return [f"set local role {q(role)}"]
+        return [f"set local role {q(ctx[user])}"]
 
     def harness_user_values(self, n: int) -> list[Any]:
         return [f"u{i + 1}" for i in range(n)]

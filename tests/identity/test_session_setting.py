@@ -61,5 +61,5 @@ def test_harness_hooks():
     assert u == ["00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002"]
     stmts = a.harness_context_sql("authenticated", {"uid": u[0], "clearance": 2, "now": None})
     assert stmts == ["select set_config('app.uid', '00000000-0000-0000-0000-000000000001', true)",
-                     "select set_config('app.clearance', '2', true)", "set local role authenticated"]
-    assert a.harness_context_sql("authenticated", {}) == ["set local role authenticated"]
+                     "select set_config('app.clearance', '2', true)", "set local role \"authenticated\""]
+    assert a.harness_context_sql("authenticated", {}) == ["set local role \"authenticated\""]

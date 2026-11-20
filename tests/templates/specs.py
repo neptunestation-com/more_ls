@@ -272,3 +272,29 @@ def composed_spec() -> Spec:
                        "role": "authenticated", "command": "update", "mode": "permissive",
                        "using": member, "check": member})
     return make(d)
+
+
+# ----------------------------------------------------------------------------- case-sensitive names (D58)
+MIXED_CASE = {"memberships": "Membership", "admins": "Admin", "docs": "Doc", "user_id": "userId",
+              "tenant_id": "tenantId", "owner_id": "ownerId", "archived": "isArchived",
+              "authenticated": "DocReader"}
+
+
+def mixed_case_spec() -> Spec:
+    """The pg_roles example with the names a Prisma schema has: PascalCase tables, camelCase
+    columns and a mixed-case role, all quoted wherever MLS emits them.  The tables also have
+    lower-case `tenantid`, `isarchived` and `userid` holding other data, so a reference emitted unquoted
+    (Postgres folds `tenantId` to `tenantid`) reads the wrong column rather than failing (mutation
+    `IDENT_UNQUOTED`)."""
+    import re
+
+    from mls.spec.syntax import parse
+
+    text = PG_ROLES.with_suffix("").read_text()
+    for old, new in MIXED_CASE.items():
+        text = re.sub(rf"\b{old}\b", new, text)
+    text = text.replace("  tenantId int not null,\n  ownerId", "  tenantId int not null,\n  tenantid int,\n  ownerId", 1)
+    text = text.replace("  isArchived int;", "  isArchived int,\n  isarchived int;", 1)
+    text = text.replace("  userId text not null,\n", "  userId text not null,\n  userid text,\n")  # Membership, Admin
+    assert "tenantid int," in text and "isarchived int;" in text and text.count("userid text,") == 2
+    return check_spec(parse(text))

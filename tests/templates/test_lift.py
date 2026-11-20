@@ -33,6 +33,7 @@ ROUND_TRIP = {
     "bigint": specs.bigint_spec,
     "pg_roles": specs.pg_roles_spec,
     "composed": specs.composed_spec,  # D56: the nested array shape reads back as composed relations
+    "mixed_case": specs.mixed_case_spec,  # D58: quoted mixed-case tables, columns and role read back as such
 }
 
 

@@ -120,6 +120,10 @@ union member the renderer does not cover.
   every command it shows runs in its own process (in-process runs get other counterexamples)
   and must print the lines the guide shows. A change to report, lint, explain or compile output
   updates the tour in the same change.
+- D58: table, column and role names are case-sensitive (`spec/check.py:CATALOG_IDENT`, no `$`:
+  it could close `$mls$`); every name MLS emits goes through `sqltext.q` (the identity adapters'
+  `set local role` too), never spliced bare.  MLS's own names stay lower-case.  Fixture
+  `specs.mixed_case_spec` (with lower-case twins of its mixed-case columns), mutation `IDENT_UNQUOTED`.
 - D42: row-dependent column visibility is normalization
   (the column is its own table with its own policies); there is no masking construct.
 - M4 (the LLM loop and evals): `src/mls/llm/CLAUDE.md`. Tests never call the API (`MLS_LLM_SCRIPT=<json>`

@@ -630,7 +630,8 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
     sqlc = SqlCompiler(checked, get_adapter(checked))
     # compared as the SQL they compile to: a hop's policy names a prefix of its chain (D56), which
     # the lifter reads back as the composed relation with the same levels
-    implicit = {(p.name, p.table, p.role, p.command, p.mode): sqlc.pred(p.using, p.table)
+    # and by name as the import spells rule names: `ident` lower-cases a mixed-case role in it
+    implicit = {(ident(p.name), p.table, p.role, p.command, p.mode): sqlc.pred(p.using, p.table)
                 for p in implicit_policies(checked)}
     drop: set[str] = set()
     for p in checked.policies():

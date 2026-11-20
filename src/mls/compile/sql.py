@@ -7,15 +7,11 @@ from mls.compile.time import now_between_sql
 from mls.spec.chain import levels
 from mls.spec.expand import as_in_list
 from mls.identity.base import SQL_TYPE, Adapter
+from mls.sqltext import q  # noqa: F401  (re-exported: the templates import it from here)
 from mls.spec.model import (
     And, ColRef, ColType, Const, CtxRef, Cmp, InGroup, IsNull, Lit, Member, NewRef, Not, NowBetween,
     OldRef, OpaqueRef, Or, Pred, Spec,
 )
-
-
-def q(ident: str) -> str:
-    """Quote an identifier (the checker already restricts names to [a-z0-9_])."""
-    return '"' + ident.replace('"', '""') + '"'
 
 
 def const_sql(value, type_: ColType | None) -> str:
@@ -48,6 +44,8 @@ class SqlCompiler:
 
     def term(self, t, table: str, type_hint: ColType | None = None) -> str:
         if isinstance(t, ColRef):
+            if Mutation.IDENT_UNQUOTED in self.mutations:
+                return t.col  # Postgres folds it: "ownerId" is read as ownerid
             return q(t.col)
         if isinstance(t, OldRef):
             return "old." + q(t.old)

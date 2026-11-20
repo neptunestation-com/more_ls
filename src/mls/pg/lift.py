@@ -933,7 +933,7 @@ class Lifter:
         for n, c in self.env.composed.items():
             if c == sig:
                 return n
-        name = self.env.composed_names.get((hops[-1][0], len(hops))) or f"{of}_{hops[-1][0]}"
+        name = self.env.composed_names.get((hops[-1][0], len(hops))) or f"{of}_{hops[-1][0]}".lower()[:63]  # an MLS name
         taken = set(self.env.relations) | set(self.env.composed)
         base_n, i = name, 2
         while name in taken:
