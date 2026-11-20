@@ -1013,7 +1013,7 @@ The JSON Schema of the spec language (draft 2020-12, from the pydantic model).
 
 The LLM loop (GUIDE §12).  `REQUIREMENTS` is a text file or `-` for stdin; `SKELETON` is a
 spec or a spec without rules and properties (either syntax, by extension: the `.mls` that
-`mls import --policies discard --out spec.mls` writes is taken as it is).  Three passes: the
+`mls import --policies discard --out skeleton.mls` writes is taken as it is).  Three passes: the
 *relations* pass adds the relations the requirements need that the skeleton lacks (a
 `relations { relation ... }` section of the spec's own `relation` lines, `relations { }` for none;
 JSON `{"relations": {name: relation}}`); a relation that takes a skeleton relation's name with

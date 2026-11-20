@@ -133,9 +133,9 @@ requirements and approve what it proved.
 
 ```bash
 uv run mls import --dsn "$DATABASE_URL" --out before.mls                       # today's behaviour, to compare and roll back to
-uv run mls import --dsn "$DATABASE_URL" --policies discard --out spec.mls      # the skeleton: tables, keys, CHECKs, no policies
+uv run mls import --dsn "$DATABASE_URL" --policies discard --out skeleton.mls  # the skeleton: tables, keys, CHECKs, no policies
 uv run mls explain before.mls                                                  # today's policies in English: a draft of the requirements
-uv run mls generate requirements.txt --skeleton spec.mls --out spec.mls        # the LLM writes rules and properties; approve its sentences
+uv run mls generate requirements.txt --skeleton skeleton.mls --out spec.mls    # the LLM writes rules and properties; approve its sentences
 uv run mls prove spec.mls                                                      # every property holds
 uv run mls diff before.mls spec.mls                                            # every change in effect, with an example
 uv run mls preflight spec.mls --dsn "$DATABASE_URL"                            # rows the new constraints would reject
@@ -152,7 +152,7 @@ prints, and the test suite replays it.
 ## Writing specs with an LLM
 
 ```bash
-uv run mls generate requirements.txt --skeleton spec.mls --out generated.mls
+uv run mls generate requirements.txt --skeleton skeleton.mls --out spec.mls
 ```
 
 Three passes (the relations the schema lacks, then properties from the requirements, then rules

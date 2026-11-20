@@ -44,9 +44,12 @@ connection string for the role that owns the tables, kept in an environment vari
 `$DATABASE_URL`; never write it into a file. Then:
 
     uv run mls import --dsn "$DATABASE_URL" --out before.mls
-    uv run mls import --dsn "$DATABASE_URL" --policies discard --out spec.mls
+    uv run mls import --dsn "$DATABASE_URL" --policies discard --out skeleton.mls
 
-`before.mls` records what today's policies allow; `spec.mls` is the skeleton. Read every note the
+`before.mls` records what today's policies allow; `skeleton.mls` is the skeleton. Keep the two
+apart from the generated spec and never overwrite them: every run of the loop starts from
+`skeleton.mls`, and a skeleton that already holds a run's rules hands them to the next run as
+rules it must keep, so a sharpened requirement could not take a wrong grant back. Read every note the
 second import prints on stderr and report them to the user in plain words, grouped:
 
 - **Discarded policies**: what the old rules said. They become input to the requirements.
@@ -86,9 +89,10 @@ user, then write `requirements.txt` and get it approved before running the loop.
 
 ## 3. Run the loop
 
-    uv run mls generate requirements.txt --skeleton spec.mls --out spec.mls --transcript transcript.json
+    uv run mls generate requirements.txt --skeleton skeleton.mls --out spec.mls --transcript transcript.json
 
-It calls the model several times, so it is not instant. It exits 0 when the status is `proved` and 1 otherwise. The output ends
+Every rerun uses the same command: `--skeleton` is always the import's skeleton, never the
+`spec.mls` of an earlier run. It calls the model several times, so it is not instant. It exits 0 when the status is `proved` and 1 otherwise. The output ends
 with the sections the user approves: `# Relations added to the schema (for approval)` (paths the
 model added to the schema, often none) and `# Properties (for approval)`.
 

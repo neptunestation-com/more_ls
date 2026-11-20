@@ -200,11 +200,12 @@ to describe.  You will use it twice: to compare (step 8) and to roll back (step 
 
 Now import again, keeping the tables and discarding the policies:
 
-    $ uv run mls import --dsn "$DATABASE_URL" --policies discard --out spec.mls
+    $ uv run mls import --dsn "$DATABASE_URL" --policies discard --out skeleton.mls
     ...
-    spec.mls: imported 5 table(s), 28 note(s)
+    skeleton.mls: imported 5 table(s), 28 note(s)
 
-`spec.mls` is the starting point of the new spec.  Every table is `adopted`: MLS did not create
+`skeleton.mls` is the starting point of the new spec.  Keep it as it is: every run of
+`mls generate` (step 6) starts from it and writes the spec to another file.  Every table is `adopted`: MLS did not create
 it, describes its columns and keys as the catalog has them, and will add rules to it.  The
 identity adapter is `supabase` (`@uid` is `auth.uid()`), the app roles are `anon` and
 `authenticated` (`service_role` bypasses row-level security on Supabase and is a trusted role,
@@ -286,7 +287,7 @@ saying who, which rows and what they may do, in `requirements.txt`:
 
 With `ANTHROPIC_API_KEY` set (section 12):
 
-    $ uv run mls generate requirements.txt --skeleton spec.mls --out spec.mls
+    $ uv run mls generate requirements.txt --skeleton skeleton.mls --out spec.mls
     status: proved after 0 repair round(s)
     ...
     # Relations added to the schema (for approval)
@@ -311,8 +312,10 @@ proved them.  The two lists are what you approve.  Each sentence is rendered fro
 property itself, not from the model's own description of it, so it says exactly what was proved.  Read it
 against the requirements: an upper bound per table (what a user can never see), a lower bound per
 grant (what a member must be able to do).  If a sentence is wrong or missing, the requirement was
-ambiguous: fix the sentence in `requirements.txt` and run `mls generate` again, rather than
-editing the spec.  The two imported CHECKs are kept as they are: the model numbers its own rules
+ambiguous: fix the sentence in `requirements.txt` and run the same `mls generate` again, rather
+than editing the spec.  It starts from `skeleton.mls` again: a skeleton holding the previous
+run's rules would hand them to the model as rules the spec already has, which it must keep, so a
+sharper requirement could not take a wrong grant back.  The two imported CHECKs are kept as they are: the model numbers its own rules
 from R3, and `spec.mls` ends with R1 and R2 after them.
 
 Your run will word and number things its own way; what is shown here is one answer, which the

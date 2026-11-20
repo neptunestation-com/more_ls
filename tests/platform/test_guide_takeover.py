@@ -182,7 +182,7 @@ def test_the_takeover_replays_on_the_starter(supabase, project, tmp_path):
         for fragment in _fragments(text):
             if fragment[0].startswith("note:"):
                 shown(fragment, out, "the notes of the discard import")
-        skeleton = (tmp_path / "spec.mls").read_text().splitlines()
+        skeleton = (tmp_path / "skeleton.mls").read_text().splitlines()
         example = EXAMPLE.read_text().splitlines()
         added = [line for line in example if line.strip().startswith(("relation in_project", "R", "P"))
                  and not line.strip().startswith(("R1 ", "R2 "))]
