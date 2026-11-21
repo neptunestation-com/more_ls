@@ -341,10 +341,10 @@ then the rules, after the two imported CHECKs:
     R12 policy task_create on tasks: authenticated insert permissive check in_project(@uid, project_id)
     R13 policy task_edit on tasks: authenticated update permissive using in_project(@uid, project_id)
 
-`R8` is the user's own rows, not `team_members(@uid, team_id)`: a policy on `team_members` that
-reads the relation backed by `team_members` would make Postgres apply the table's policies
-inside its own policy, and Postgres refuses every query on such a table ("infinite recursion
-detected in policy").  `mls check` refuses that rule with the fix.
+`R8` is the user's own rows.  A policy on `team_members` may also read `team_members(@uid,
+team_id)` (a member sees their teammates): its plain subquery would make Postgres apply the
+table's policies inside its own policy ("infinite recursion detected in policy"), so the
+compiler reads that membership through a helper function instead.
 
 And the properties, one upper bound per table and a lower bound per grant (`must_allow`):
 
@@ -1123,10 +1123,13 @@ referring to their tables is what `mls import` turns into a relation; written by
 
 The relation is keyed by the user, so `team_members(@uid, team_id)` reads "the current user is
 a member of the row's team", compiled to one indexed subquery evaluated once per statement.  A
-policy *on* `team_members` cannot read the `team_members` relation: Postgres would apply the
-table's policies inside its own policy and refuses every query on it ("infinite recursion
-detected in policy"), so `mls check` refuses the rule.  Let a user see their own memberships
-(`user_id = @uid`), as the takeover of section 3 does.
+policy *on* `team_members` may read the `team_members` relation too ("a member sees every
+membership of their teams"), and so may two tables' policies that read each other (members read
+their teams through `team_members`, the team's owner manages `team_members` through a relation
+over `teams`).  As plain subqueries Postgres would apply a table's policies inside themselves
+and refuse every query on it ("infinite recursion detected in policy"), so the compiler reads
+exactly those memberships through a helper function, `mls_lookup_<relation>`, which reads the
+relation without the policies and runs once per statement.
 
 **A row belongs to the owner of its parent.**  `candidates.interview_id → interviews.user_id`:
 the owner of an interview manages its candidates.  The pair `(user_id, id)` of `interviews` is

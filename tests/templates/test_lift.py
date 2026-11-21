@@ -37,6 +37,7 @@ ROUND_TRIP = {
     "owner": specs.owner_spec,  # D60: a relation unique through its value column, and a chain from it
     "condition": specs.condition_spec,  # D61: the condition comes back from the subquery and the policy name
     "mixed_case": specs.mixed_case_spec,  # D58: quoted mixed-case tables, columns and role read back as such
+    "lookup": specs.lookup_spec,  # D67: a helper call reads back as the membership its body holds
 }
 
 

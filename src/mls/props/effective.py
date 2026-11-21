@@ -58,6 +58,7 @@ def _implicit_policies(spec: Spec) -> list[PolicyRule]:
     atom mean "(k, col) ∈ relation" (D21).  Restrictive policies on the relation table still apply;
     the compiler proves they do not filter those rows (relation visibility obligation)."""
     from mls.spec.chain import base_name, condition, hop_prefix, levels
+    from mls.spec.recursion import is_routed
 
     out: list[PolicyRule] = []
     seen: set[tuple[str, str, str]] = set()
@@ -66,6 +67,8 @@ def _implicit_policies(spec: Spec) -> list[PolicyRule]:
     for p in spec.policies():
         for e in (p.using, p.check):
             for m in members_in(e, []):
+                if is_routed(spec, p.table, m.relation):
+                    continue  # D67: a helper reads it, without the caller's policies
                 lv = levels(spec, m.relation)
                 base = base_name(spec, m.relation)
                 key_json = m.key.model_dump_json()

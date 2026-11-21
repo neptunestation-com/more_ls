@@ -1,6 +1,6 @@
 """The internal role (D34): `mls_internal` owns the SECURITY DEFINER helper functions the
-hierarchy and cardinality templates need (the reachable-group set, the depth trigger, the
-counting trigger).  Those helpers read tables under FORCE RLS, so for every table a helper reads
+hierarchy, cardinality and lookup templates need (the reachable-group set, the depth trigger, the
+counting trigger, the lookups whose plain subquery would recurse, D67).  Those helpers read tables under FORCE RLS, so for every table a helper reads
 the compiler emits a permissive policy `mls_internal_<table>` (`using (true)`) and the matching
 grant for `mls_internal` only.  The role has NOLOGIN, no BYPASSRLS, and no members other than the
 deployer (needed to transfer function ownership); drift verifies that no app role is a member.
@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from mls.compile.hardening import APP_ROLE_ATTRIBUTES, role_attributes_ddl
 from mls.compile.sql import q
+from mls.spec.chain import levels
 from mls.spec.model import PolicyRule, Lit, Spec
+from mls.spec.recursion import routed
 
 INTERNAL_ROLE = "mls_internal"
 
@@ -23,11 +25,19 @@ def internal_reads(spec: Spec) -> dict[str, set[str]]:
     for c in spec.cardinalities():
         out.setdefault(c.table, set()).add("select")
         out.setdefault(c.parent, set()).update({"select", "update"})
+    for rel in lookup_relations(spec):  # D67: the lookup helpers read every level's table
+        for lvl in levels(spec, rel):
+            out.setdefault(lvl.table, set()).add("select")
     return out
 
 
+def lookup_relations(spec: Spec) -> list[str]:
+    """The relations some routed lookup reads (D67), in name order."""
+    return sorted({rel for _, rel in routed(spec)})
+
+
 def needs_internal_role(spec: Spec) -> bool:
-    return bool(spec.hierarchies or spec.cardinalities())
+    return bool(spec.hierarchies or spec.cardinalities() or lookup_relations(spec))
 
 
 def internal_role_ddl(spec: Spec) -> list[str]:

@@ -100,7 +100,9 @@ the group.  The compiler creates one NOLOGIN, NOBYPASSRLS, NOINHERIT role `mls_i
 the generated helpers (`SECURITY DEFINER`, `SET search_path FROM CURRENT`); for every table a helper
 reads it gets a permissive `SELECT ... USING (true)` policy `mls_internal_<table>` (and `FOR ALL`
 on cardinality parents, which it locks), plus the matching grants.  Nobody can log in as it, no app
-role is a member of it (drift reports both), and the helpers are the only code it runs.
+role is a member of it (drift reports both), and the helpers are the only code it runs.  It also
+owns the lookup helpers (§3.5).  It also
+owns the lookup helpers of §3.5.
 
 ### 3.4 Composed relations
 
@@ -133,6 +135,27 @@ relation through that hop, so two relations sharing a prefix share the policy), 
 `(key, value)`, and the relation-visibility obligation per level (a restrictive policy on a hop
 table that could hide a reached row fails it). The hop key is indexed on an owned table and required
 as an index condition by the EXPLAIN check.
+
+### 3.5 Lookups through a helper
+
+A membership's subquery runs as the app role, under the SELECT policies of the relation's tables
+(the implicit relation policies among them).  When those policies' lookups lead back to the table
+the membership's policy is on, for the same role, Postgres expands that table's policies inside
+themselves and refuses every statement that reads it ("infinite recursion detected in policy";
+the rule is measured, FINDINGS).  The compiler compiles exactly those lookups to a call of
+`mls_lookup_<R>(key)`, a stable `SECURITY DEFINER` function owned by `mls_internal` whose body is
+the subquery the policy would have had (the base relation's rows for the key where its condition is
+TRUE, then one level per hop), read through `mls_internal_<table>`:
+`v = any((select mls_lookup_R(<k>))::<type>[])`, an uncorrelated InitPlan.  Which lookups: those
+whose relation reads the policy's own table; then, in rule order, each lookup that still closes a
+cycle once the earlier ones go through a helper, until none does (a lookup through a helper is no
+step of the expansion).  A helper means the same for every role, so the choice is per policy table
+and relation, not per role.
+
+The meaning is unchanged: the atom is `(k, v) ∈ R` over the stored rows, as the encoding already
+reads it (§7).  A plain subquery equals that only when the role sees every row it reads, which
+the relation-visibility obligation proves; a helper reads every row, so its lookup has no such
+obligation, no implicit relation policy and no column grant.
 
 ## 4. NULL normalization (verified on PG 16)
 

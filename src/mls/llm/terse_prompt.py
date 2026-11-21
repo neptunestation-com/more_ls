@@ -45,9 +45,6 @@ triggers, grants).  You never write SQL.
   rooms of the floors of the buildings a user works in: relation in_room = staff_of . floors(building_id, id) . rooms(floor_id, id)
 - A composed relation is used as C(@c, v) in policies, goals, must_allow and tenant_isolation only:
   not in inclusion rules, invariants, hierarchies or monotone_in.
-- A policy on a relation's own table, or on a table a composed relation passes through, cannot read
-  that relation (Postgres refuses it as infinite recursion); a user's own rows of a membership table
-  are `user_id = @uid`.
 
 ## Rules: one per line inside `rules { }`, `ID kind name on table: body requirement 'REQ'`
 - R1 policy name on t: role command mode using p check p

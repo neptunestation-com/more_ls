@@ -255,6 +255,42 @@ is what makes it dangerous: only the first query finds it.  The usual workaround
 rule at check time (DECISIONS, #24); a user's own memberships (`user_id = auth.uid()`) need no
 subquery.
 
+## Policies that read each other's tables (#38; PG 15–18)
+
+Two tables' policies that read each other fail the same way, and the rule is narrower than "a
+cycle of tables": Postgres raises the error while expanding a table's policies when that table
+is already being expanded *and the policies it applies there contain a subquery*.  Measured with
+hand-written policies (`tests/templates/test_recursion.py` replays the compiled shapes):
+
+- a SELECT policy on `a` reading `b` and a SELECT policy on `b` reading `a`: every read of
+  either table fails, and so does every write that reads them; through three tables too; a
+  restrictive policy closes the cycle as well as a permissive one;
+- a DELETE (or UPDATE, or a WITH CHECK) on `a` reading `b`, and a SELECT policy on `b` reading
+  `a`: the statement fails *if `a`'s SELECT policies contain a subquery*, and passes when they
+  are `using (true)`.  The write's own policies are not applied again; the lookup's SELECT
+  policies on `b` read `a`, whose SELECT policies are expanded a second time;
+- a policy for another role does not close the cycle (the subqueries run as the caller).
+
+Every policy MLS compiles contains a subquery (the context value is `(select auth.uid())` or
+`(select nullif(current_setting(..), ''))`), so for compiled policies the rule is the cycle: a
+lookup in any policy on `T` whose tables reach `T` again through SELECT policies.  A first
+experiment with `using (true)` stand-ins suggested that write policies never recurse; it was the
+missing subquery.
+
+The compiler now reads those lookups through a SECURITY DEFINER helper (#34): every one of the
+ten shapes deploys and runs, and compiled with plain subqueries exactly the seven that recurse
+fail (`test_recursion.py`).  Two things measured on the way:
+
+- a helper declared `security invoker` instead recurses at run time, not at plan time: the
+  function's query applies the caller's policies, which call the function again, until "stack
+  depth limit exceeded" (54001);
+- but only when a row needs the recursive branch: on `team_members` with the visibility policy
+  `user_id = (select auth.uid())` beside it, an invoker helper keyed by the same user never gets
+  past its first level (every row it reads passes the other policy first), and behaves exactly
+  like the definer helper.  So "runs as the caller" is not a mutation the differential test can
+  catch on a fixture where the relation is used without a helper too; the helper's mutation
+  drops its key instead.
+
 ## Replaying the takeover on the Supabase starter (Milestone 6, #24)
 
 The takeover of GUIDE §3 replayed on `starter_schema.sql` with data, as `postgres` on the

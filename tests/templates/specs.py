@@ -335,6 +335,41 @@ def condition_spec() -> Spec:
     return make(d)
 
 
+def lookup_spec() -> Spec:
+    """D67: team_tasks where the membership table's own policies read its relations, whose plain
+    subqueries Postgres would refuse as infinite recursion: a member reads every membership of
+    their teams (R5, `member_of` on `team_members`), a lead adds and removes members of their
+    teams (R6, R7, `lead_of`, with a condition on a nullable `role`), and projects are readable
+    only through `in_project`, whose hop runs through `projects` itself (R8, a composed helper).
+    Those lookups call `mls_lookup_<relation>`; the others keep their subqueries.  The mutation
+    drops the helpers' key: every user reads every membership and every project."""
+    d = json.loads((EXAMPLE.parent / "team_tasks.mls.json").read_text())
+    d["rules"] = [r for r in d["rules"] if r["id"] != "R1"]
+    d["tables"]["team_members"]["columns"]["role"] = {"type": "text", "nullable": True}
+    d["relations"]["lead_of"] = {"table": "team_members", "key": "user_id", "value": "team_id",
+                                 "where": {"cmp": [{"col": "role"}, "=", {"const": "lead"}]}}
+    member = {"member": {"relation": "member_of", "key": {"ctx": "uid"}, "value": {"col": "team_id"}}}
+    lead = {"member": {"relation": "lead_of", "key": {"ctx": "uid"}, "value": {"col": "team_id"}}}
+    d["rules"] += [
+        {"id": "R5", "kind": "policy", "name": "member_reads_memberships", "table": "team_members",
+         "role": "authenticated", "command": "select", "mode": "permissive", "using": member},
+        {"id": "R6", "kind": "policy", "name": "lead_adds_members", "table": "team_members",
+         "role": "authenticated", "command": "insert", "mode": "permissive", "check": lead},
+        {"id": "R7", "kind": "policy", "name": "lead_removes_members", "table": "team_members",
+         "role": "authenticated", "command": "delete", "mode": "permissive", "using": lead},
+        {"id": "R8", "kind": "policy", "name": "member_reads_projects", "table": "projects",
+         "role": "authenticated", "command": "select", "mode": "permissive",
+         "using": {"member": {"relation": "in_project", "key": {"ctx": "uid"}, "value": {"col": "id"}}}},
+    ]
+    d["properties"] += [
+        {"id": "P6", "template": "must_allow", "table": "team_members", "role": "authenticated",
+         "command": "select", "when": member, "description": "a member reads every membership of their teams"},
+        {"id": "P7", "template": "must_allow", "table": "team_members", "role": "authenticated",
+         "command": "delete", "when": lead, "description": "a lead removes any member of their teams"},
+    ]
+    return make(d)
+
+
 # ----------------------------------------------------------------------------- case-sensitive names (D58)
 MIXED_CASE = {"memberships": "Membership", "admins": "Admin", "docs": "Doc", "user_id": "userId",
               "tenant_id": "tenantId", "owner_id": "ownerId", "archived": "isArchived",

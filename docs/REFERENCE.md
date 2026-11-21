@@ -144,7 +144,8 @@ exist (`NOLOGIN`), and in every case removes `BYPASSRLS`, `SUPERUSER`, `CREATEDB
 `CREATEROLE` from it and revokes `SET` on `session_replication_role`.  A role has a privilege
 on a table only through its policies (§11.1) and column rules (§11.6).
 
-The compiler also creates `mls_internal` when a hierarchy or a cardinality limit needs it (§14).
+The compiler also creates `mls_internal` when a hierarchy, a cardinality limit or a lookup helper
+(§6) needs it (§14).
 It is not a role you declare or grant to.
 
 ## 5. `tables`
@@ -274,11 +275,22 @@ and the grant adds the condition's columns.  A
 restrictive policy the spec puts on the relation table must keep those rows visible; the
 compiler proves this (the relation-visibility obligation) and refuses otherwise.
 
-A policy on a relation's own table cannot read the relation (nor a composed relation with a hop
-through the table): its subquery would apply the table's policies again, and Postgres refuses
-every query on the table with "infinite recursion detected in policy" (FINDINGS).  The checker
-refuses such a rule at its `member.relation`; a user's own rows of a membership table are
-`user_id = @uid`, a comparison, not a membership.
+A membership reads its relation's tables under their SELECT policies.  When those lead back to the
+table the policy is on, Postgres applies that table's policies inside themselves and refuses every
+statement that reads it with "infinite recursion detected in policy" (FINDINGS; every compiled
+policy contains a subquery, the context value `(select ...)`).  That is the case for a policy on a
+relation's own table reading the relation (members see every membership of their teams), for a
+composed relation with a hop through the table, and for policies on several tables that read each
+other (members read their organizations through `organization_members`, and the owner manages
+the members through a relation over `organizations`), for any command, `using` or `check`, one
+role at a time.  The compiler compiles exactly those lookups to a call of a helper,
+`v = any((select mls_lookup_<R>(<k>))::<type>[])`: a `SECURITY DEFINER` function owned by
+`mls_internal` (§14) that returns the relation's values for the key, read without the caller's
+policies, once per statement.  Such a lookup needs no visibility policy and no grant on the
+relation's tables, and it means what any membership means: the relation's stored rows, the
+proofs' reading.  In a cycle of several lookups, those on the relation's own table go through a
+helper first, then, in rule order, each lookup that still closes a cycle; the other lookups keep
+their subqueries.
 
 **Composed relations** (SEMANTICS §3.4) follow a base relation through up to three tables:
 
@@ -779,6 +791,7 @@ All names are deterministic functions of the spec, so `mls drift` can match them
 | hierarchy depth trigger and function | `mls_h_<hierarchy>_depth` |
 | hierarchy parent-immutable trigger | `mls_h_<hierarchy>_parent_immutable` (function `mls_tr_<table>_mls_h_<hierarchy>_parent_immutable`) |
 | hierarchy reachability function | `mls_reach_<hierarchy>(key)` |
+| lookup helper (a membership whose subquery would recurse) | `mls_lookup_<relation>(key)` |
 | cardinality trigger function | `mls_card_<table>_<name>()` |
 | index | `mls_ix_<table>_<col>[_<col>...]` |
 | migration: replacement constraint before the swap | `<name>_mls_new` |
@@ -1031,6 +1044,7 @@ reports each as `hardening` until it is fixed or the spec assumes it.
 | any of the membership shapes above with more conditions on the relation table (`... and rel.role = any (array[...])`) | `member` over a relation with that condition (one relation per table, pair and condition, named `<table>_by_<columns>` unless the compiler's visibility policy names it); a condition the relation fragment cannot hold keeps the whole membership opaque |
 | `rel.key = 'const'` in a membership subquery with no context value | the membership's key (`member(r, key='const', ...)`); with two such constants and no context value the membership stays opaque |
 | `col = any ((select mls_reach_<h>(<ctx>))::t[])` | `in_group`, when the spec declares hierarchy `h` |
+| `col = any ((select mls_lookup_<r>(<ctx>))::t[])`, a lookup helper the compiler created | `member`, read from the helper's body as the subquery it holds; the relation keeps the helper's name |
 | `col = any (array(select v from T where k = any (array(select ... from rel where key = <ctx>))))`, or the same nesting of `in (select ...)`, up to three levels | `member` over a composed relation: an identical chain in the spec is reused, else one is proposed (named `<base>_<last table>`) with a note; when a hop's value is not a key or a hop column is nullable the policy stays opaque |
 | `col is [not] null`, `and`, `or`, `not`, `true`, `false` | the same |
 | `(f is null or f <= (select now())) and (u is null or (select now()) < u)` | `now_between` |
@@ -1172,11 +1186,6 @@ Classes of error, with the typical message:
   rows a membership atom needs, with the policy's path and a fix; for a composed
   relation, the same on each hop table (`... can hide rows whose <key> the previous level
   reaches ...`).
-- **recursion**: `a policy on 'T' cannot read 'R': relation 'R' is backed by table 'T', so its
-  subquery would apply this table's policies again and Postgres refuses every query on the
-  table ('infinite recursion detected in policy')` (or `reads table 'T' in one of its hops`;
-  fix: the user's own rows, `key` compared with the context value, or a relation backed by
-  another table);
 - **composed relations**: `'R' is itself composed; compose from a base relation`; `N hops;
   a composed relation has at most 3`; `hop column 'T.c' must be NOT NULL`; `'T.v' is not the
   primary key or a unique column of 'T'` (fix: a membership table, or the denormalized column

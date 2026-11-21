@@ -45,7 +45,7 @@ from mls.compile.internal import INTERNAL_ROLE
 from mls.errors import MlsError, SpecError
 from mls.pg.catalog import _strip_schema, bypass_paths
 from mls.pg.lift import (
-    CAST_TO_MLS, Env, Unreadable, lift, nullable_columns, parse, strip_check, transition_expr,
+    CAST_TO_MLS, Env, Unreadable, inline_lookups, lift, lookup_calls, nullable_columns, parse, strip_check, transition_expr,
     mls_type,
 )
 from mls.pg.lift import IsTrue as _IsTrue
@@ -124,6 +124,10 @@ def _read(conn: psycopg.Connection, schema: str) -> dict[str, Any]:
                        from pg_type t join pg_namespace n on n.oid = t.typnamespace
                        where n.nspname = %s and t.typtype = 'e' order by 1""", (schema,))
         cat["enums"] = {r[0]: list(r[1]) for r in cur.fetchall()}  # D59: the schema's enum types
+        cur.execute("""select p.proname, p.prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                       where n.nspname = %s and p.proname like 'mls\\_lookup\\_%%' and p.prosecdef
+                         and pg_get_userbyid(p.proowner) = %s""", (schema, INTERNAL_ROLE))
+        cat["lookups"] = dict(cur.fetchall())  # D67: the compiler's lookup helpers, read back inline
         cur.execute("select rolname, rolsuper, rolcanlogin, rolbypassrls from pg_roles")
         for name, sup, login, bypass in cur.fetchall():
             cat["roles"][name] = {"super": sup, "login": login, "bypassrls": bypass}
@@ -377,6 +381,20 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
                     if r.kind == "lifted" and "cmp" in pr and pr["cmp"][1] == "=" and "col" in pr["cmp"][0]:
                         rel_names.setdefault((name, pr["cmp"][0]["col"], _cond_key(cond)), m.group(1))
                     break
+            for text in (p["using"], p["check"]):  # D67: a lookup helper's name is its relation's
+                for rel, start, end, sub in lookup_calls(text or "", cat["lookups"]):
+                    col = re.search(r'("[^"]+"|[a-z_][a-z0-9_]*) = ANY \($', text[:start])
+                    if col is None:
+                        continue
+                    hops = sub.count("= any (array(")
+                    last = re.match(r'ARRAY\(select "[^"]+" from "([^"]+)"', sub)
+                    base = _hop_base(env, name, f"({col.group(1)} = ANY ({sub}))")
+                    if hops == 0 and base is not None:
+                        rel_names.setdefault((base[0], base[1], base[3]), rel)
+                    elif last is not None:
+                        env.composed_names.setdefault((last.group(1), hops), rel)
+                        if base is not None:
+                            env.composed_names.setdefault((last.group(1), hops, base), rel)
 
     def propose(table: str, key: str, value: str, why: str, where: dict | None = None) -> str | None:
         if table not in governed:
@@ -481,6 +499,7 @@ def import_schema(conn: psycopg.Connection, schema: str = "public", roles: list[
         def make_relation(rtable: str, key: str, value: str, where: dict | None = None) -> str | None:
             return propose(rtable, key, value, f"{scope} expression on {table} reads it as a membership", where)
 
+        text = inline_lookups(text, cat["lookups"])
         return lift(text, table, env, scope, make_opaque, make_relation, top_is_true=top_is_true)
 
     for name, t in tables.items():

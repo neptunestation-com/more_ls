@@ -32,7 +32,10 @@ PAIRS = [("v_a", "v_b"), ("v_b", "v_c"), ("v_c", "v_d"), ("v_d", "v_a"),
          # Milestone 3: adding a hierarchy and a cardinality limit (internal role, SECURITY DEFINER
          # helpers, triggers, template FKs), then changing policies around them and the limit itself
          ("org_flat_spec", "org_base_spec"), ("org_base_spec", "hierarchy_spec"),
-         ("hierarchy_spec", "cardinality_spec"), ("cardinality_spec", "org_base_spec")]
+         ("hierarchy_spec", "cardinality_spec"), ("cardinality_spec", "org_base_spec"),
+         # D67: membership policies that read their own table, which bring in lookup helpers (and the
+         # internal role), and back
+         ("composed_spec", "lookup_spec"), ("lookup_spec", "composed_spec")]
 
 
 @pytest.mark.parametrize("pair", PAIRS, ids=["->".join(p) for p in PAIRS])

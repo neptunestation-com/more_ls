@@ -73,16 +73,24 @@ def test_a_composed_relation_is_refused_where_one_table_is_meant():
     assert has(errors(d), "$.opaques.gate.relations[0]", "'in_project' is a composed relation")
 
 
-def test_a_policy_on_a_hop_table_cannot_read_the_relation_through_it():
-    """Postgres would apply the hop table's policies inside its own policy ('infinite recursion
-    detected in policy'); the checker refuses at the membership's relation, naming the hop."""
+def test_a_policy_on_a_hop_table_reads_the_relation_through_a_helper():
+    """Its plain subquery would apply the hop table's policies inside its own policy ('infinite
+    recursion detected in policy', D66); the lookup goes through the relation's helper instead
+    (D67), and the other lookups of the relation keep their subqueries."""
+    from mls.compile import compile_spec
+    from mls.spec import check_spec
+    from mls.spec.model import Spec
+    from mls.spec.recursion import routed
+
     d = base()
     d["rules"].append({"id": "R9", "kind": "policy", "name": "own_projects", "table": "projects",
                        "role": "authenticated", "command": "select", "mode": "permissive",
                        "using": {"member": {"relation": "in_project", "key": {"ctx": "uid"}, "value": {"col": "id"}}}})
-    e = next(e for e in errors(d) if e.path == "$.rules[4].using.member.relation")
-    assert "relation 'in_project' reads table 'projects' in one of its hops" in e.message
-    assert "infinite recursion detected in policy" in e.message and "another table" in e.fix
+    assert errors(d) == []
+    spec = check_spec(Spec.model_validate(d))
+    assert routed(spec) == {("projects", "in_project")}
+    sql = compile_spec(spec).sql()
+    assert '"mls_lookup_in_project"' in sql and "security definer" in sql
 
 
 def _custom(goal: dict, table: str = "projects") -> dict:

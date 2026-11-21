@@ -3,7 +3,7 @@ constraint (pg_get_constraintdef) -> a verified-fragment predicate, else an opaq
 
 The lifter reads the shapes the compiler itself emits (`compile/sql.py`): `col op (select <ctx>)`,
 `col = any ((select mls_reach_<h>(<ctx>))::t[])`, `col = any (array(select value from rel where
-key = <ctx>))`, `col = any (array[c1, ...])`, `col is null`, `(p) is true` at the top of a CHECK,
+key = <ctx>))` (also when a lookup helper holds the subquery: `inline_lookups`), `col = any (array[c1, ...])`, `col is null`, `(p) is true` at the top of a CHECK,
 `and` / `or` / `not`; and a fixed list of hand-written idioms: a bare `auth.uid()`,
 `current_setting('app.x')` or `current_user` without the InitPlan wrapper (lifted; a hint names
 the index-friendly form), `col in (c1, ...)`, `col in (select value from rel where key = <ctx>)`,
@@ -1404,6 +1404,44 @@ TRANSITION_BODY = re.compile(
     r"using errcode = 'check_violation';\s+end if;\s+return new;\s+end\s*$", re.DOTALL)
 TRANSITION_TRIGGER = re.compile(r'^CREATE TRIGGER "?(\w+)"? BEFORE UPDATE ON "?(\w+)"? FOR EACH ROW EXECUTE '
                                 r'(?:FUNCTION|PROCEDURE) "?(mls_tr_\w+)"?\(\)$')
+
+
+_LOOKUP_CALL = re.compile(r"\( SELECT (mls_lookup_[a-z_][a-z0-9_]*)\(")
+_LOOKUP_BODY = re.compile(r"^\s*select coalesce\(array\((.*)\), '\{\}'\)\s*$", re.S)
+_LOOKUP_KEY = re.compile(r"= k(?=\)|\s|$)")
+
+
+def lookup_calls(text: str, bodies: dict[str, str]) -> list[tuple[str, int, int, str]]:
+    """D67: each call `( SELECT mls_lookup_r(<key>) AS mls_lookup_r)::t[]` of one of the compiler's
+    lookup helpers (`compile/lookup.py`; `bodies` their name -> source) whose body is the
+    template's, as (relation name, start, end, the subquery its body holds with the key in place
+    of the parameter, `ARRAY(select value from rel where key = <key> ...)`)."""
+    out, i = [], 0
+    while (m := _LOOKUP_CALL.search(text, i)) is not None:
+        i = m.end()
+        name = m.group(1)
+        body = _LOOKUP_BODY.match(bodies.get(name, ""))
+        depth, j = 1, m.end()
+        while j < len(text) and depth:  # the key argument: up to the call's closing parenthesis
+            depth += {"(": 1, ")": -1}.get(text[j], 0)
+            j += 1
+        tail = re.compile(r"\s+AS " + re.escape(name) + r"\)::[a-z ]+\[\]").match(text, j)
+        if body is None or tail is None:
+            continue
+        key = text[m.end():j - 1]
+        out.append((name[len("mls_lookup_"):], m.start(), tail.end(),
+                    "ARRAY(" + _LOOKUP_KEY.sub(lambda _: "= " + key, body.group(1), count=1) + ")"))
+        i = tail.end()
+    return out
+
+
+def inline_lookups(text: str, bodies: dict[str, str]) -> str:
+    """Every lookup helper call in `text` replaced by the subquery it stands for, which the lifter
+    reads as the membership it is.  A call of a helper whose body is not the template's stays as it
+    is (the lifter reports it as a function it does not read)."""
+    for _, start, end, sub in reversed(lookup_calls(text, bodies)):
+        text = text[:start] + sub + text[end:]
+    return text
 
 
 def transition_expr(trigger_def: str, function: str, body: str) -> str | None:

@@ -26,4 +26,5 @@ class Mutation(str, Enum):
     ADOPTED_KEEPS_CONSTRAINT = "adopted_keeps_constraint"  # keep an adopted table's same-named constraint unseen
     HOP_VISIBILITY_DROPPED = "hop_visibility_dropped"  # omit a composed relation's hop visibility policies
     RELATION_CONDITION_DROPPED = "relation_condition_dropped"  # a relation's subquery without its condition
+    LOOKUP_KEY_DROPPED = "lookup_key_dropped"  # a lookup helper that returns the values of every key
     IDENT_UNQUOTED = "ident_unquoted"                # a predicate's column unquoted, so a mixed-case name folds

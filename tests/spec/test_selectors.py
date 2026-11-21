@@ -150,17 +150,14 @@ def test_selector_and_manual_expansion_are_the_same_spec():
     assert "applies to every" not in spec_summary(b) and "- **R2.files**:" in spec_summary(b)
 
 
-def test_a_selector_that_reaches_a_relation_table_is_refused_where_it_does():
-    """The relation-backed table is matched too: R2.admins would read admin_of from a policy on
-    admins, which Postgres refuses; the error is reported under the selector rule's path."""
-    d = with_selector({"has_column": ["tenant_id", "int"]}, using=None)
-    with pytest.raises(SpecError) as ei:
-        check_spec(Spec.model_validate(d))
-    (e,) = ei.value.errors
-    assert e.path == "$.rules[1].using.member.relation"
-    assert "a policy on 'admins' cannot read 'admin_of': relation 'admin_of' is backed by table 'admins'" in e.message
-    assert "infinite recursion detected in policy" in e.message
-    assert check_spec(Spec.model_validate(with_selector({"named": ["docs", "files"]}, using=None)))
+def test_a_selector_that_reaches_a_relation_table_reads_it_through_a_helper():
+    """The relation-backed table is matched too: R2.admins reads admin_of from a policy on admins,
+    whose plain subquery Postgres would refuse as infinite recursion (D66); that expansion's lookup
+    goes through the helper (D67), the other expansions keep their subqueries."""
+    from mls.spec.recursion import routed
+
+    spec = check_spec(Spec.model_validate(with_selector({"has_column": ["tenant_id", "int"]}, using=None)))
+    assert routed(spec) == {("admins", "admin_of")}
 
 
 def test_diff_reports_per_concrete_rule():

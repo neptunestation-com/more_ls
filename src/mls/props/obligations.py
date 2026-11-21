@@ -16,6 +16,7 @@ from mls.logic.term import (
 )
 from mls.logic.tvl import Encoder, col_null_var, col_value_var, ctx_var, hop_exists_fun, hop_key_fun, rel_fun
 from mls.spec.chain import condition, hop_prefix, levels
+from mls.spec.recursion import is_routed
 from mls.props.effective import (
     effective, inclusion_pred, members_in, relations_of, row_constraints, transition_constraints,
 )
@@ -614,6 +615,8 @@ def relation_visibility_obligations(spec: Spec) -> list[Obligation]:
     for i, p in enumerate(spec.policies()):
         for e in (p.using, p.check):
             for m in members_in(e, []):
+                if is_routed(spec, p.table, m.relation):
+                    continue  # D67: the helper reads every row, without the role's policies
                 for lvl, rel in enumerate(levels(spec, m.relation)):
                     # level 0: the rows with key = k; a hop (D56): the rows whose key is a value of
                     # the previous level for k

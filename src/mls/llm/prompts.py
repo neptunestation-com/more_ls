@@ -51,9 +51,6 @@ triggers, grants).  You never write SQL.
   [{"table": "floors", "key": "building_id", "value": "id"}, {"table": "rooms", "key": "floor_id", "value": "id"}]}
 - A composed relation is used in member (policies, goals, must_allow) and tenant_isolation only: not in
   inclusion rules, invariants, hierarchies or monotone_in.
-- A policy on a relation's own table, or on a table a composed relation passes through, cannot read
-  that relation (Postgres refuses it as infinite recursion); a user's own rows of a membership table
-  are {"cmp": [{"col": "user_id"}, "=", {"ctx": "uid"}]}.
 
 ## Rules (every rule has a unique "id", a "name" (identifier), a "table" and may cite a "requirement")
 - policy: {"kind": "policy", "role", "command": select|insert|update|delete|all, "mode": permissive|restrictive,

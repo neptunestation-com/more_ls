@@ -19,7 +19,8 @@ from mls.compile.hierarchy import (
 )
 from mls.compile.index import index_specs
 from mls.compile.internal import (INTERNAL_ROLE, function_grant_ddl, function_owner_ddl, internal_grants,
-                                  internal_policies)
+                                  internal_policies, lookup_relations, needs_internal_role)
+from mls.compile.lookup import lookup_fn_ddl, lookup_fn_name, lookup_fn_sig
 from mls.compile.mutations import Mutation
 from mls.compile.policy import policy_ddl
 from mls.compile.sql import SqlCompiler, q, sql_type
@@ -171,7 +172,11 @@ def objects(spec: Spec, mutations: frozenset[Mutation] = frozenset()) -> Objects
     platform = platform_revokes(spec)
     o.functions = {n: replace(f, revoke=tuple(r for r in platform if r not in f.execute))
                    for n, f in o.functions.items()}
-    o.internal_role = bool(spec.hierarchies or spec.cardinalities())
+    for rel in lookup_relations(spec):  # D67
+        fn = lookup_fn_name(rel)
+        o.functions[fn] = FunctionObj(fn, lookup_fn_sig(spec, rel), lookup_fn_ddl(spec, rel, sc),
+                                      INTERNAL_ROLE, tuple(spec.roles), f"lookup:{rel}")
+    o.internal_role = needs_internal_role(spec)
     for cmd, table in internal_grants(spec):
         o.grants.add(GrantObj(INTERNAL_ROLE, table, cmd, None))
     for p in all_policies(spec) + internal_policies(spec):

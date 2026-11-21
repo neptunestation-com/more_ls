@@ -38,6 +38,8 @@ CASES = {
     "enum": (specs.enum_spec, Mutation.IN_DROP_LAST, None),  # D59
     "owner": (specs.owner_spec, Mutation.POLICY_ALL_RESTRICTIVE, None),  # D60
     "condition": (specs.condition_spec, Mutation.RELATION_CONDITION_DROPPED, None),  # D61
+    "lookup": (specs.lookup_spec, Mutation.LOOKUP_KEY_DROPPED, None),  # D67
+    "lookup_condition": (specs.lookup_spec, Mutation.RELATION_CONDITION_DROPPED, None),
 }
 
 

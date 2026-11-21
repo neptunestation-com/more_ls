@@ -16,7 +16,8 @@ from mls.compile.cardinality import cardinality_ddl
 from mls.compile.check import check_ddl, check_def
 from mls.compile.column import grant_ddl, privileges, relations_in
 from mls.compile.hierarchy import hierarchy_ddl
-from mls.compile.internal import internal_policies, internal_role_ddl
+from mls.compile.internal import internal_policies, internal_role_ddl, lookup_relations
+from mls.compile.lookup import lookup_ddl
 from mls.compile.fk import fk_ddl, fk_def
 from mls.compile.hardening import preamble_ddl, role_ddl, table_hardening_ddl
 from mls.compile.index import index_ddl
@@ -130,6 +131,8 @@ def compile_spec(spec: Spec, mutations: frozenset[Mutation] | set[Mutation] = fr
         s.add("hierarchies", hierarchy_ddl(spec, name, sc), f"hierarchy:{name}")
     for r in spec.cardinalities():
         s.add("cardinalities", cardinality_ddl(spec, r, sc), r.id)
+    for rel in lookup_relations(spec):
+        s.add("lookups", lookup_ddl(spec, rel, sc), f"lookup:{rel}")
     s.add("rls", table_hardening_ddl(spec, mutations))
     policies = all_policies(spec) + internal_policies(spec)
     for name, t in spec.governed().items():

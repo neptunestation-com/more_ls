@@ -88,8 +88,7 @@ union member the renderer does not cover.
   on the starter plus `tests/brownfield/starter_data.sql` (same block/command conventions as
   `test_guide.py`; `psql` and `pg_dump` lines are emulated); its spec is
   `examples/starter_takeover.mls`.  A change to import, diff, drift, status or deploy notices
-  updates GUIDE §3 in the same change.  A policy on a relation's own table may not read the
-  relation (Postgres: infinite recursion; `spec/check.py`).  `Harness(foreign=catalog.foreign_keys(..))`
+  updates GUIDE §3 in the same change.  `Harness(foreign=catalog.foreign_keys(..))`
   runs the differential on a deployed brownfield database.  #26: `mls generate --skeleton` keeps
   the skeleton's own rules as fixed rules (`Loop(fixed_rules=...)`), shown to both passes and
   appended after the model's; a clash of id or name is an error at the answer's path.
@@ -144,6 +143,14 @@ union member the renderer does not cover.
 - D63: at most one `least_privilege` property (`spec/check.py`; the loop repairs it in the properties pass).
 - D64: update obligations assume the column privileges (`update_assumptions` conjoins `unwritable_unchanged`, as `net_terms` does).
 - D65: the diff ties base relations of the two versions by definition (`diff.both_axioms`), not by name.
+- D66/D67: a lookup Postgres would refuse as infinite recursion (a policy on the relation's own
+  table, or one closing a cycle of policies through several tables, per role) compiles to a call of
+  `mls_lookup_<R>(key)` (`compile/lookup.py`, SECURITY DEFINER, owned by `mls_internal`); which
+  lookups is `spec/recursion.py:routed`, read by the renderer, the implicit policies, the grants and
+  the visibility obligation (none for a routed lookup).  Import inlines the helpers' bodies
+  (`lift.inline_lookups`) and takes the relation's name from the helper's.  Fixture
+  `specs.lookup_spec`, mutation `LOOKUP_KEY_DROPPED`; `tests/templates/test_recursion.py` ties the
+  routing to PG 15–18.
 - D42: row-dependent column visibility is normalization
   (the column is its own table with its own policies); there is no masking construct.
 - M4 (the LLM loop and evals): `src/mls/llm/CLAUDE.md`. Tests never call the API (`MLS_LLM_SCRIPT=<json>`

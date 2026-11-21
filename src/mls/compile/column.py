@@ -10,6 +10,7 @@ Privileges per (role, table) are derived from the spec:
 """
 from __future__ import annotations
 
+from mls.spec.recursion import is_routed
 from mls.compile.mutations import Mutation
 from mls.compile.sql import q
 from mls.spec.chain import read_columns
@@ -52,6 +53,8 @@ def privileges(spec: Spec) -> dict[tuple[str, str], Priv]:
         rels = relations_in(p.using, set())
         relations_in(p.check, rels)
         for rname in rels:
+            if is_routed(spec, p.table, rname):
+                continue  # D67: a helper reads it as mls_internal
             for table, cols in read_columns(spec, rname):  # D56: every level; D61: the condition's columns
                 g = privs.setdefault((p.role, table), {})
                 cur = g.get("select")

@@ -1187,3 +1187,56 @@ where not publicSlug is null` read with key `true` versus the same with `isActiv
 condition; needs a validity check, and stays a reported change).  Test
 `test_a_renamed_relation_is_no_change`.
 
+## D66 — Policy cycles through several tables are refused (#38; amended by D67)
+
+`Checker.check_recursion`, after the rules check: per role, a lookup in a policy on `T` (any
+command, `using` or `check`) whose relation's tables reach `T` again through the SELECT and FOR
+ALL policies' lookups, and through the hop visibility policies D56 adds (the policy on hop table
+i reads the levels before it), is refused at its `member.relation`, naming the cycle and each
+step.  The one-table case stays the atom check of #24.  The rule is measured (FINDINGS, "Policies
+that read each other's tables"): Postgres refuses a table that comes back while its policies are
+expanded if they contain a subquery, which every compiled policy does, so a write policy closes a
+cycle as well as a SELECT policy does.  `tests/templates/test_recursion.py` compiles ten shapes
+(seven refused, three accepted: a chain, a back edge for another role, a back edge that is a
+comparison), deploys each on PG 15–18, and asserts that the checker refuses exactly the ones
+Postgres refuses.  Found in the aural-oss takeover: runs 2 and 3 had "members read their
+organizations" and "the owner manages (or reads) the memberships" through `organizations`,
+which passed `check`, `prove` and `compile`.  No compiler template changed, so no mutation.
+Opaque blocks and hierarchy helpers are not edges: a block's SQL is not read, and the helpers are
+SECURITY DEFINER (their queries do not apply the caller's policies).  The way out for the
+membership case, a lookup through a helper, is #34.
+
+## D67 — A lookup that would recurse goes through a helper (#34; amends D66 and #24's default 1)
+
+The refusals of #24 (a policy on a relation's own table reading it) and D66 (a cycle through
+several tables) are replaced by compilation: exactly the lookups whose plain subquery Postgres
+would refuse are compiled to `col = any ((select mls_lookup_<R>(<key>))::t[])`, a stable
+SECURITY DEFINER function owned by `mls_internal` (D34) whose body is the subquery (base level,
+D61's condition, D56's hops), read through `mls_internal_<table>`.  The checker no longer refuses
+either shape.  Chosen by the user over two alternatives: an explicit `via helper` on the
+relation (the checker would keep refusing until it is marked) and a helper for every lookup
+(changes every compiled spec, and loses the planner's view of the subquery on the common path).
+
+(1) Which lookups: `spec/recursion.py:routed`, (policy table, relation) pairs: every lookup whose
+relation's levels include the policy's table, then, in rule order, the first lookup that still
+closes a cycle in D66's per-role graph with the routed ones removed, repeated until none does.
+A helper means the same for every role, so the choice is per (table, relation), not per role:
+another role's lookup of the same relation from the same table goes through it too, which is
+correct and only costs the plain subquery.  (2) A routed lookup has no D21 visibility policy, no
+hop visibility policies, no column grant and no relation-visibility obligation: the helper reads
+every row, which is what the encoding's atom already means (the stored rows), so the proofs are
+unchanged and nothing in `logic/` or `props/obligations.py` beyond skipping that obligation; the
+Lean transcription models the atom, not the SQL, and needs no change.  (3) Import
+(`pg/adopt.py`): the catalog's `mls_lookup_*` bodies (SECURITY DEFINER, owned by `mls_internal`)
+are inlined into the policy text before lifting (`lift.inline_lookups`), so the call reads as the
+membership it stands for; the helper's name gives the relation (or the composed relation) its
+name back, as the visibility policies' names do.  (4) Bypass detection (D54) does not report the
+helpers: their owner does not bypass the policies.  (5) Template and tests:
+`compile/lookup.py`; mutation `LOOKUP_KEY_DROPPED` (the body without `key = k`) on fixture
+`specs.lookup_spec` (team_tasks where members read every membership of their teams, leads add
+and remove members through a filtered relation, projects are read through a composed relation
+whose hop is `projects` itself), which also runs `RELATION_CONDITION_DROPPED` against the
+helper's condition; `tests/templates/test_recursion.py` deploys D66's ten shapes on PG 15–18 and
+checks every one runs, and that compiled with plain subqueries exactly the routed ones recurse;
+`test_lift.py` and `test_migrate.py` (into and out of the helpers) carry the fixture.  A
+`security invoker` mutation was tried and dropped: on this fixture it is equivalent (FINDINGS).
