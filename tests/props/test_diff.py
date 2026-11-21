@@ -144,3 +144,27 @@ def test_a_table_observed_in_either_version_is_not_compared():
     assert any("table 'tags' is observed in the old version" in n and "not compared" in n for n in d.notes)
     d = diff(check_spec(new), check_spec(old))
     assert not d.access_changes and any("observed in the new version" in n for n in d.notes)
+
+
+def test_a_renamed_relation_is_no_change(monkeypatch):
+    """The import names a relation after its table, the loop after its meaning: the same table,
+    key, value and condition are the same pairs whatever they are called, and a composed relation
+    over them follows.  A filtered relation in one version lies within the unfiltered one in the
+    other (D62).  Without the cross-version axioms each rename is reported as a grant and a denial."""
+    from mls.props import diff as diff_mod
+    from mls.spec.syntax import parse
+    from tests.props.test_properties import SUBSET
+
+    old = check_spec(parse(SUBSET))
+    renamed = SUBSET
+    for a, b in (("member_of", "in_org"), ("admin_of", "org_admin"), ("member_project", "org_project"),
+                 ("admin_project", "admin_project_of")):
+        renamed = renamed.replace(a, b)
+    new = check_spec(parse(renamed))
+    assert not any(a.changed for a in diff(old, new).access_changes)
+    # the admins' delete now asks only for the filtered relation: the unfiltered half was implied
+    narrowed = check_spec(parse(renamed.replace(" and org_project(@uid, project_id)", "")))
+    assert not any(a.changed for a in diff(old, narrowed).access_changes)
+    monkeypatch.setattr(diff_mod, "both_axioms", lambda old, new, e_old, e_new: [
+        *diff_mod.relation_axioms(old, e_old), *diff_mod.relation_axioms(new, e_new)])
+    assert any(a.changed for a in diff(old, new).access_changes)

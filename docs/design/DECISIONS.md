@@ -1129,3 +1129,61 @@ the condition is a known gap (lean/CLAUDE.md).  Rejected: a role column on the p
 correlated subquery outside the fragment); one relation per role value (no `in`, and the enum
 case needs the labels); a condition on a hop (the hop is a function of its value; a condition
 would make it partial, which no case needs yet).
+
+## D62 — A filtered relation lies within its unfiltered twin (#37)
+
+When relations A and B are over the same table, key and value, A has a `where` and B has none,
+every obligation assumes `∀x,y: A(x,y) → B(x,y)` (`obligations.subset_axioms`, added with the
+inclusion axioms in `relation_axioms`, so the lint and the diff get it too).  It is true of every
+database: a fact of A comes from a stored row whose condition is TRUE, and that row is a fact of
+B.  Without it the relations were independent uninterpreted functions, so a policy granting
+through `org_admin_of` refuted a bound stated with `organization_members` (an admin who is no
+member), and a rule that asked for both refuted the `must_allow` for every admin.  The aural-oss
+takeover's second run escalated on ten such refutations.  Composed relations over A and B follow
+through the shared hop functions; the fixture (`tests/props/test_properties.py`, `SUBSET`) checks a
+hop too.  The axiom is EPR, like the inclusion axioms (invariant 6).  Not done: two filtered
+relations where one condition implies the other (needs a validity check on the conditions; no
+case yet).  Lean: a known gap, with the relation conditions.
+
+## D63 — At most one least_privilege property (#36)
+
+`least_privilege` compares the whole derived grant set with its allowance, and a role it does not
+list is allowed nothing (REFERENCE §12.5).  Two of them, one per role, refute each other: each
+reports the other role's grants as excess, although together they hold.  The aural-oss takeover's
+properties pass wrote exactly that (one for `anon`, one for `authenticated`) in two of three runs,
+and the rules pass could only escalate.  The checker refuses a second one, at its path, naming the
+first and telling the model to merge them; the loop routes the error to the properties pass.  Both
+prompts say "at most one per spec, listing every role".  Rejected: scoping the template to the
+roles it names (a silent change of meaning for every existing spec, and "every other role gets
+nothing" is the useful default); merging them in the checker (the model's statements are what the
+human approves, so the checker does not rewrite them).
+
+## D64 — Update obligations assume the column privileges
+
+`update_assumptions` (the upper bounds, `column_immutable`, custom update properties, the
+invariant step's app-role side) now conjoins `unwritable_unchanged`: a column the role may not
+write keeps its value.  `net_terms` (the behaviour diff, `must_allow`) already did, so the upper
+and lower bounds disagreed about what an update can do.  Sound: Postgres refuses an UPDATE that
+sets a column the role has no UPDATE privilege on, so every executed update leaves such a column
+as it was (the model only admits fewer updates than before, never more).  Found in the aural-oss
+takeover: "a signed-in user never changes the role on a profile" compiled to a column rule, and
+`column_immutable profiles: role` was refuted by an update that sets the role, a statement
+Postgres would refuse.  Test `test_an_unwritable_column_is_immutable`.  Lean: the column layer is
+outside `Policy.lean` (its module note), unchanged.
+
+## D65 — The diff ties relations across versions by definition, not by name
+
+`diff.both_axioms`: for base relations A (v1) and B (v2) over the same table, key and value,
+`∀x,y: A(x,y) ⇔ B(x,y)` when their conditions are equal (structurally, after `in` expansion) and
+the names differ, and the D62 implication when exactly one has a condition.  Used by the access,
+integrity and behaviour diffs.  Both are projections of the one database the diff ranges over, so
+the axioms are true of it.  Before, only a relation with the same name and definition was a shared
+symbol: the aural-oss takeover's import names relations after their tables (`interviews`,
+`organization_members_by_role`) and the loop after their meaning (`owns_interview`,
+`org_admin_of`), and the diff reported a grant and a denial for every policy over a renamed
+relation (614 lines; 478 after).  Composed relations follow through their base and the shared hop
+functions.  Not done: conditions that are equivalent but not equal (`interviews(isActive, id)
+where not publicSlug is null` read with key `true` versus the same with `isActive = true` in the
+condition; needs a validity check, and stays a reported change).  Test
+`test_a_renamed_relation_is_no_change`.
+

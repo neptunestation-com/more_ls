@@ -1013,6 +1013,14 @@ class Checker:
                                                  f"about one table's facts",
                              f"state it for the base relation '{self.spec.relations[p.relation].of}'")
             elif isinstance(p, LeastPrivilege):
+                # D63: the allowance is the whole grant set, every role at once; a second one could
+                # only be refuted by the first one's roles
+                first = next(j for j, q in enumerate(self.spec.properties) if isinstance(q, LeastPrivilege))
+                if first != i:
+                    self.err(path, f"a second least_privilege property: '{self.spec.properties[first].id}' "
+                                   f"already declares the allowance, and a role it does not list is allowed "
+                                   f"nothing, so each would be refuted by the other's roles",
+                             f"merge the two allowances into '{self.spec.properties[first].id}' and remove '{p.id}'")
                 for role, tabs in p.allowed.items():
                     if role not in self.spec.roles:
                         self.err(f"{path}.allowed.{role}", f"unknown role '{role}'")

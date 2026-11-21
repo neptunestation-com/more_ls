@@ -23,7 +23,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from mls.compile.column import privileges
-from mls.logic.term import FALSE, Term, and_
+from mls.logic.term import FALSE, Term, and_, forall, iff, implies, int_var
 from mls.logic.tvl import Encoder
 from mls.props.effective import effective, row_constraints, transition_constraints
 from mls.props.obligations import (
@@ -197,11 +197,35 @@ def _rels(old: Spec, new: Spec, *preds: Pred | None) -> list[tuple[str, str | No
     return out
 
 
+def both_axioms(old: Spec, new: Spec, e_old: Encoder, e_new: Encoder) -> list[Term]:
+    """Each version's relation axioms, and what ties a relation of one version to a relation of the
+    other: both are projections of the same database, so two base relations over the same table,
+    key and value with the same condition are the same set of pairs whatever they are called, and
+    one with a condition lies within one without (D62).  Composed relations follow through their
+    base relation and the shared hop functions.  Without this a renamed relation (an import names
+    it after its table, the loop after its meaning) is reported as a change of access."""
+    out = [*relation_axioms(old, e_old), *relation_axioms(new, e_new)]
+    x, y = int_var("ax.k"), int_var("ax.v")
+    for aname, a in old.base_relations().items():
+        for bname, b in new.base_relations().items():
+            if (a.table, a.key, a.value) != (b.table, b.key, b.value):
+                continue
+            fa, fb = e_old.rel(aname)(x, y), e_new.rel(bname)(x, y)
+            if a.where == b.where:
+                if aname != bname or aname in e_new.rel_tags:
+                    out.append(forall([x, y], iff(fa, fb)))
+            elif b.where is None:
+                out.append(forall([x, y], implies(fa, fb)))
+            elif a.where is None:
+                out.append(forall([x, y], implies(fb, fa)))
+    return out
+
+
 def _common_rows(old: Spec, new: Spec, table: str, rows: dict[str, str], e_old: Encoder,
                  e_new: Encoder) -> list[Term]:
     """Stored-row constraints of both versions on every row image (rows legitimate in both worlds;
     a constraint change itself is reported by the integrity diff, not as an access change)."""
-    out: list[Term] = [*relation_axioms(old, e_old), *relation_axioms(new, e_new)]
+    out: list[Term] = both_axioms(old, new, e_old, e_new)
     for row in rows:
         out += [e_old.T(row_constraints(old, table), row, table),
                 e_new.T(row_constraints(new, table), row, table)]
@@ -264,7 +288,7 @@ def integrity_diff(old: Spec, new: Spec, timeout_ms: int = 20000) -> list[Integr
             if _same(old, new, c_old, c_new):
                 continue
             e_old, e_new = encoders(old, new)
-            axioms = [*relation_axioms(old, e_old), *relation_axioms(new, e_new)]
+            axioms = both_axioms(old, new, e_old, e_new)
             if kind == "changes":  # the existing row is a legitimate stored row
                 axioms += [e_old.T(row_constraints(old, table), "old", table),
                            e_new.T(row_constraints(new, table), "old", table)]
@@ -293,7 +317,7 @@ def _net_pair(old: Spec, new: Spec, view: Spec, table: str, role: str, cmd: str,
     if in_old and in_new and all(_same(old, new, a, b) for a, b in zip(ps_old, ps_new)):
         return [AccessChange(table, role, cmd, "net", d, None, "PROVED") for d in ("granted", "denied")]
     rows = _rows_for(cmd, table)
-    common: list[Term] = [*relation_axioms(old, e_old), *relation_axioms(new, e_new)]
+    common: list[Term] = both_axioms(old, new, e_old, e_new)
     for row in rows:
         if row == "new":
             continue  # the written image is what is compared; existing rows are legitimate in both worlds

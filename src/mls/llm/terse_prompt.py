@@ -73,7 +73,7 @@ the key and value columns of R's table (the membership lookup runs as the user),
 - P2 column_immutable t: col                                  no admitted update changes the column
 - P3 monotone_in: R                                           removing a pair from R never grants access
 - P4 write_subset_read t                                      whatever a role can insert or update it can also read
-- P5 least_privilege: role t[select, insert]; role t2[select]  no role has more privileges than listed
+- P5 least_privilege: role t[select, insert]; role t2[select]  no role has more privileges than listed; at most one per spec, listing every role (a role it does not list is allowed nothing)
   (include select on the tables of the relations the role's policies will need; see the implicit
   privilege above)
 - P6 invariant_preserved: R2; t: p                            every admitted change keeps the

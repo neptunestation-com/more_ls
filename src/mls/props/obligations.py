@@ -141,6 +141,21 @@ def relation_axioms(spec: Spec, enc: Encoder) -> list[Term]:
         for aname, a in spec.base_relations().items():
             if a.table == inc.table and list(inc.columns) == [a.key, a.value]:
                 out.append(forall([x, y], implies(enc.rel(aname)(x, y), enc.rel(inc.relation)(x, y))))
+    return out + subset_axioms(spec, enc)
+
+
+def subset_axioms(spec: Spec, enc: Encoder) -> list[Term]:
+    """A filtered relation lies within its unfiltered twin (#37): when A has a condition and B has
+    none, both over the same table, key and value, every fact of A comes from a row that is also
+    a fact of B, so ∀x,y: A(x,y) → B(x,y).  Composed relations over them follow through the shared
+    hop functions."""
+    out = []
+    x, y = int_var("ax.k"), int_var("ax.v")
+    base = spec.base_relations()
+    for aname, a in base.items():
+        for bname, b in base.items():
+            if a.where is not None and b.where is None and (a.table, a.key, a.value) == (b.table, b.key, b.value):
+                out.append(forall([x, y], implies(enc.rel(aname)(x, y), enc.rel(bname)(x, y))))
     return out
 
 
@@ -159,7 +174,8 @@ def update_assumptions(enc: Encoder, spec: Spec, table: str, role: str) -> list[
             _T(enc, effective(spec, table, role, "update", "using"), "old", table),
             _T(enc, effective(spec, table, role, "update", "check"), "new", table),
             _T(enc, row_constraints(spec, table), "new", table),
-            _T(enc, transition_constraints(spec, table), "new", table)]
+            _T(enc, transition_constraints(spec, table), "new", table),
+            _T(enc, unwritable_unchanged(spec, table, role), "new", table)]
 
 
 def delete_assumptions(enc: Encoder, spec: Spec, table: str, role: str, row: str = "old") -> list[Term]:

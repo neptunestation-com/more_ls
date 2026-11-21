@@ -33,7 +33,8 @@ A relation is the `(key, value)` projection of one table whose pair is unique th
 one of its columns, is a primary key or unique constraint of the table (the owner of a parent row,
 `projects(owner_id, id)`, is the second case).  Its facts are the pairs of the stored rows; a
 relation with a condition (`where p`, over the table's own columns and constants) has the pairs
-of the stored rows for which `p` is TRUE.
+of the stored rows for which `p` is TRUE, so they are among the facts of a relation without a
+condition over the same table, key and value, and the proofs assume so.
 
 Restrictions checked by the fragment checker: right-hand sides of comparisons are context or
 constants; membership keys are context or constants, not columns (no per-row correlated
@@ -175,6 +176,8 @@ An adapter maps context names to SQL expressions and declares its trust assumpti
 All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered as a scenario.
 
 - **Template properties**, e.g. isolation: `effective_select(r) → member(memberships, uid, r.tenant)`.
+  An update's assumptions include the column privileges: every column the role may not write
+  keeps its value (Postgres refuses the statement otherwise), as in `must_allow` below.
 - **must_allow (the lower bound):** `constraints(every image) ∧ when → admitted`, where
   `admitted` is the command's access layers — the effective policies and, for an update, the
   transition rules and the column privileges.  The written image is assumed *valid* (it satisfies
@@ -189,7 +192,9 @@ All are "assumptions ∧ ¬goal is UNSAT"; SAT yields a counterexample rendered 
   `I(state) ∧ guards(τ) → I(τ(state))`. Referenced-table deletes are modeled with two copies of
   the relation (`small(x,y) ⇔ big(x,y) ∧ ¬(x=u ∧ y=t)`) plus the FK RESTRICT guard.
 - **Access diff (v1 → v2):** for each table × command × role, check SAT of `v2 ∧ ¬v1` (new grants)
-  and `v1 ∧ ¬v2` (new denials) over shared relation symbols; each model is a scenario.
+  and `v1 ∧ ¬v2` (new denials) over shared relation symbols; each model is a scenario.  Two base
+  relations of the two versions over the same table, key and value are the same pairs when their
+  conditions are equal, whatever their names, and one with a condition lies within one without.
 - **Cardinality:** counts are integer functions `cnt(g)`; insert into g: `cnt'(g) = cnt(g)+1`, guarded
   by `cnt(g)+1 <= N`; prove `cnt(g) <= N` is preserved.
 - **Hierarchy:** `in_group(h, k, v)` is encoded as `∨_{i=0..d} chain_i(v) ∧ member(members, k, parentⁱ(v))`

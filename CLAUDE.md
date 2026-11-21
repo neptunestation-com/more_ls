@@ -139,6 +139,11 @@ union member the renderer does not cover.
   its visibility policy is its own (`key = k and cond`) and the grant adds its columns
   (`chain.read_columns`); refused as an inclusion target, hierarchy members and in invariants.
   The lifter reads the extra WHERE conditions (`Lifter.condition`); fixture `specs.condition_spec`.
+- D62: a filtered relation implies its unfiltered twin on the same table, key and value
+  (`obligations.subset_axioms`, inside `relation_axioms`); test `SUBSET` in `tests/props/test_properties.py`.
+- D63: at most one `least_privilege` property (`spec/check.py`; the loop repairs it in the properties pass).
+- D64: update obligations assume the column privileges (`update_assumptions` conjoins `unwritable_unchanged`, as `net_terms` does).
+- D65: the diff ties base relations of the two versions by definition (`diff.both_axioms`), not by name.
 - D42: row-dependent column visibility is normalization
   (the column is its own table with its own policies); there is no masking construct.
 - M4 (the LLM loop and evals): `src/mls/llm/CLAUDE.md`. Tests never call the API (`MLS_LLM_SCRIPT=<json>`

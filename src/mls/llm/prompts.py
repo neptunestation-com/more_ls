@@ -79,7 +79,7 @@ the key and value columns of R's table (the membership lookup runs as the user),
 - column_immutable: {"table", "column"}  no admitted update changes the column
 - monotone_in: {"relation"}  removing a pair from the relation never grants access
 - write_subset_read: {"table"}  whatever a role can insert or update it can also read
-- least_privilege: {"allowed": {role: {table: [commands]}}}  no role has more privileges than listed
+- least_privilege: {"allowed": {role: {table: [commands]}}}  no role has more privileges than listed; at most one per spec, listing every role (a role it does not list is allowed nothing)
   (include "select" on the tables of the relations the role's policies will need; see the implicit
   privilege above)
 - invariant_preserved: {"invariants": [{"rule": id} | {"table", "predicate"}]}  every admitted change

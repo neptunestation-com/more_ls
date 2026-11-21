@@ -22,7 +22,8 @@ behaviour diff and `must_allow` share (`net_terms`, D38/D40):
 * `update_ok_iff_net` (and the others): for a statement that reads no columns, the model
   executes it iff the net-effect predicate admits it.
 
-Column privileges (`unwritable_unchanged`, the last conjunct of `net_terms`), grants, uniqueness,
+Column privileges (`unwritable_unchanged`, the last conjunct of `net_terms` and of
+`update_assumptions`), grants, uniqueness,
 FK existence and cardinality are outside this layer and not modelled here.
 -/
 namespace MLS

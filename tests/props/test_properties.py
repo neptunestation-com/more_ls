@@ -339,3 +339,92 @@ def test_an_enum_column_holds_only_its_labels():
     r = run_property(spec, next(p for p in spec.properties if p.id == "P11"))
     assert r.verdict == "REFUTED"
     assert {o.scenario.rows["r"]["values"]["status"] for o in r.obligations if o.verdict == "REFUTED"} == {"'Extra'"}
+
+
+SUBSET = """mls 0.1
+identity supabase { uid: auth.uid uuid }
+roles authenticated
+
+table members adopted {
+  id uuid not null,
+  org_id uuid not null,
+  user_id uuid not null,
+  role text;
+  primary_key (id);
+  unique (org_id, user_id)
+}
+
+table projects adopted {
+  id uuid not null,
+  org_id uuid not null;
+  primary_key (id)
+}
+
+table tasks adopted {
+  id uuid not null,
+  project_id uuid not null;
+  primary_key (id)
+}
+
+relation member_of = members(user_id, org_id)
+relation admin_of = members(user_id, org_id) where role = 'admin'
+relation member_project = member_of . projects(org_id, id)
+relation admin_project = admin_of . projects(org_id, id)
+
+rules {
+  R1 policy members_read on projects: authenticated select permissive using member_of(@uid, org_id)
+  R2 policy admins_edit on projects: authenticated update permissive using admin_of(@uid, org_id) and member_of(@uid, org_id) check admin_of(@uid, org_id)
+  R3 policy admins_delete_tasks on tasks: authenticated delete permissive using admin_project(@uid, project_id) and member_project(@uid, project_id)
+}
+
+properties {
+  P1 must_allow projects authenticated update: old.org_id = new.org_id and admin_of(@uid, old.org_id)
+  P2 must_allow tasks authenticated delete: admin_project(@uid, project_id)
+  P3 custom projects authenticated update old: member_of(@uid, org_id)
+}
+"""
+
+
+def test_a_filtered_relation_is_within_its_unfiltered_twin(monkeypatch):
+    """#37: every fact of `admin_of` comes from a row that is also a fact of `member_of` (same
+    table, key and value), so a policy that asks for both admits every admin (P1), through a hop
+    too (P2).  Without the axiom the solver finds an admin who is not a member, a state no
+    database can be in."""
+    from mls.props import obligations
+    from mls.spec.syntax import parse
+
+    spec = check_spec(parse(SUBSET))
+    assert verdicts(spec) == {"P1": "PROVED", "P2": "PROVED", "P3": "PROVED"}
+    monkeypatch.setattr(obligations, "subset_axioms", lambda spec, enc: [])
+    assert verdicts(spec) == {"P1": "REFUTED", "P2": "REFUTED", "P3": "PROVED"}
+
+
+def test_an_unwritable_column_is_immutable():
+    """An update by a role leaves every column it may not write unchanged: Postgres refuses the
+    statement otherwise.  The upper bounds assume it as the lower bounds and the diff do, so a
+    column rule alone proves `column_immutable` (aural-oss: a user never changes their role)."""
+    from mls.spec.syntax import parse
+
+    text = """mls 0.1
+identity supabase { uid: auth.uid uuid }
+roles authenticated
+
+table profiles adopted {
+  id uuid not null,
+  name text,
+  role text;
+  primary_key (id)
+}
+
+rules {
+  R1 policy own_profile on profiles: authenticated update permissive using id = @uid check id = @uid
+  R2 column_rule no_role_write on profiles: authenticated write id, name
+}
+
+properties {
+  P1 column_immutable profiles: role
+  P2 column_immutable profiles: name
+}
+"""
+    spec = check_spec(parse(text))
+    assert verdicts(spec) == {"P1": "PROVED", "P2": "REFUTED"}

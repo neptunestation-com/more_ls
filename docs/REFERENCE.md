@@ -578,7 +578,8 @@ update) has `(key, column)` in the relation.  One obligation per command and rol
     {"id": "P2", "template": "column_immutable", "table": "docs", "column": "tenant_id"}
 
 No admitted update changes the column: for every role with an update policy,
-`new.column = old.column` (NULL-aware: NULL stays NULL).
+`new.column = old.column` (NULL-aware: NULL stays NULL).  A role that may not write the column
+(a column rule that leaves it out) cannot change it.
 
 ### 12.3 `monotone_in`
 
@@ -602,7 +603,8 @@ row it can select.
 
 The privileges the compiler derives (from policies, column rules and the implicit relation
 grants of §6) are within the declared allowance.  Not a solver obligation: a comparison of
-grant sets.  A role or table absent from `allowed` is allowed nothing.
+grant sets.  A role or table absent from `allowed` is allowed nothing, so a spec has at most
+one `least_privilege` property, listing every role; the checker refuses a second one.
 
 ### 12.6 `invariant_preserved`
 

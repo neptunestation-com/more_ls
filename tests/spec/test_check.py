@@ -148,6 +148,19 @@ def test_duplicate_ids_and_unknown_relation():
     assert has(errs, "$.rules[6].relation", "unknown relation 'nope'")
 
 
+def test_a_second_least_privilege_property_is_refused():
+    """D63: a role the allowance does not list is allowed nothing, so a second property, one per
+    role, could only be refuted by the first one's roles."""
+    d = base()
+    lp = next(p for p in d["properties"] if p["template"] == "least_privilege")
+    d["properties"].append({**copy.deepcopy(lp), "id": "P99"})
+    errs = errors(d)
+    i = len(d["properties"]) - 1
+    assert has(errs, f"$.properties[{i}]", "a second least_privilege property")
+    assert any(f"into '{lp['id']}' and remove 'P99'" in e.fix for e in errs)
+    assert [e.path for e in errs] == [f"$.properties[{i}]"]
+
+
 def test_timestamp_constant_rejected_and_now_between_typed():
     d = base()
     d["tables"]["docs"]["columns"]["valid_until"] = {"type": "timestamp", "nullable": True}
